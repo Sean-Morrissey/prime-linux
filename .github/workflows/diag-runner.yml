@@ -1,0 +1,42 @@
+---
+# Throwaway diagnostic: does a *privileged* podman container on this runner actually
+# have CAP_SYS_ADMIN? osbuild inside bootc-image-builder needs it to bind-mount the
+# container storage, and the disk build keeps dying there with
+#   mount: /run/osbuild/containers/storage: permission denied
+# plus `fchownat() ... Operation not permitted`, i.e. symptoms of a container that
+# is not really privileged. Answer the question directly instead of guessing.
+name: diag runner capabilities
+
+on:
+  workflow_dispatch:
+
+jobs:
+  caps:
+    runs-on: ubuntu-26.04
+    steps:
+      - name: What is podman, and where does it keep things
+        run: |
+          which -a podman
+          podman --version
+          sudo podman info --format '{{.Store.GraphDriverName}} {{.Store.GraphRoot}} {{.Store.RunRoot}}'
+          sudo ls -ld /var/lib/containers/storage || echo "(no storage dir yet)"
+          cat /etc/containers/storage.conf 2>/dev/null || echo "(no /etc/containers/storage.conf)"
+
+      - name: Can a privileged container mount? (before any login)
+        run: |
+          sudo podman run --rm --privileged \
+            --security-opt label=type:unconfined_t \
+            quay.io/centos-bootc/bootc-image-builder:latest \
+            sh -c 'id; capsh --print | head -4; mkdir -p /tmp/t; mount -t tmpfs tmpfs /tmp/t && echo MOUNT_OK || echo MOUNT_FAILED' \
+          || echo "CONTAINER RUN FAILED"
+
+      - name: Does logging in as root change it?
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | sudo podman login ghcr.io -u "${{ github.actor }}" --password-stdin
+          echo "--- after login ---"
+          sudo podman info --format '{{.Store.GraphDriverName}} {{.Store.GraphRoot}}'
+          sudo podman run --rm --privileged \
+            --security-opt label=type:unconfined_t \
+            quay.io/centos-bootc/bootc-image-builder:latest \
+            sh -c 'mkdir -p /tmp/t; mount -t tmpfs tmpfs /tmp/t && echo MOUNT_OK || echo MOUNT_FAILED' \
+          || echo "CONTAINER RUN FAILED"

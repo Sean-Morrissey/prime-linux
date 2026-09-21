@@ -80,6 +80,28 @@ VM testing on the current dev machine (CachyOS) needs `qemu-desktop`, which is n
 installed yet. `podman` + the bluebuild CLI are only needed for a *local*
 `bluebuild generate-iso`; the CI path above avoids both.
 
+## The unattended update cycle (built, tested)
+
+`backends/arch/prime-autoupdate` + `docs/UPDATES.md`. Every 3 days (and 15 min after
+any boot where the timer came due while the machine was off): check → stage the new
+image → verify → restart **only** when the machine has been idle 10 min (30 at
+night) and nothing long-running is going (builds, encodes, containers, slicers,
+printers — `/etc/prime/busy.conf`) and it is plugged in. One notification with
+"Later" = 12h of silence. The first boot into the new version is verified (failed
+units, screen, session, network, audio) and Prime rolls itself back if it is broken,
+then stops retrying after 2 bad boots so it cannot loop.
+
+- Policy is proven in the sandbox: `backends/arch/test-autoupdate.sh`, **29 checks
+  across 9 scenarios** (asleep, in use, long job running, "later", suggest-only,
+  broken boot, loop guard, audit trail). CI runs it on every push.
+- The `bootc` adapter for the shipped image is written but **not yet proven** — it
+  needs an image booted in a VM. It refuses to run at all on a non-bootc machine, and
+  every mutating verb also needs `PRIME_ALLOW_REAL_SYSTEM_CHANGES=yes`, which only
+  the installed systemd units set (so Sean's CachyOS is untouched by construction).
+- Shipped as `prime-update.timer` / `.service` / `prime-boot-verify.service`, enabled
+  by the recipe. `backends/arch/*` is the source of truth and is copied into the file
+  layer by `tools/sync-supervisor.sh`; CI fails if the copies drift.
+
 ## Open questions
 
 - Six beat writers first, or the desktop route plugin? (Writers unblock everything

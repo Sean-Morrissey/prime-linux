@@ -1,0 +1,37 @@
+---
+# Throwaway diagnostic, round 5. osbuild's failing call is not a plain bind mount —
+# osbuild/util/mnt.py runs:
+#     mount --make-private -o rbind,rw,0755 <storage> <target>
+# while osbuild/util/containers.py uses MountGuard.mount(permissions=READ_WRITE).
+# Split that single invocation into its pieces here to see which part the kernel
+# refuses, since a plain `mount --bind` of the same paths works fine.
+name: diag exact osbuild mount
+
+on:
+  workflow_dispatch:
+
+jobs:
+  pieces:
+    runs-on: ubuntu-26.04
+    steps:
+      - name: the whole invocation, then each piece
+        run: |
+          sudo podman run --rm --privileged --security-opt label=type:unconfined_t \
+            --volume /var/lib/containers/storage:/var/lib/containers/storage \
+            --entrypoint /bin/sh quay.io/centos-bootc/bootc-image-builder:latest -c '
+              SRC=/var/lib/containers/storage
+              DST=/run/osbuild/containers/storage
+              mkdir -p "$DST"
+              echo "=== exactly what osbuild runs ==="
+              mount --make-private -o rbind,rw,0755 "$SRC" "$DST" && echo WHOLE_OK || echo "WHOLE_FAILED rc=$?"
+              grep -q "$DST " /proc/self/mountinfo && umount -l "$DST"
+              echo "=== rbind alone ==="
+              mount --rbind "$SRC" "$DST" && echo RBIND_OK || echo "RBIND_FAILED rc=$?"
+              umount -l "$DST" 2>/dev/null
+              echo "=== make-private alone (is the target even a mountpoint?) ==="
+              mount --make-private "$DST" && echo PRIVATE_OK || echo "PRIVATE_FAILED rc=$?"
+              echo "=== rbind + ro (what a read-only caller would do) ==="
+              mount --rbind -o ro "$SRC" "$DST" && echo RBIND_RO_OK || echo "RBIND_RO_FAILED rc=$?"
+              echo "=== is there an overlay mount inside the storage tree ==="
+              grep -c overlay /proc/self/mountinfo
+            '

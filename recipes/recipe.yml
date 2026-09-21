@@ -5,27 +5,35 @@
 name: prime-linux
 description: Prime Linux — a student-first atomic desktop that ships with a resident AI agent.
 
-# Base: Bazzite (Universal Blue) — Fedora Atomic with KDE Plasma as the default
-# desktop, plus drivers, codecs, flatpak setup, ujust helpers and a working gaming
-# stack (Steam/Proton/Gamescope) out of the box.
+# Base: Aurora (Universal Blue) — Fedora Atomic with KDE Plasma, positioned as a
+# maintenance-free productivity workstation. Ships drivers, codecs, flatpak+brew
+# setup, ujust helpers, automatic silent update staging, and — relevant to us —
+# restic, rclone and DejaDup, which is most of the backup story we owe a student.
 #
-# Why Bazzite for a student machine: a Linux laptop that can't run the games they
-# already own gets dual-booted back to Windows within a month. Bazzite removes that
-# excuse, broadens hardware support (handhelds, GPUs, laptops) and inherits the
-# most actively tested Universal Blue surface. The cost is honest: a larger image
-# and a pile of preinstalled gaming tooling we do not need for coursework.
+# Why Aurora over Bazzite: it is 3.46 GiB against Bazzite's 4.69 GiB, its identity
+# is quiet (less upstream branding and first-run tooling to sand off before ours
+# shows through), and it is aimed at exactly what this distro is for. Bazzite's
+# gaming stack — Steam, Proton, Lutris, HDR/VRR, tweaked schedulers — is the one
+# thing it does better, and it is the right swap if the target machine is also the
+# machine someone games on. Rebasing between Universal Blue images later is a
+# single `bootc switch`, so this is not a one-way door.
 #
 #   Alternatives:
-#     ghcr.io/ublue-os/bazzite-nvidia         -> Bazzite + NVIDIA driver stack
-#     ghcr.io/ublue-os/bazzite-dx             -> Bazzite + developer tooling
-#     ghcr.io/ublue-os/aurora                 -> leaner KDE, no gaming stack
+#     ghcr.io/ublue-os/bazzite                -> same base + gaming stack
+#     ghcr.io/ublue-os/aurora-dx              -> Aurora + developer tooling
 #     ghcr.io/ublue-os/bluefin                -> GNOME instead of KDE
 #     ghcr.io/blue-build/base-images/fedora-kinoite -> bare KDE, no extras
+#
+# NVIDIA hardware caveat (verified against the registries): Bazzite and Bluefin
+# publish dedicated NVIDIA images (bazzite-nvidia, bluefin-nvidia); ublue-os/aurora
+# publishes none. Aurora carries the shared ublue akmods for NVIDIA, but "install
+# the driver after the fact" is not a promise to make to someone who has never used
+# Linux. If the target machine is NVIDIA, ship bazzite-nvidia or bluefin-nvidia.
 #
 # Tags: `latest` tracks the newest stable build (currently Fedora 44); `stable` is
 # the conservative alias. Pin a version tag instead of `latest` once this ships to
 # someone else, so their machine only moves when we decide it moves.
-base-image: ghcr.io/ublue-os/bazzite
+base-image: ghcr.io/ublue-os/aurora
 image-version: latest
 
 modules:
@@ -92,8 +100,9 @@ modules:
           - com.github.tchx84.Flatseal
 
   # --- 5. First-boot wizard (per-user setup, never ships any secrets) ---------
-  # TODO: Bazzite ships its own first-run welcome/portal tooling — disable it here
-  # so two setup experiences don't race on first login.
+  # NOTE: if the base ships its own first-run/welcome tooling, disable it here so
+  # two setup experiences don't race on first login. See Aurora's "mutations that
+  # don't work" guidance before overriding anything upstream owns.
   - type: systemd
     system:
       enabled:

@@ -388,6 +388,11 @@ in plain language when a backup hasn't happened in a while. It should never be a
 hard sell, and never a paid cloud: a silent local copy plus one honest reminder
 beats a subscription.
 
+Cheaper than expected: the Aurora base already ships **restic**, **rclone** and
+**DejaDup**, so this is a configuration and wording task, not a packaging one. Prime
+should drive `restic` (snapshot + prune policy) with `rclone` as the optional
+off-machine target, and leave DejaDup alone for users who prefer a GUI.
+
 ---
 
 ## What happens when someone says "actually, change that"

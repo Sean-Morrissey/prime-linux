@@ -12,7 +12,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SRC="$ROOT/backends/arch"
 DST="$ROOT/files/system/usr/libexec/prime"
 
-FILES=(prime prime-autoupdate backend-bootc.sh backend-sandbox.sh backend-btrfs.sh)
+FILES=(prime prime-autoupdate prime-setup backend-bootc.sh backend-sandbox.sh backend-btrfs.sh)
 
 mkdir -p "$DST"
 for f in "${FILES[@]}"; do

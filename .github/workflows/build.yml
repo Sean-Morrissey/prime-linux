@@ -34,6 +34,9 @@ jobs:
       - name: Unattended update cycle (the 4am decisions)
         run: bash backends/arch/test-autoupdate.sh
 
+      - name: First-run interview
+        run: bash backends/arch/test-setup.sh
+
       - name: Shipped supervisor copies match their source
         run: |
           bash tools/sync-supervisor.sh

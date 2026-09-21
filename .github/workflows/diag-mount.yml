@@ -1,17 +1,19 @@
 ---
-# Throwaway diagnostic, round 7. The failing call is, from osbuild's own source:
-#   osbuild/util/containers.py containers_storage_source()
-#     mg.mount(image_filepath, "/run/osbuild/containers/storage", READ_WRITE)
-# osbuild's MountGuard emits `mount --make-private -o rbind,rw,0755 <src> <dst>`, and
-# the source is the host storage that osbuild had already bind-mounted READ-ONLY as an
-# input. Cloning a read-only mount writable is the documented way to get EACCES from
-# mount(2). Round 6 proved the call works when the source is /var/lib/containers/storage
-# directly, so the source must matter.
+# The fix candidate, tested end to end before it goes anywhere near build-disk.yml.
 #
-# Reproduce against a PUBLIC image, no auth anywhere, via BIB directly rather than the
-# action, so nothing here can be blamed on our private registry. --rootfs ext4 is added
-# because fedora-bootc does not declare a default rootfs (round 4's A/B error).
-name: diag real build public
+# What round 7 proved: with a PUBLIC image and no host storage volume, bootc-image-builder
+# builds fine on both runner images. What round 5/6 proved: the failing call
+#   mount --make-private -o rbind,rw,0755 <storage> /run/osbuild/containers/storage
+# works when the storage is the container's own. So the broken ingredient is the
+# action's `-v /var/lib/containers/storage:/var/lib/containers/storage`, combined with
+# osbuild's own read-only bind of that volume as an input — osbuild then tries to clone
+# a locked read-only mount writable, which is how mount(2) returns EACCES.
+#
+# So: drop the volume, let the builder pull the image inside the container (it has
+# network), and hand it credentials as a FILE rather than a storage mount. Then the
+# private image works the same way the public one just did. Both disk types, because
+# the ISO leg failed at a *different* mount (/run/osbuild/tree/dev).
+name: diag builder pulls its own image
 
 on:
   workflow_dispatch:
@@ -21,29 +23,35 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        runner: [ubuntu-24.04, ubuntu-26.04]
-    runs-on: ${{ matrix.runner }}
+        disk-type: ["qcow2", "anaconda-iso"]
+    runs-on: ubuntu-26.04
     steps:
-      - name: kernel, podman, kvm
-        run: |
-          uname -r; podman --version
-          ls -l /dev/kvm 2>/dev/null || echo "(no /dev/kvm)"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - name: pull the source image
-        run: sudo podman pull -q quay.io/fedora/fedora-bootc:latest
-
-      - name: build it, verbose, direct
+      - name: Credentials as a file the builder can read
         run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | sudo podman login ghcr.io \
+            -u "${{ github.actor }}" --password-stdin \
+            --authfile /root/ghcr-auth.json
+          sudo ls -l /root/ghcr-auth.json
+
+      - name: Set up output
+        run: |
+          echo "TYPE=${{ matrix.disk-type }}" >> "$GITHUB_ENV"
           mkdir -p out
-          printf '[[customizations.user]]\nname = "prime"\npassword = "prime"\ngroups = ["wheel"]\n' > /tmp/config.toml
+
+      - name: Build (no host storage volume)
+        run: |
           set +e
+          if [ "$TYPE" = "anaconda-iso" ]; then CFG=disk_config/iso.toml; else CFG=disk_config/disk.toml; fi
+          echo "using config: $CFG"
           sudo podman run --rm --privileged --security-opt label=type:unconfined_t \
-            --volume /var/lib/containers/storage:/var/lib/containers/storage \
+            --volume /root/ghcr-auth.json:/root/.config/containers/auth.json:ro \
             --volume "$PWD/out:/output" \
-            --volume /tmp/config.toml:/config.toml:ro \
+            --volume "$PWD/$CFG:/config.toml:ro" \
             quay.io/centos-bootc/bootc-image-builder:latest \
-            build --output /output --chown 1001:1001 --type qcow2 --rootfs ext4 \
-            --progress verbose --use-librepo=True \
-            quay.io/fedora/fedora-bootc:latest 2>&1 | tail -60
+            build --output /output --chown "$(id -u):$(id -g)" \
+            --type "$TYPE" --use-librepo=True --progress verbose \
+            ghcr.io/sean-morrissey/prime-linux:latest 2>&1 | tail -50
           echo "=== BIB EXIT: ${PIPESTATUS[0]} ==="
-          ls -la out/ 2>/dev/null
+          find out -type f -printf '%p  %s bytes\n' 2>/dev/null

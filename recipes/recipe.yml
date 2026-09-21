@@ -66,7 +66,7 @@ modules:
   - type: script
     snippets:
       - "curl -LsSf https://astral.sh/uv/install.sh | UV_UNMANAGED_INSTALL=/usr/local sh"
-      - "chmod +x /usr/libexec/prime/firstboot.sh"
+      - "chmod +x /usr/libexec/prime/firstboot.sh /usr/libexec/prime/hw-probe.sh"
 
   # --- 4. Store apps the agent + student workflow lean on ---------------------
   - type: default-flatpaks

@@ -1,0 +1,81 @@
+# Prime Linux — capability ladder
+#
+# Generated from the autonomy slider in Beat 4 of the interview, then editable
+# by hand. Prime consults this before every action it takes on the user's behalf.
+#
+# Levels, weakest to strongest:
+#   observe      — may look, may report, may not change anything
+#   suggest      — may propose an action and wait for a yes
+#   approve-each — may act, but asks every single time
+#   auto         — may act without asking, and says what it did afterwards
+#
+# Rules that override the slider:
+#   * destructive.* is pinned at approve-each at EVERY autonomy level
+#   * secrets.* is pinned at approve-each — reading or writing credentials always asks
+#   * nothing may raise its own level; only the user can (via the settings surface,
+#     which writes this file)
+#
+# autonomy: suggest  (default)  -> every capability at or below suggest
+# autonomy: auto-user           -> user-space at auto, system at approve-each
+# autonomy: auto-all            -> everything at auto except the pinned groups
+
+version: 1
+autonomy: suggest
+
+capabilities:
+  # --- reading
+  system.read:
+    level: observe
+    note: hardware, update status, service health, logs, disk usage
+  files.read:
+    level: observe
+    note: user's own home directory; prompts before leaving it
+  screen.read:
+    level: observe
+    note: screenshot and read the screen on request
+
+  # --- user-space writes
+  files.write:
+    level: suggest
+    note: create and edit files in the user's home directory
+  apps.install:
+    level: suggest
+    note: flatpaks and distrobox containers — reversible, no reboot
+  settings.user:
+    level: suggest
+    note: user-space config (theme, dotfiles, app preferences)
+  network.outbound:
+    level: suggest
+    note: web fetches and searches on the user's behalf
+
+  # --- system-level, always needs a reboot to take effect
+  system.packages:
+    level: approve-each
+    note: changes the image recipe and requires a rebuild + reboot
+  system.update:
+    level: approve-each
+    note: atomic image upgrade; previous deployment stays bootable
+  system.rollback:
+    level: approve-each
+    note: boot into the previous deployment — the undo path
+
+  # --- pinned: these never rise, at any autonomy level
+  destructive.*:
+    level: approve-each
+    pinned: true
+    note: deletes, wipes, partition changes, force-pushes, anything irreversible
+  secrets.*:
+    level: approve-each
+    pinned: true
+    note: API keys, passwords, tokens, SSH keys
+
+audit:
+  # every action Prime takes is appended here and readable in plain language
+  log: ~/.config/prime/audit.jsonl
+  retain_days: 90
+
+spend:
+  # hard ceiling on model calls, surfaced in the UI
+  monthly_usd: 5.00
+  warn_at_percent: 80
+  on_exceed: pause        # pause | degrade-to-scripts

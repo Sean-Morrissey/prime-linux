@@ -75,8 +75,12 @@ Why atomic is the whole point for a beginner:
 ```
 recipes/recipe.yml          # the whole OS definition: base, packages, apps, units
 .github/workflows/build.yml # CI: builds the image daily -> ghcr.io
+docs/                       # ARCHITECTURE (design of record), INTERVIEW, PITCH
+docs/schemas/               # JSON Schema for the user-owned config files
+templates/                  # identity seed + capability ladder, ready to validate against
 files/system/               # everything here is copied over /
   usr/lib/os-release        #   rebranding
+  usr/libexec/prime/hw-probe.sh          # hardware probe, no model call, ~0.2s
   usr/libexec/prime/firstboot.sh
   usr/lib/systemd/system/prime-firstboot.service
 files/scripts/              # build-time scripts (optional)

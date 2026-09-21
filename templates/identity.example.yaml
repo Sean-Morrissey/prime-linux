@@ -1,0 +1,68 @@
+# Prime Linux — example identity seed
+#
+# This is what the first-boot interview produces. It is the user's file: they own
+# it, they can edit it in a text editor, and Prime reads it at the start of every
+# session. Validated against ../schemas/identity.schema.json
+#
+# Every field has a default. Nothing here is required except name — a blank
+# interview must still produce a working machine.
+
+version: 1
+# quote timestamps: an unquoted YAML date parses as a datetime, not a string
+created: "2026-09-21T17:55:00Z"
+updated: "2026-09-21T17:55:00Z"
+
+# ---- Beat 1: who are you
+name: Sean
+pronouns: he/him
+language: en
+
+# ---- Beat 2: what are you studying
+school: Columbus State Community College
+term: Autumn-2026
+courses:
+  - code: ENGL-0155
+    name: Basic Composition
+    instructor: Prof. Rebecca Baker
+    schedule: async
+    essays: true
+    platform: online
+  - code: MATH-1099
+    name: Bridge to College Math
+    instructor: Prof. John Wallace
+    schedule: "MWF 10:00"
+    essays: false
+    platform: ALEKS
+  - code: COLS-1100
+    name: First Year Experience
+    instructor: Prof. James Evans
+    schedule: async
+    essays: true
+    platform: online
+
+# ---- Beat 3: what are you building
+# anything listed under deferred/ is set up on first encounter, not now
+projects:
+  languages: [python, javascript]
+  creative: [3d-printing, video-editing]
+  deferred: [java, latex]
+
+# ---- Beat 4: how do you like your machine
+preferences:
+  session: prime            # desktop (KDE) | prime (Hyprland)
+  theme: dark
+  voice: false
+  quiet_hours: "22:00-08:00"
+  autonomy: suggest         # suggest | auto-user | auto-all
+  accessibility:
+    text_scale: normal      # normal | large | huge
+    reduce_motion: false
+    colorblind_safe: false
+    screen_reader: false
+
+# ---- Beat 6: anything else (verbatim, unstructured)
+freeform: |
+  I learn better with worked examples than with explanations. Don't talk at me in
+  long command lists — give me the read and let me steer. I run a gutter
+  installation business and I'm building a CRM for it. I play Dark and Darker on
+  Steam. I want to learn the terminal properly instead of copy-pasting.

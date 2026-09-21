@@ -1,0 +1,230 @@
+#!/usr/bin/env bash
+# Prime supervisor — the agent's hands on the machine.
+#
+# This is the core of the idea: a supervisor that watches the machine, takes a
+# rollback point before anything risky, verifies the result afterwards, and undoes
+# it if the machine came back broken. Every command here is also something a human
+# could have typed by hand — nothing happens invisibly.
+#
+# Usage:
+#   prime status                 plain-language summary of the machine
+#   prime health                 run the checks, record a good baseline
+#   prime updates                what's waiting to be installed
+#   prime snapshot [label]       take a rollback point
+#   prime update                 snapshot -> update -> verify -> undo if broken
+#   prime rollbacks              list rollback points, newest first
+#   prime rollback <id>          go back
+#   prime audit                  everything Prime has done to this machine
+#
+# The filesystem-level work lives in a backend, chosen by PRIME_BACKEND:
+#   sandbox  (default) a fake machine in a temp directory — safe, no root, no
+#                      system changes. This is how the logic gets tested and
+#                      demonstrated without touching anyone's real computer.
+#   btrfs    the real thing on an Arch/btrfs machine. Refuses to act unless
+#                      PRIME_ALLOW_REAL_SYSTEM_CHANGES=yes is set, because the
+#                      first thing it should never do is surprise its owner.
+#
+# Autonomy comes from the capability ladder, not from a hardcoded habit:
+#   suggest     talk first, never act on the system unattended
+#   auto-user   may take snapshots and run read-only checks unattended
+#   auto-all    may apply an update and roll it back unattended (destructive
+#               verbs still stop and ask — see templates/capability-ladder.yaml)
+
+set -uo pipefail
+
+PRIME_VERSION="0.1.0"
+SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PRIME_BACKEND="${PRIME_BACKEND:-sandbox}"
+PRIME_AUTONOMY="${PRIME_AUTONOMY:-suggest}"
+PRIME_STATE_DIR="${PRIME_STATE_DIR:-$HOME/.local/state/prime}"
+
+AUDIT="$PRIME_STATE_DIR/audit.jsonl"
+BASELINE="$PRIME_STATE_DIR/health-baseline.json"
+
+mkdir -p "$PRIME_STATE_DIR" 2>/dev/null || true
+
+# ------------------------------------------------------------------ plumbing
+c_reset=$'\033[0m'; c_dim=$'\033[2m'; c_ok=$'\033[32m'; c_warn=$'\033[33m'; c_bad=$'\033[31m'; c_b=$'\033[1m'
+say()  { printf '%s\n' "$*"; }
+ok()   { printf '  %s✓%s %s\n' "$c_ok" "$c_reset" "$*"; }
+warn() { printf '  %s!%s %s\n' "$c_warn" "$c_reset" "$*"; }
+bad()  { printf '  %s✗%s %s\n' "$c_bad" "$c_reset" "$*"; }
+dim()  { printf '%s%s%s\n' "$c_dim" "$*" "$c_reset"; }
+
+audit() { # audit <action> <outcome> [detail]
+  local action="$1" outcome="$2" detail="${3:-}"
+  printf '{"ts":"%s","action":"%s","outcome":"%s","detail":"%s","backend":"%s"}\n' \
+    "$(date -u +%FT%TZ)" "$action" "$outcome" "${detail//\"/\'}" "$PRIME_BACKEND" >> "$AUDIT"
+}
+
+die() { bad "$*"; exit 1; }
+
+load_backend() {
+  local f="$SELF_DIR/backend-$PRIME_BACKEND.sh"
+  [ -r "$f" ] || die "no backend named '$PRIME_BACKEND' ($f)"
+  # shellcheck source=/dev/null
+  source "$f"
+}
+
+# ------------------------------------------------------------------- commands
+cmd_status() {
+  say "${c_b}Prime${c_reset} $PRIME_VERSION ${c_dim}($PRIME_BACKEND backend, autonomy: $PRIME_AUTONOMY)${c_reset}"
+  say
+  backend_status
+  say
+  local n; n="$(backend_update_count)"
+  if [ "$n" -gt 0 ] 2>/dev/null; then
+    warn "$n update(s) waiting"
+    if [ "$(backend_snapshot_count)" = "0" ]; then
+      bad "no rollback point exists yet — an update now would be one-way"
+      dim "    fix: prime snapshot pre-update"
+    fi
+  else
+    ok "system is up to date"
+  fi
+  say
+  dim "state: $PRIME_STATE_DIR"
+}
+
+cmd_health() {
+  say "${c_b}Health check${c_reset}"
+  say
+  local failed=0
+  while IFS=$'\t' read -r id okflag label; do
+    if [ "$okflag" = "1" ]; then ok "$label"; else bad "$label"; failed=$((failed+1)); fi
+  done < <(backend_health)
+  say
+  if [ "$failed" -eq 0 ]; then
+    ok "machine looks healthy"
+    backend_health_snapshot > "$BASELINE" 2>/dev/null || true
+    audit health healthy ""
+    return 0
+  fi
+  bad "$failed check(s) failing"
+  audit health unhealthy "$failed failing"
+  return 1
+}
+
+cmd_updates() {
+  backend_updates
+}
+
+cmd_snapshot() {
+  local label="${1:-manual}"
+  local id
+  id="$(backend_snapshot "$label")" || die "snapshot failed"
+  ok "rollback point created: $id ($label)"
+  audit snapshot ok "$id"
+  say "$id"
+}
+
+cmd_rollbacks() {
+  backend_snapshots
+}
+
+cmd_rollback() {
+  local id="${1:-}"
+  [ -n "$id" ] || die "usage: prime rollback <id>   (see: prime rollbacks)"
+  if [ "$PRIME_AUTONOMY" = "suggest" ]; then
+    warn "autonomy is 'suggest', so this asks first"
+    printf '  Go back to %s? This replaces the running system state. [y/N] ' "$id"
+    read -r answer
+    case "$answer" in y|Y|yes) ;; *) say "  cancelled."; return 0 ;; esac
+  fi
+  if backend_restore "$id"; then
+    ok "restored $id"
+    audit rollback ok "$id"
+  else
+    bad "restore failed"
+    audit rollback failed "$id"
+    return 1
+  fi
+}
+
+cmd_update() {
+  say "${c_b}Update${c_reset} ${c_dim}(autonomy: $PRIME_AUTONOMY)${c_reset}"
+  say
+  local n; n="$(backend_update_count)"
+  if [ "$n" = "0" ]; then ok "nothing to do, system is up to date"; return 0; fi
+  say "  $n update(s) waiting."
+  say
+
+  # 1. rollback point first — always, before anything touches the system
+  local snap
+  snap="$(backend_snapshot pre-update)" || die "could not create a rollback point; refusing to update"
+  ok "rollback point: $snap"
+  audit snapshot ok "$snap"
+
+  # 2. apply
+  if ! backend_apply_updates; then
+    bad "the update itself failed — nothing was changed past this point"
+    audit update failed "apply"
+    say
+    warn "the machine is untouched and $snap is still available"
+    return 1
+  fi
+  ok "updates applied"
+  audit update ok "$n packages"
+
+  # 3. verify
+  say
+  say "  ${c_b}verifying${c_reset} the machine still works..."
+  if cmd_health; then
+    say
+    ok "update verified — keeping it"
+    audit verify ok ""
+    return 0
+  fi
+
+  # 4. the machine is broken: undo it
+  say
+  bad "the machine does not look healthy after this update"
+  if [ "$PRIME_AUTONOMY" = "auto-all" ]; then
+    warn "autonomy is 'auto-all' — rolling back to $snap"
+    if backend_restore "$snap"; then
+      ok "rolled back to $snap (the update is undone, nothing lost)"
+      audit rollback ok "$snap (auto, after failed verify)"
+    else
+      bad "automatic rollback failed — this needs a human"
+      audit rollback failed "$snap (auto)"
+      return 1
+    fi
+  else
+    warn "autonomy is '$PRIME_AUTONOMY' — I will not undo this without you"
+    say "  run: prime rollback $snap"
+    audit rollback skipped "$snap"
+  fi
+  return 1
+}
+
+cmd_audit() {
+  [ -s "$AUDIT" ] || { dim "nothing yet"; return 0; }
+  python3 - "$AUDIT" <<'PY'
+import json, sys
+for line in open(sys.argv[1]):
+    try:
+        e = json.loads(line)
+    except Exception:
+        continue
+    print(f"  {e['ts']}  {e['action']:<9} {e['outcome']:<8} {e['detail']}")
+PY
+}
+
+usage() {
+  sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'
+}
+
+# ---------------------------------------------------------------------- main
+case "${1:-}" in
+  status)    load_backend; cmd_status ;;
+  health)    load_backend; cmd_health ;;
+  updates)   load_backend; cmd_updates ;;
+  snapshot)  load_backend; shift; cmd_snapshot "${1:-manual}" ;;
+  update)    load_backend; cmd_update ;;
+  rollbacks) load_backend; cmd_rollbacks ;;
+  rollback)  load_backend; shift; cmd_rollback "${1:-}" ;;
+  audit)     cmd_audit ;;
+  version)   say "prime $PRIME_VERSION" ;;
+  ""|-h|--help|help) usage ;;
+  *)         die "unknown command: $1 (try: prime help)" ;;
+esac

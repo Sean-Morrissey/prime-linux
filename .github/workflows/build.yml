@@ -12,8 +12,40 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref || github.run_id }}
   cancel-in-progress: true
 jobs:
+  # The supervisor is plain bash and runs anywhere, so its logic gets tested on
+  # every push — in the sandbox, with no root and no real machine. If the update
+  # policy ever regresses, the build fails before anyone boots anything.
+  supervisor-tests:
+    name: Supervisor policy tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Shell syntax
+        run: |
+          for f in backends/arch/prime backends/arch/prime-autoupdate backends/arch/backend-*.sh backends/arch/test-*.sh; do
+            bash -n "$f" && echo "ok  $f"
+          done
+
+      - name: Update / rollback lifecycle
+        run: bash backends/arch/test-lifecycle.sh
+
+      - name: Unattended update cycle (the 4am decisions)
+        run: bash backends/arch/test-autoupdate.sh
+
+      - name: Shipped supervisor copies match their source
+        run: |
+          bash tools/sync-supervisor.sh
+          if ! git diff --quiet -- files/system/usr/libexec/prime; then
+            echo "::error::backends/arch/ changed but files/system/usr/libexec/prime/ was not re-synced — run: bash tools/sync-supervisor.sh"
+            git --no-pager diff --stat -- files/system/usr/libexec/prime
+            exit 1
+          fi
+
   bluebuild:
     name: Build Prime Linux
+    needs: supervisor-tests
     runs-on: ubuntu-latest
     permissions:
       contents: read

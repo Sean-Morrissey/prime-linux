@@ -1,0 +1,382 @@
+#!/usr/bin/env bash
+# Prime supervisor — the unattended update cycle.
+#
+# This is the answer to "so they can just use the distro": the machine updates
+# itself every three days, reboots when nobody is working, verifies what it booted
+# into, and puts itself back if the new version is broken. The user never runs a
+# package manager and never sees a broken desktop.
+#
+# It reuses the same backend verbs as `prime` (see ./prime), so there is exactly one
+# implementation of update / verify / rollback in the project. This file owns policy
+# — *when* to act, *whether* to reboot, when to give up — not mechanics.
+#
+# Usage:
+#   prime-autoupdate cycle          one full pass; this is what the timer runs
+#   prime-autoupdate should-reboot  exit 0 = safe to reboot now, 10 = not now (prints why)
+#   prime-autoupdate post-boot      after a reboot: verify, auto-rollback if broken
+#   prime-autoupdate later [hours]  the human said not now
+#   prime-autoupdate status         where the cycle is up to, in plain words
+#
+# Every decision is written to the audit log and to the user-facing update log, so
+# "what did it do at 4am" always has an answer.
+
+set -uo pipefail
+
+SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PRIME_BACKEND="${PRIME_BACKEND:-sandbox}"
+PRIME_AUTONOMY="${PRIME_AUTONOMY:-auto-user}"
+PRIME_STATE_DIR="${PRIME_STATE_DIR:-$HOME/.local/state/prime}"
+
+# --- policy knobs (all overridable, all documented in docs/UPDATES.md)
+INTERVAL_DAYS="${PRIME_UPDATE_INTERVAL_DAYS:-3}"
+IDLE_MINUTES="${PRIME_IDLE_MINUTES:-10}"          # untouched this long = safe to reboot
+NIGHT_IDLE_MINUTES="${PRIME_NIGHT_IDLE_MINUTES:-30}"   # asleep = reboot without asking
+GRACE_SECONDS="${PRIME_GRACE_SECONDS:-300}"       # on-screen countdown before reboot
+DEFER_HOURS="${PRIME_DEFER_HOURS:-12}"            # how long "later" means later
+FAIL_LIMIT="${PRIME_FAIL_LIMIT:-2}"               # give up on an update after N bad boots
+
+AUDIT="$PRIME_STATE_DIR/audit.jsonl"
+ULOG="$PRIME_STATE_DIR/updates.log"
+DEFER_FILE="$PRIME_STATE_DIR/autoupdate.defer"
+FAIL_FILE="$PRIME_STATE_DIR/autoupdate.failcount"
+STATE_FILE="$PRIME_STATE_DIR/autoupdate.state"
+mkdir -p "$PRIME_STATE_DIR" 2>/dev/null || true
+
+c_reset=$'\033[0m'; c_dim=$'\033[2m'; c_ok=$'\033[32m'; c_warn=$'\033[33m'; c_bad=$'\033[31m'; c_b=$'\033[1m'
+say()  { printf '%s\n' "$*"; }
+ok()   { printf '  %s✓%s %s\n' "$c_ok" "$c_reset" "$*"; }
+warn() { printf '  %s!%s %s\n' "$c_warn" "$c_reset" "$*"; }
+bad()  { printf '  %s✗%s %s\n' "$c_bad" "$c_reset" "$*"; }
+dim()  { printf '%s%s%s\n' "$c_dim" "$*" "$c_reset"; }
+
+audit() { # audit <action> <outcome> [detail]
+  printf '{"ts":"%s","action":"%s","outcome":"%s","detail":"%s","backend":"%s"}\n' \
+    "$(date -u +%FT%TZ)" "$1" "$2" "${3:-}" "$PRIME_BACKEND" >> "$AUDIT"
+}
+
+ulog() { # ulog <line> — the human-facing history of what Prime did to this machine
+  printf '%s  %s\n' "$(date -u +%FT%TZ)" "$*" >> "$ULOG"
+}
+
+note() { # note <urgency> <title> <body> — a desktop notification if anyone can see one
+  [ "${PRIME_NOTIFY:-1}" = "1" ] || return 0
+  command -v notify-send >/dev/null 2>&1 || return 0
+  notify-send -a Prime -u "${1:-normal}" -r 4711 "$2" "$3" 2>/dev/null || true
+}
+
+load_backend() {
+  local f="$SELF_DIR/backend-$PRIME_BACKEND.sh"
+  [ -r "$f" ] || { bad "no backend named '$PRIME_BACKEND' ($f)"; exit 1; }
+  # shellcheck source=/dev/null
+  source "$f"
+}
+
+# ============================================================ machine facts
+# Every fact needed to decide "is now a safe moment" lives behind one function, so
+# the sandbox can lie about all of them and the tests can exercise every branch.
+
+facts_json() {
+  if [ "$PRIME_BACKEND" = "sandbox" ]; then
+    local f="$PRIME_STATE_DIR/sandbox/facts.json"
+    [ -r "$f" ] && cat "$f" && return 0
+    printf '{"idle_minutes":45,"on_ac":true,"metered":false,"busy_jobs":[],"hour":4}\n'
+    return 0
+  fi
+  local idle=0 on_ac=true metered=false busy="[]" hour
+  hour="$(date +%-H)"
+  # idle: longest idle session. No logind, no idea -> 0, which means "busy" on
+  # purpose: the safe answer to "may I reboot this machine" is no.
+  if command -v loginctl >/dev/null 2>&1; then
+    local up now_use
+    up="$(awk '{print int($1*1000000)}' /proc/uptime 2>/dev/null || echo 0)"
+    for s in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $1}'); do
+      local hint since mins
+      hint="$(loginctl show-session "$s" -p IdleHint --value 2>/dev/null)"
+      since="$(loginctl show-session "$s" -p IdleSinceHintMonotonic --value 2>/dev/null)"
+      [ "$hint" = "yes" ] || continue
+      if [ -n "$since" ] && [ "$since" != "0" ]; then
+        mins=$(( (up - since / 1000000) / 60 ))
+        [ "$mins" -gt "$idle" ] && idle="$mins"
+      fi
+    done
+  fi
+  # power: no battery at all (a desktop) counts as plugged in
+  local ac_found=false
+  for p in /sys/class/power_supply/*/online; do
+    [ -r "$p" ] || continue
+    on_ac=false
+    ac_found=true
+    [ "$(cat "$p")" = "1" ] && on_ac=true
+  done
+  [ "$ac_found" = true ] || on_ac=true
+  # metered connection
+  if command -v nmcli >/dev/null 2>&1; then
+    nmcli -t -f GENERAL.METERED dev show 2>/dev/null | grep -q ':yes' && metered=true
+  fi
+  # long jobs that must not be interrupted — a print, a build, an encode, a download
+  local pats=()
+  [ -r /etc/prime/busy.conf ] && mapfile -t pats < <(grep -vE '^\s*(#|$)' /etc/prime/busy.conf)
+  [ "${#pats[@]}" -gt 0 ] || pats=(make ninja cc1 rustc cargo ffmpeg pacman dnf rpm-ostree podman blender orca-slicer qemu-system)
+  local hits=""
+  for p in "${pats[@]}"; do
+    pgrep -x "$p" >/dev/null 2>&1 && hits="$hits$p,"
+  done
+  busy="[${hits%,}]"
+  [ -n "$hits" ] && busy="[\"${hits%,}\"]"
+  printf '{"idle_minutes":%s,"on_ac":%s,"metered":%s,"busy_jobs":%s,"hour":%s}\n' \
+    "$idle" "$on_ac" "$metered" "$busy" "$hour"
+}
+
+fact() { # fact <key> — read one value out of facts_json
+  facts_json | python3 -c "
+import json,sys
+try: print(json.load(sys.stdin).get('$1',''))
+except Exception: print('')"
+}
+
+# ============================================================ policy
+is_deferred() { # exit 0 while the human's 'later' is still in force
+  [ -e "$DEFER_FILE" ] || return 1
+  local until
+  until="$(cut -d' ' -f1 "$DEFER_FILE" 2>/dev/null)"
+  [ -n "$until" ] || return 1
+  [ "$(date +%s)" -lt "$until" ] || { rm -f "$DEFER_FILE"; return 1; }
+  return 0
+}
+
+defer_hours_left() {
+  local until
+  until="$(cut -d' ' -f1 "$DEFER_FILE" 2>/dev/null)"
+  [ -n "$until" ] || { echo 0; return; }
+  echo $(( (until - $(date +%s) + 3599) / 3600 ))
+}
+
+set_deferred() { # set_deferred <hours> <reason>
+  local hours="${1:-$DEFER_HOURS}" reason="${2:-user}"
+  printf '%s %s\n' "$(( $(date +%s) + hours * 3600 ))" "$reason" > "$DEFER_FILE"
+  ulog "deferred: not updating for ${hours}h ($reason)"
+  audit autoupdate deferred "${hours}h $reason"
+}
+
+fail_count() { cat "$FAIL_FILE" 2>/dev/null || echo 0; }
+mark_failed() { echo $(( $(fail_count) + 1 )) > "$FAIL_FILE"; }
+clear_failed() { rm -f "$FAIL_FILE"; }
+
+# --------------------------------------------------------------- should-reboot
+# The honest core of the whole thing: never reboot a machine someone is using.
+cmd_should_reboot() {
+  local idle on_ac busy hour
+  idle="$(fact idle_minutes)"; on_ac="$(fact on_ac)"; busy="$(fact busy_jobs)"; hour="$(fact hour)"
+  idle="${idle:-0}"
+
+  if [ "$busy" != "[]" ] && [ -n "$busy" ]; then
+    say "busy: $busy is running"; return 10
+  fi
+  if [ "$on_ac" != "True" ] && [ "$on_ac" != "true" ]; then
+    say "on battery: not restarting until it is plugged in"; return 10
+  fi
+  # night: nobody to interrupt, so a shorter "asleep" wait is enough and no
+  # countdown is shown — the point of the night window is that it is invisible
+  if [ "${hour:-12}" -ge 22 ] || [ "${hour:-12}" -lt 7 ]; then
+    if [ "$idle" -ge "$NIGHT_IDLE_MINUTES" ]; then say "asleep ($idle min idle)"; return 0; fi
+    say "night but active ${idle} min ago"; return 10
+  fi
+  if [ "$idle" -ge "$IDLE_MINUTES" ]; then say "idle ${idle} min"; return 0; fi
+  say "in use ${idle} min ago (want ${IDLE_MINUTES} min idle)"; return 10
+}
+
+# --------------------------------------------------------------- the countdown
+warn_and_wait() { # exit 0 = go ahead, 1 = the human deferred
+  [ "${GRACE_SECONDS:-0}" -le 0 ] && return 0   # no countdown configured
+  command -v notify-send >/dev/null 2>&1 || return 0
+  local out=""
+  out="$(timeout "$GRACE_SECONDS" notify-send -a Prime -u critical -r 4712 \
+        -A "later=Later" -i system-software-update \
+        "Restarting in $(( GRACE_SECONDS / 60 )) minutes" \
+        "Your system is updated and needs one restart. Click Later and I will do it once you have stopped working." 2>/dev/null)" || true
+  [ "$out" = "later" ] && return 1
+  return 0
+}
+
+# --------------------------------------------------------------- the cycle
+cmd_cycle() {
+  say "${c_b}Prime update cycle${c_reset} ${c_dim}(every ${INTERVAL_DAYS} days, autonomy: $PRIME_AUTONOMY)${c_reset}"
+  say
+
+  if is_deferred; then
+    ok "you said later — holding off for another $(defer_hours_left)h"
+    audit autoupdate skipped "deferred"
+    return 0
+  fi
+
+  if [ "$(fail_count)" -ge "$FAIL_LIMIT" ]; then
+    warn "the last $FAIL_LIMIT updates broke this machine, so I am not retrying today"
+    dim "    this is a real bug: prime update log, then tell whoever gave you this machine"
+    audit autoupdate skipped "fail limit reached"
+    return 0
+  fi
+
+  local n; n="$(backend_update_count)"
+  if [ "$n" = "0" ] || [ -z "$n" ]; then
+    ok "nothing to do — the machine is up to date"
+    clear_failed
+    audit autoupdate noop "up to date"
+    return 0
+  fi
+  say "  $n update(s) waiting"
+
+  if [ "$PRIME_AUTONOMY" = "suggest" ]; then
+    warn "autonomy is 'suggest' — I will not install these without you"
+    dim "    run: prime update    (or tell me to just do it: prime autonomy auto)"
+    note normal "Updates ready" "$n updates waiting. Tell Prime to install them."
+    audit autoupdate skipped "autonomy suggest"
+    return 0
+  fi
+
+  # 1. rollback point / staging, then apply — mechanics live in the backend
+  local snap=""
+  if command -v backend_snapshot >/dev/null 2>&1; then
+    snap="$(backend_snapshot pre-update)" && ok "rollback point: ${snap:-n/a}"
+    audit snapshot ok "${snap:-n/a}"
+  fi
+  if ! backend_apply_updates; then
+    bad "the update could not be installed — the machine is untouched"
+    note normal "Update postponed" "Updates could not be installed. Nothing was changed."
+    ulog "update failed to install; machine untouched"
+    audit autoupdate failed "apply"
+    return 1
+  fi
+  ok "updates installed"
+  ulog "installed $n update(s)"
+  audit autoupdate ok "installed $n"
+
+  # 2. verify what can be verified before the reboot
+  local failed=0
+  while IFS=$'\t' read -r id okflag label; do
+    [ "$okflag" = "1" ] || { failed=$((failed+1)); }
+  done < <(backend_health)
+  if [ "$failed" -gt 0 ]; then
+    bad "$failed check(s) are failing right now"
+    if [ "$PRIME_AUTONOMY" = "auto-all" ] && [ -n "$snap" ]; then
+      warn "rolling back to $snap"
+      backend_restore "$snap" && { ok "rolled back"; audit rollback ok "$snap (pre-reboot verify)"; }
+    else
+      warn "not rolling back unattended at this autonomy level"
+      audit rollback skipped "pre-reboot verify"
+    fi
+    return 1
+  fi
+  ok "checks pass with the update installed"
+
+  # 3. does it need a restart to take effect? (atomic images: yes; Arch: no)
+  if ! command -v backend_pending_reboot >/dev/null 2>&1 || [ "$(backend_pending_reboot)" != "1" ]; then
+    ok "no restart needed — the new versions are live"
+    ulog "update live, no restart required"
+    audit autoupdate ok "live, no reboot needed"
+    return 0
+  fi
+
+  # 4. stage the after-reboot verification, so the next boot checks itself
+  printf '%s\n' "$(date -u +%FT%TZ)" > "$STATE_FILE"
+
+  # 5. the restart, only at a moment that costs nobody anything
+  local why
+  if ! why="$(cmd_should_reboot)"; then
+    warn "not restarting now: $why"
+    dim "    it will happen by itself once you are away for $IDLE_MINUTES minutes"
+    ulog "restart postponed: $why"
+    audit autoupdate deferred "reboot: $why"
+    note normal "Restart postponed" "Your system is updated. I'll restart it when you're not working."
+    return 0
+  fi
+  ok "safe moment to restart: $why"
+  if ! warn_and_wait; then
+    set_deferred "$DEFER_HOURS" "later clicked"
+    ok "okay — holding off for ${DEFER_HOURS}h"
+    return 0
+  fi
+  ulog "restarting to apply the update"
+  audit autoupdate reboot "applying update"
+  backend_reboot
+}
+
+# --------------------------------------------------------------- after the boot
+cmd_post_boot() {
+  say "${c_b}Verifying this boot${c_reset}"
+  say
+  if [ ! -e "$STATE_FILE" ]; then
+    dim "  (no update was pending verification)"
+    return 0
+  fi
+  local failed=0
+  while IFS=$'\t' read -r id okflag label; do
+    if [ "$okflag" = "1" ]; then ok "$label"; else bad "$label"; failed=$((failed+1)); fi
+  done < <(backend_health)
+  say
+  if [ "$failed" -eq 0 ]; then
+    ok "update verified — this machine is healthy"
+    rm -f "$STATE_FILE"
+    clear_failed
+    ulog "booted after update: healthy"
+    audit verify ok "post-boot"
+    note low "Updated and checked" "Your system updated itself and everything still works."
+    return 0
+  fi
+
+  bad "$failed check(s) failing after this update"
+  mark_failed
+  ulog "booted after update: UNHEALTHY ($failed checks)"
+  audit verify unhealthy "post-boot, $failed failing"
+
+  # A broken machine cannot consent, and the previous version is a known-good
+  # state that still exists on disk. Restoring it is recovery, not destruction —
+  # it never touches the user's files. So this one acts even when autonomy is low,
+  # and says so in the log and on screen next time.
+  if [ "$PRIME_AUTONOMY" = "auto-all" ] || [ "$PRIME_AUTONOMY" = "auto-user" ] || [ "$FAIL_LIMIT" -gt 0 ]; then
+    warn "going back to the version that worked"
+    if backend_restore_last_good; then
+      ok "rolled back to the previous version (your files are untouched)"
+      ulog "rolled back after a failed update"
+      audit rollback ok "post-boot recovery"
+      backend_reboot
+    else
+      bad "automatic recovery failed — this needs a human"
+      audit rollback failed "post-boot recovery"
+      return 1
+    fi
+  fi
+}
+
+cmd_later() {
+  set_deferred "${1:-$DEFER_HOURS}" "asked"
+  ok "okay — no updates for the next ${1:-$DEFER_HOURS}h"
+}
+
+cmd_status() {
+  say "${c_b}Prime updates${c_reset}"
+  say
+  if is_deferred; then
+    warn "held off for another $(defer_hours_left)h (you said later)"
+  else
+    ok "not held off"
+  fi
+  if [ -e "$STATE_FILE" ]; then
+    warn "an update is installed and waiting for the next restart"
+  else
+    ok "no update waiting for a restart"
+  fi
+  say "  updates waiting: $(backend_update_count)"
+  say "  recent history:"
+  if [ -s "$ULOG" ]; then tail -5 "$ULOG" | sed 's/^/    /'; else dim "    (nothing yet)"; fi
+}
+
+# ---------------------------------------------------------------------- main
+case "${1:-cycle}" in
+  cycle)         load_backend; cmd_cycle ;;
+  should-reboot) load_backend; cmd_should_reboot ;;
+  post-boot)     load_backend; cmd_post_boot ;;
+  later)         shift || true; cmd_later "${1:-}" ;;
+  status)        load_backend; cmd_status ;;
+  -h|--help|help) sed -n '2,26p' "$0" | sed 's/^# \{0,1\}//' ;;
+  *)             say "unknown command: $1"; exit 2 ;;
+esac

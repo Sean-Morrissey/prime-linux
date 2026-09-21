@@ -77,7 +77,6 @@ modules:
   - type: script
     snippets:
       - "curl -LsSf https://astral.sh/uv/install.sh | UV_UNMANAGED_INSTALL=/usr/local sh"
-      - "chmod +x /usr/libexec/prime/firstboot.sh /usr/libexec/prime/hw-probe.sh"
 
   # --- 4. Store apps the agent + student workflow lean on ---------------------
   - type: default-flatpaks
@@ -90,7 +89,29 @@ modules:
           - org.zotero.Zotero
           - com.github.tchx84.Flatseal
 
-  # --- 5. First-boot wizard (per-user setup, never ships any secrets) ---------
+  # --- 5. The Prime layer: everything in files/system/ is copied over / --------
+  # Position matters twice over:
+  #   * AFTER dnf: our os-release rebrand ran first once and the dnf module then read
+  #     VERSION_ID=1 from it and asked COPR for a `fedora-1-x86_64` chroot — the build
+  #     died on "Chroot not found in the given Copr project". Branding lands after
+  #     anything that inspects the base system.
+  #   * BEFORE systemd: the units it enables (prime-update.timer, prime-boot-verify)
+  #     only exist once this module has copied them in. Enabling a unit that isn't
+  #     there yet fails the build.
+  - type: files
+    files:
+      - source: system
+        destination: /
+
+  # --- 6. Make the shipped scripts runnable ------------------------------------
+  # This has to come after the file layer: the first version of this recipe chmod'd
+  # these paths from an earlier module, where they did not exist yet — a silent
+  # build breaker. Belt and braces with the executable bit committed in git.
+  - type: script
+    snippets:
+      - "chmod +x /usr/libexec/prime/firstboot.sh /usr/libexec/prime/hw-probe.sh /usr/libexec/prime/prime /usr/libexec/prime/prime-autoupdate /usr/libexec/prime/backend-*.sh"
+
+  # --- 7. First-boot wizard + the unattended update cycle ---------------------
   # NOTE: if the base ships its own first-run/welcome tooling, disable it here so
   # two setup experiences don't race on first login. See Aurora's "mutations that
   # don't work" guidance before overriding anything upstream owns.
@@ -98,16 +119,10 @@ modules:
     system:
       enabled:
         - prime-firstboot.service
+        # the whole "you never update this thing" promise: every 3 days, verified,
+        # at a moment that costs the user nothing. See docs/UPDATES.md
+        - prime-update.timer
+        - prime-boot-verify.service
 
-  # --- The Prime layer: everything in files/system/ is copied over / ----------
-  # Runs LAST on purpose. Our os-release rebrand used to run first, and the dnf
-  # module then read VERSION_ID=1 from it and asked COPR for a `fedora-1-x86_64`
-  # chroot — the build died on "Chroot not found in the given Copr project".
-  # Rule: branding lands after anything that inspects the base system.
-  - type: files
-    files:
-      - source: system
-        destination: /
-
-  # --- Signing so updates verify ----------------------------------------------
+  # --- 8. Signing so updates verify --------------------------------------------
   - type: signing

@@ -102,6 +102,19 @@ then stops retrying after 2 bad boots so it cannot loop.
   by the recipe. `backends/arch/*` is the source of truth and is copied into the file
   layer by `tools/sync-supervisor.sh`; CI fails if the copies drift.
 
+## Two rules about `usr/lib/os-release` (learned the hard way)
+
+The disk build parses this file with a strict reader and fails in two separate ways:
+
+1. **No comments.** Every line must be `KEY=VALUE`. A `#` line makes it fail with
+   `readOSRelease: invalid input` — and only the *disk* build notices, so the image
+   builds, signs and publishes happily with an unparseable os-release.
+2. **`ID` must stay `fedora`.** The builder matches `ID`+`VERSION_ID` against its own
+   distro definitions; renaming it gives `could not find def file for distro
+   primelinux-44`. Keeping `ID=fedora` is also just true — the system *is* Fedora
+   underneath. Prime's identity lives in `NAME`, `PRETTY_NAME`, `VARIANT`,
+   `VARIANT_ID`, `IMAGE_ID`, and `PLATFORM_ID` must be present.
+
 ## Open questions
 
 - Six beat writers first, or the desktop route plugin? (Writers unblock everything

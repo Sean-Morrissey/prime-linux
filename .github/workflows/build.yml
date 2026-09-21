@@ -37,6 +37,9 @@ jobs:
       - name: First-run interview
         run: bash backends/arch/test-setup.sh
 
+      - name: os-release is parseable by the disk builder
+        run: bash tools/check-os-release.sh
+
       - name: Shipped supervisor copies match their source
         run: |
           bash tools/sync-supervisor.sh

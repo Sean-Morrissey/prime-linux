@@ -1,37 +1,57 @@
 ---
-# Throwaway diagnostic, round 5. osbuild's failing call is not a plain bind mount —
-# osbuild/util/mnt.py runs:
-#     mount --make-private -o rbind,rw,0755 <storage> <target>
-# while osbuild/util/containers.py uses MountGuard.mount(permissions=READ_WRITE).
-# Split that single invocation into its pieces here to see which part the kernel
-# refuses, since a plain `mount --bind` of the same paths works fine.
-name: diag exact osbuild mount
+# Throwaway diagnostic, round 6. Round 5 proved the exact osbuild invocation
+#   mount --make-private -o rbind,rw,0755 /var/lib/containers/storage <target>
+# succeeds in a clean container (WHOLE_OK). The only state difference in the real
+# build is that root's container storage is POPULATED — the source image has been
+# pulled, so the tree contains live overlay mounts that the rbind has to clone.
+# Pull first, then repeat the identical call.
+name: diag populated storage
 
 on:
   workflow_dispatch:
 
 jobs:
-  pieces:
+  populated:
     runs-on: ubuntu-26.04
     steps:
-      - name: the whole invocation, then each piece
+      - name: empty storage (control)
         run: |
           sudo podman run --rm --privileged --security-opt label=type:unconfined_t \
             --volume /var/lib/containers/storage:/var/lib/containers/storage \
             --entrypoint /bin/sh quay.io/centos-bootc/bootc-image-builder:latest -c '
-              SRC=/var/lib/containers/storage
-              DST=/run/osbuild/containers/storage
-              mkdir -p "$DST"
-              echo "=== exactly what osbuild runs ==="
-              mount --make-private -o rbind,rw,0755 "$SRC" "$DST" && echo WHOLE_OK || echo "WHOLE_FAILED rc=$?"
-              grep -q "$DST " /proc/self/mountinfo && umount -l "$DST"
-              echo "=== rbind alone ==="
-              mount --rbind "$SRC" "$DST" && echo RBIND_OK || echo "RBIND_FAILED rc=$?"
-              umount -l "$DST" 2>/dev/null
-              echo "=== make-private alone (is the target even a mountpoint?) ==="
-              mount --make-private "$DST" && echo PRIVATE_OK || echo "PRIVATE_FAILED rc=$?"
-              echo "=== rbind + ro (what a read-only caller would do) ==="
-              mount --rbind -o ro "$SRC" "$DST" && echo RBIND_RO_OK || echo "RBIND_RO_FAILED rc=$?"
-              echo "=== is there an overlay mount inside the storage tree ==="
-              grep -c overlay /proc/self/mountinfo
+              mkdir -p /run/osbuild/containers/storage
+              mount --make-private -o rbind,rw,0755 /var/lib/containers/storage /run/osbuild/containers/storage \
+                && echo EMPTY_WHOLE_OK || echo EMPTY_WHOLE_FAILED
+              umount -l /run/osbuild/containers/storage 2>/dev/null
+              echo "overlay mounts visible: $(grep -c overlay /proc/self/mountinfo)"
+            '
+
+      - name: pull an image into root storage
+        run: |
+          sudo podman pull -q quay.io/fedora/fedora-bootc:latest
+          sudo podman images --format '{{.Repository}}:{{.Tag}}'
+
+      - name: same call, populated storage
+        run: |
+          sudo podman run --rm --privileged --security-opt label=type:unconfined_t \
+            --volume /var/lib/containers/storage:/var/lib/containers/storage \
+            --entrypoint /bin/sh quay.io/centos-bootc/bootc-image-builder:latest -c '
+              mkdir -p /run/osbuild/containers/storage
+              mount --make-private -o rbind,rw,0755 /var/lib/containers/storage /run/osbuild/containers/storage \
+                && echo POPULATED_WHOLE_OK || echo POPULATED_WHOLE_FAILED
+              echo "overlay mounts visible: $(grep -c overlay /proc/self/mountinfo)"
+              echo "--- overlay lines from storage ---"
+              grep overlay /proc/self/mountinfo | head -3
+            '
+
+      - name: can this podman even mount the image, the way BIB does
+        run: |
+          sudo podman run --rm --privileged --security-opt label=type:unconfined_t \
+            --volume /var/lib/containers/storage:/var/lib/containers/storage \
+            --entrypoint /bin/sh quay.io/centos-bootc/bootc-image-builder:latest -c '
+              podman --root /var/lib/containers/storage images --format "{{.Repository}}:{{.Tag}}" | head -5
+              echo "--- try mounting it ---"
+              ctr=$(podman --root /var/lib/containers/storage create quay.io/fedora/fedora-bootc:latest /bin/true 2>&1 | tail -1)
+              echo "create said: $ctr"
+              podman --root /var/lib/containers/storage mount "$ctr" 2>&1 | tail -3
             '

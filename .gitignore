@@ -9,3 +9,6 @@ output/
 .vscode/
 .idea/
 *.swp
+
+# signing private key — NEVER commit
+cosign.key

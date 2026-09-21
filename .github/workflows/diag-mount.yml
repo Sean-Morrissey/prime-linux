@@ -1,57 +1,49 @@
 ---
-# Throwaway diagnostic, round 6. Round 5 proved the exact osbuild invocation
-#   mount --make-private -o rbind,rw,0755 /var/lib/containers/storage <target>
-# succeeds in a clean container (WHOLE_OK). The only state difference in the real
-# build is that root's container storage is POPULATED — the source image has been
-# pulled, so the tree contains live overlay mounts that the rbind has to clone.
-# Pull first, then repeat the identical call.
-name: diag populated storage
+# Throwaway diagnostic, round 7. The failing call is, from osbuild's own source:
+#   osbuild/util/containers.py containers_storage_source()
+#     mg.mount(image_filepath, "/run/osbuild/containers/storage", READ_WRITE)
+# osbuild's MountGuard emits `mount --make-private -o rbind,rw,0755 <src> <dst>`, and
+# the source is the host storage that osbuild had already bind-mounted READ-ONLY as an
+# input. Cloning a read-only mount writable is the documented way to get EACCES from
+# mount(2). Round 6 proved the call works when the source is /var/lib/containers/storage
+# directly, so the source must matter.
+#
+# Reproduce against a PUBLIC image, no auth anywhere, via BIB directly rather than the
+# action, so nothing here can be blamed on our private registry. --rootfs ext4 is added
+# because fedora-bootc does not declare a default rootfs (round 4's A/B error).
+name: diag real build public
 
 on:
   workflow_dispatch:
 
 jobs:
-  populated:
-    runs-on: ubuntu-26.04
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-26.04]
+    runs-on: ${{ matrix.runner }}
     steps:
-      - name: empty storage (control)
+      - name: kernel, podman, kvm
         run: |
+          uname -r; podman --version
+          ls -l /dev/kvm 2>/dev/null || echo "(no /dev/kvm)"
+
+      - name: pull the source image
+        run: sudo podman pull -q quay.io/fedora/fedora-bootc:latest
+
+      - name: build it, verbose, direct
+        run: |
+          mkdir -p out
+          printf '[[customizations.user]]\nname = "prime"\npassword = "prime"\ngroups = ["wheel"]\n' > /tmp/config.toml
+          set +e
           sudo podman run --rm --privileged --security-opt label=type:unconfined_t \
             --volume /var/lib/containers/storage:/var/lib/containers/storage \
-            --entrypoint /bin/sh quay.io/centos-bootc/bootc-image-builder:latest -c '
-              mkdir -p /run/osbuild/containers/storage
-              mount --make-private -o rbind,rw,0755 /var/lib/containers/storage /run/osbuild/containers/storage \
-                && echo EMPTY_WHOLE_OK || echo EMPTY_WHOLE_FAILED
-              umount -l /run/osbuild/containers/storage 2>/dev/null
-              echo "overlay mounts visible: $(grep -c overlay /proc/self/mountinfo)"
-            '
-
-      - name: pull an image into root storage
-        run: |
-          sudo podman pull -q quay.io/fedora/fedora-bootc:latest
-          sudo podman images --format '{{.Repository}}:{{.Tag}}'
-
-      - name: same call, populated storage
-        run: |
-          sudo podman run --rm --privileged --security-opt label=type:unconfined_t \
-            --volume /var/lib/containers/storage:/var/lib/containers/storage \
-            --entrypoint /bin/sh quay.io/centos-bootc/bootc-image-builder:latest -c '
-              mkdir -p /run/osbuild/containers/storage
-              mount --make-private -o rbind,rw,0755 /var/lib/containers/storage /run/osbuild/containers/storage \
-                && echo POPULATED_WHOLE_OK || echo POPULATED_WHOLE_FAILED
-              echo "overlay mounts visible: $(grep -c overlay /proc/self/mountinfo)"
-              echo "--- overlay lines from storage ---"
-              grep overlay /proc/self/mountinfo | head -3
-            '
-
-      - name: can this podman even mount the image, the way BIB does
-        run: |
-          sudo podman run --rm --privileged --security-opt label=type:unconfined_t \
-            --volume /var/lib/containers/storage:/var/lib/containers/storage \
-            --entrypoint /bin/sh quay.io/centos-bootc/bootc-image-builder:latest -c '
-              podman --root /var/lib/containers/storage images --format "{{.Repository}}:{{.Tag}}" | head -5
-              echo "--- try mounting it ---"
-              ctr=$(podman --root /var/lib/containers/storage create quay.io/fedora/fedora-bootc:latest /bin/true 2>&1 | tail -1)
-              echo "create said: $ctr"
-              podman --root /var/lib/containers/storage mount "$ctr" 2>&1 | tail -3
-            '
+            --volume "$PWD/out:/output" \
+            --volume /tmp/config.toml:/config.toml:ro \
+            quay.io/centos-bootc/bootc-image-builder:latest \
+            build --output /output --chown 1001:1001 --type qcow2 --rootfs ext4 \
+            --progress verbose --use-librepo=True \
+            quay.io/fedora/fedora-bootc:latest 2>&1 | tail -60
+          echo "=== BIB EXIT: ${PIPESTATUS[0]} ==="
+          ls -la out/ 2>/dev/null

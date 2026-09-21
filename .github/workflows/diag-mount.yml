@@ -1,57 +1,75 @@
 ---
-# The fix candidate, tested end to end before it goes anywhere near build-disk.yml.
-#
-# What round 7 proved: with a PUBLIC image and no host storage volume, bootc-image-builder
-# builds fine on both runner images. What round 5/6 proved: the failing call
-#   mount --make-private -o rbind,rw,0755 <storage> /run/osbuild/containers/storage
-# works when the storage is the container's own. So the broken ingredient is the
-# action's `-v /var/lib/containers/storage:/var/lib/containers/storage`, combined with
-# osbuild's own read-only bind of that volume as an input — osbuild then tries to clone
-# a locked read-only mount writable, which is how mount(2) returns EACCES.
-#
-# So: drop the volume, let the builder pull the image inside the container (it has
-# network), and hand it credentials as a FILE rather than a storage mount. Then the
-# private image works the same way the public one just did. Both disk types, because
-# the ISO leg failed at a *different* mount (/run/osbuild/tree/dev).
-name: diag builder pulls its own image
+# Throwaway diagnostic, round 8. Round 7 (public fedora-bootc, direct, WITH the storage
+# volume, --rootfs ext4, --use-librepo=True) built fine on both runners. The second
+# attempt at round 8 dropped the storage volume and the builder refused outright:
+#   could not access container storage, did you forget -v /var/lib/containers/storage:...?
+# So the volume stays. The open question is which of these actually differs from round 7:
+#   * our PRIVATE image vs a public one
+#   * the image pre-pulled into host storage (what the action does) vs pulled by the
+#     builder itself through a mounted auth file
+#   * --rootfs and --use-librepo (round 7 had both, the failing builds had neither)
+# One variable per leg. Job status is honest here: pipefail + explicit exit, because
+# round 8's first attempt reported green jobs for builds that had exited 1.
+name: diag bisect
 
 on:
   workflow_dispatch:
 
 jobs:
-  build:
+  bisect:
     strategy:
       fail-fast: false
       matrix:
-        disk-type: ["qcow2", "anaconda-iso"]
+        include:
+          - name: A-ours-prepulled
+            src: ghcr.io/sean-morrissey/prime-linux:latest
+            prepull: true
+            extra: ""
+          - name: B-ours-builder-pulls
+            src: ghcr.io/sean-morrissey/prime-linux:latest
+            prepull: false
+            extra: ""
+          - name: C-public-prepulled
+            src: quay.io/fedora/fedora-bootc:latest
+            prepull: true
+            extra: ""
+          - name: D-ours-rootfs-librepo
+            src: ghcr.io/sean-morrissey/prime-linux:latest
+            prepull: false
+            extra: "--rootfs btrfs --use-librepo=True"
+    name: ${{ matrix.name }}
     runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - name: Credentials as a file the builder can read
+      - name: Credentials the builder can use
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | sudo podman login ghcr.io \
-            -u "${{ github.actor }}" --password-stdin \
-            --authfile /root/ghcr-auth.json
-          sudo ls -l /root/ghcr-auth.json
+            -u "${{ github.actor }}" --password-stdin --authfile /root/ghcr-auth.json
 
-      - name: Set up output
+      - name: Pre-pull into host storage (what the action does)
+        if: matrix.prepull
+        run: sudo podman pull -q "${{ matrix.src }}" || echo "PREPULL FAILED"
+
+      - name: Show what the host storage holds
+        run: sudo podman images --format '{{.Repository}}:{{.Tag}}'
+
+      - name: Build the qcow2
         run: |
-          echo "TYPE=${{ matrix.disk-type }}" >> "$GITHUB_ENV"
           mkdir -p out
-
-      - name: Build (no host storage volume)
-        run: |
+          echo "extra args: ${{ matrix.extra }}"
           set +e
-          if [ "$TYPE" = "anaconda-iso" ]; then CFG=disk_config/iso.toml; else CFG=disk_config/disk.toml; fi
-          echo "using config: $CFG"
           sudo podman run --rm --privileged --security-opt label=type:unconfined_t \
+            --volume /var/lib/containers/storage:/var/lib/containers/storage \
             --volume /root/ghcr-auth.json:/root/.config/containers/auth.json:ro \
             --volume "$PWD/out:/output" \
-            --volume "$PWD/$CFG:/config.toml:ro" \
+            --volume "$PWD/disk_config/disk.toml:/config.toml:ro" \
             quay.io/centos-bootc/bootc-image-builder:latest \
-            build --output /output --chown "$(id -u):$(id -g)" \
-            --type "$TYPE" --use-librepo=True --progress verbose \
-            ghcr.io/sean-morrissey/prime-linux:latest 2>&1 | tail -50
-          echo "=== BIB EXIT: ${PIPESTATUS[0]} ==="
+            build --output /output --chown "$(id -u):$(id -g)" --type qcow2 \
+            ${{ matrix.extra }} \
+            "${{ matrix.src }}" 2>&1 | tail -25
+          rc=${PIPESTATUS[0]}
+          echo "=== BIB EXIT: $rc ==="
           find out -type f -printf '%p  %s bytes\n' 2>/dev/null
+          # Fail the job when the builder failed, so green means a real image exists.
+          exit $rc

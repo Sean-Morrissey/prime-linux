@@ -1,10 +1,11 @@
 ---
-# Throwaway diagnostic: does a *privileged* podman container on this runner actually
-# have CAP_SYS_ADMIN? osbuild inside bootc-image-builder needs it to bind-mount the
-# container storage, and the disk build keeps dying there with
+# Throwaway diagnostic. The disk build keeps dying inside bootc-image-builder with
 #   mount: /run/osbuild/containers/storage: permission denied
-# plus `fchownat() ... Operation not permitted`, i.e. symptoms of a container that
-# is not really privileged. Answer the question directly instead of guessing.
+# and `fchownat() ... Operation not permitted` — symptoms of a container that is not
+# really privileged. Two questions:
+#   1. can a --privileged container on this runner mount at all?
+#   2. does the real build path work against a PUBLIC image with no login? (if yes,
+#      our GHCR login / root podman storage is the difference, not the runner)
 name: diag runner capabilities
 
 on:
@@ -12,31 +13,46 @@ on:
 
 jobs:
   caps:
+    name: privileged container can mount?
     runs-on: ubuntu-26.04
     steps:
-      - name: What is podman, and where does it keep things
+      - name: podman and storage
         run: |
-          which -a podman
           podman --version
-          sudo podman info --format '{{.Store.GraphDriverName}} {{.Store.GraphRoot}} {{.Store.RunRoot}}'
-          sudo ls -ld /var/lib/containers/storage || echo "(no storage dir yet)"
+          sudo podman info --format 'driver={{.Store.GraphDriverName}} graphroot={{.Store.GraphRoot}} runroot={{.Store.RunRoot}}'
+          sudo ls -ld /var/lib/containers/storage
           cat /etc/containers/storage.conf 2>/dev/null || echo "(no /etc/containers/storage.conf)"
 
-      - name: Can a privileged container mount? (before any login)
+      - name: mount test, before any login
         run: |
-          sudo podman run --rm --privileged \
-            --security-opt label=type:unconfined_t \
-            quay.io/centos-bootc/bootc-image-builder:latest \
-            sh -c 'id; capsh --print | head -4; mkdir -p /tmp/t; mount -t tmpfs tmpfs /tmp/t && echo MOUNT_OK || echo MOUNT_FAILED' \
-          || echo "CONTAINER RUN FAILED"
+          sudo podman run --rm --privileged --security-opt label=type:unconfined_t \
+            --entrypoint /bin/sh quay.io/centos-bootc/bootc-image-builder:latest \
+            -c 'id; mkdir -p /tmp/t; mount -t tmpfs tmpfs /tmp/t && echo MOUNT_OK || echo MOUNT_FAILED; \
+                touch /tmp/t/f && chown 1001:1001 /tmp/t/f && echo CHOWN_OK || echo CHOWN_FAILED'
 
-      - name: Does logging in as root change it?
+      - name: mount test, after logging in as root
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | sudo podman login ghcr.io -u "${{ github.actor }}" --password-stdin
-          echo "--- after login ---"
-          sudo podman info --format '{{.Store.GraphDriverName}} {{.Store.GraphRoot}}'
-          sudo podman run --rm --privileged \
-            --security-opt label=type:unconfined_t \
+          sudo podman info --format 'driver={{.Store.GraphDriverName}} graphroot={{.Store.GraphRoot}}'
+          sudo podman run --rm --privileged --security-opt label=type:unconfined_t \
+            --entrypoint /bin/sh quay.io/centos-bootc/bootc-image-builder:latest \
+            -c 'mkdir -p /tmp/t; mount -t tmpfs tmpfs /tmp/t && echo MOUNT_OK || echo MOUNT_FAILED'
+
+  public-image:
+    name: real build path, public image, no login
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: bootc-image-builder against fedora-bootc
+        run: |
+          mkdir -p out
+          cp disk_config/disk.toml disk_config/diag.toml
+          sudo podman run --rm --privileged --security-opt label=type:unconfined_t \
+            -v /var/lib/containers/storage:/var/lib/containers/storage \
+            -v "$PWD/out:/output" \
+            -v "$PWD/disk_config/diag.toml:/config.toml:ro" \
             quay.io/centos-bootc/bootc-image-builder:latest \
-            sh -c 'mkdir -p /tmp/t; mount -t tmpfs tmpfs /tmp/t && echo MOUNT_OK || echo MOUNT_FAILED' \
-          || echo "CONTAINER RUN FAILED"
+            build --output /output --chown 1001:1001 --type qcow2 \
+            quay.io/fedora/fedora-bootc:latest 2>&1 | tail -40
+          echo "--- did it produce an image? ---"
+          ls -la out/

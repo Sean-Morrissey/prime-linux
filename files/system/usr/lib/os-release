@@ -1,0 +1,16 @@
+NAME="Prime Linux"
+PRETTY_NAME="Prime Linux 1 (Student Edition)"
+VERSION="1 (Student Edition)"
+VERSION_ID=1
+VERSION_CODENAME=prime
+ID=primelinux
+ID_LIKE="fedora"
+ANSI_COLOR="0;38;2;122;162;247"
+LOGO=prime-logo
+CPE_NAME="cpe:/o:primelinux:prime_linux:1"
+HOME_URL="https://github.com/CHANGEME/prime-linux"
+DOCUMENTATION_URL="https://github.com/CHANGEME/prime-linux"
+SUPPORT_URL="https://github.com/CHANGEME/prime-linux/issues"
+BUG_REPORT_URL="https://github.com/CHANGEME/prime-linux/issues"
+DEFAULT_HOSTNAME="prime"
+OSTREE_VERSION="1.0"

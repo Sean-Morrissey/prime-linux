@@ -1,0 +1,11 @@
+# Build artifacts
+*.iso
+output/
+
+# Local BlueBuild state
+.bluebuild/
+
+# Editor noise
+.vscode/
+.idea/
+*.swp

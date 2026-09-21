@@ -1,0 +1,89 @@
+---
+# yaml-language-server: $schema=https://schema.blue-build.org/recipe-v1.json
+# Prime Linux — student-first atomic desktop with a resident AI agent.
+# Image publishes to ghcr.io/<your-github-user>/prime-linux
+name: prime-linux
+description: Prime Linux — a student-first atomic desktop that ships with a resident AI agent.
+
+# Base: Aurora = KDE Plasma on Fedora Atomic (Universal Blue). Batteries included
+# (drivers, codecs, flatpak setup, ujust helpers) and it is the friendliest base
+# for someone who has never used Linux.
+#   Swap options:
+#     ghcr.io/ublue-os/aurora          -> KDE (default, beginner-safe)
+#     ghcr.io/ublue-os/bazzite         -> KDE + gaming stack
+#     ghcr.io/ublue-os/bluefin         -> GNOME
+#     ghcr.io/blue-build/base-images/fedora-kinoite -> bare KDE, no extras
+base-image: ghcr.io/ublue-os/aurora
+image-version: latest
+
+modules:
+  # --- 1. The Prime layer: everything in files/system/ is copied over / ---------
+  - type: files
+    files:
+      - source: system
+        destination: /
+
+  # --- 2. Packages ------------------------------------------------------------
+  - type: dnf
+    repos:
+      copr:
+        # Hyprland stack for the "Prime" session (Sean's desktop).
+        # If this COPR breaks a build, comment out the copr entry + the hypr* packages
+        # below and ship the KDE-only image until it is healthy again.
+        - solopasha/hyprland
+    install:
+      packages:
+        # Prime session (Hyprland)
+        - hyprland
+        - hyprpaper
+        - hypridle
+        - hyprlock
+        - hyprpicker
+        - xdg-desktop-portal-hyprland
+        # Prime session shell + tools
+        - waybar
+        - fuzzel
+        - kitty
+        - grim
+        - slurp
+        - wl-clipboard
+        - playerctl
+        - brightnessctl
+        # Student + dev basics
+        - git
+        - ripgrep
+        - fd-find
+        - jq
+        - fastfetch
+        - btop
+        - tmux
+        - python3-pip
+        - nodejs
+        - npm
+
+  # --- 3. Agent runtime (Hermes) — installer fetched at build time -------------
+  # TODO(phase 2): pin a version / vendor the installer instead of pulling latest.
+  - type: script
+    snippets:
+      - "curl -LsSf https://astral.sh/uv/install.sh | UV_UNMANAGED_INSTALL=/usr/local sh"
+      - "chmod +x /usr/libexec/prime/firstboot.sh"
+
+  # --- 4. Store apps the agent + student workflow lean on ---------------------
+  - type: default-flatpaks
+    configurations:
+      - notify: false
+        scope: system
+        install:
+          - org.libreoffice.LibreOffice
+          - md.obsidian.Obsidian
+          - org.zotero.Zotero
+          - com.github.tchx84.Flatseal
+
+  # --- 5. First-boot wizard (per-user setup, never ships any secrets) ---------
+  - type: systemd
+    system:
+      enabled:
+        - prime-firstboot.service
+
+  # --- 6. Signing so updates verify ------------------------------------------
+  - type: signing

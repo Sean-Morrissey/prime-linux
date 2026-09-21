@@ -65,10 +65,20 @@ jobs:
         if: inputs.platform != 'arm64'
         uses: ublue-os/remove-unwanted-software@695eb75bc387dbcd9685a8e72d23439d8686cba6
         with:
-          remove-codeql: true
+          extra-squeeze: true
 
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      # The repo (and therefore the image) is private, so the builder has to
+      # authenticate before it can pull or it fails with a 401. The builder runs
+      # podman as root, so this has to be root's podman that gets the credential —
+      # logging in as the runner user is not enough, and that mistake looks like
+      # "Failed to pull image: exit code 125".
+      - name: Log in to GHCR for the builder
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | sudo podman login ghcr.io \
+            -u "${{ github.actor }}" --password-stdin
 
       - name: Build disk images
         id: build

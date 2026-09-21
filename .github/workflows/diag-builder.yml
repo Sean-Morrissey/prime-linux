@@ -1,16 +1,23 @@
 ---
-# Throwaway diagnostic, round 8. Round 7 (public fedora-bootc, direct, WITH the storage
-# volume, --rootfs ext4, --use-librepo=True) built fine on both runners. The second
-# attempt at round 8 dropped the storage volume and the builder refused outright:
-#   could not access container storage, did you forget -v /var/lib/containers/storage:...?
-# So the volume stays. The open question is which of these actually differs from round 7:
-#   * our PRIVATE image vs a public one
-#   * the image pre-pulled into host storage (what the action does) vs pulled by the
-#     builder itself through a mounted auth file
-#   * --rootfs and --use-librepo (round 7 had both, the failing builds had neither)
-# One variable per leg. Job status is honest here: pipefail + explicit exit, because
-# round 8's first attempt reported green jobs for builds that had exited 1.
-name: diag bisect
+# The next experiment for the disk build, kept as a file so nobody re-derives it.
+# Findings and what has already been ruled out: docs/DISK-BUILD-DEBUG.md.
+#
+# Four legs, one variable each, against the build that worked (public fedora-bootc,
+# host pre-pull, host storage volume, --rootfs ext4 --use-librepo=True):
+#   A  ours, pre-pulled, no extra flags        — the shape build-disk.yml uses today
+#   B  ours, builder pulls it (auth file)      — does the pre-pull matter?
+#   C  public, pre-pulled, no extra flags      — CONTROL: do the flags matter at all?
+#   D  ours, builder pulls, both flags         — does the flag set rescue our image?
+#
+# Read C first: if C fails at the storage mount, the flags are the difference and
+# build-disk.yml should carry them. If C passes, the difference is our image.
+#
+# Two rules this workflow exists to honour:
+#   * `permissions: packages: read` — without it the GHCR login is refused and every
+#     leg dies before reaching the part under test (that is what ruined run 35649008504).
+#   * `set -o pipefail` + explicit `exit $rc` — a piped step once reported green jobs
+#     for builds that had exited 1. A green tick must mean an image exists.
+name: diag builder
 
 on:
   workflow_dispatch:
@@ -29,7 +36,7 @@ jobs:
             src: ghcr.io/sean-morrissey/prime-linux:latest
             prepull: false
             extra: ""
-          - name: C-public-prepulled
+          - name: C-public-prepulled-control
             src: quay.io/fedora/fedora-bootc:latest
             prepull: true
             extra: ""
@@ -39,6 +46,9 @@ jobs:
             extra: "--rootfs btrfs --use-librepo=True"
     name: ${{ matrix.name }}
     runs-on: ubuntu-26.04
+    permissions:
+      contents: read
+      packages: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
@@ -49,7 +59,7 @@ jobs:
 
       - name: Pre-pull into host storage (what the action does)
         if: matrix.prepull
-        run: sudo podman pull -q "${{ matrix.src }}" || echo "PREPULL FAILED"
+        run: sudo podman pull -q "${{ matrix.src }}"
 
       - name: Show what the host storage holds
         run: sudo podman images --format '{{.Repository}}:{{.Tag}}'
@@ -57,7 +67,6 @@ jobs:
       - name: Build the qcow2
         run: |
           mkdir -p out
-          echo "extra args: ${{ matrix.extra }}"
           set +e
           sudo podman run --rm --privileged --security-opt label=type:unconfined_t \
             --volume /var/lib/containers/storage:/var/lib/containers/storage \
@@ -71,5 +80,4 @@ jobs:
           rc=${PIPESTATUS[0]}
           echo "=== BIB EXIT: $rc ==="
           find out -type f -printf '%p  %s bytes\n' 2>/dev/null
-          # Fail the job when the builder failed, so green means a real image exists.
           exit $rc

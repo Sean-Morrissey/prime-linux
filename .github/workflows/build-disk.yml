@@ -74,12 +74,19 @@ jobs:
       # authenticate before it can pull or it fails with a 401. The builder runs
       # podman as root, so this has to be root's podman that gets the credential —
       # logging in as the runner user is not enough, and that mistake looks like
-      # "Failed to pull image: exit code 125".
+      # "Failed to pull image: exit code 125". The `packages: read` permission above is
+      # what makes this login valid; without it the error reads like bad credentials.
       - name: Log in to GHCR for the builder
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | sudo podman login ghcr.io \
             -u "${{ github.actor }}" --password-stdin
 
+      # This step does NOT currently succeed: the qcow2 leg dies mounting the container
+      # storage inside the builder and the ISO leg dies mounting /dev into its build
+      # tree. docs/DISK-BUILD-DEBUG.md has the exact call, everything already ruled out
+      # (runner, capabilities, auth, the mount itself, the action's config), and the one
+      # experiment left — .github/workflows/diag-builder.yml. Do not re-litigate it from
+      # the log text; the log suggests causes the environment has already disproved.
       - name: Build disk images
         id: build
         uses: osbuild/bootc-image-builder-action@8661cd3832544ad68c12dcde8681b13ab0f56a8d # main
@@ -89,10 +96,10 @@ jobs:
           image: ${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.DEFAULT_TAG }}
           chown: ${{ env.USER_UID }}:${{ env.USER_GID }}
           types: ${{ matrix.disk-type }}
-          # --use-librepo=True was here and is gone on purpose: with a private image
-          # and root's podman storage authenticated, it failed with
-          # "mount: /run/osbuild/containers/storage: permission denied". It is an
-          # optimisation, not a requirement.
+          # Restored. It was removed during an earlier, wrong diagnosis that blamed it for
+          # the storage mount failure; the failure is unchanged without it, and the only
+          # build that has ever succeeded on these runners had it.
+          additional-args: --use-librepo=True
 
       - name: Upload disk images and checksum as job artifacts
         if: github.event_name != 'pull_request'

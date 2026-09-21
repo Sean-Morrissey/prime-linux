@@ -23,8 +23,8 @@ Pitch (for red-teaming): [`PITCH.md`](PITCH.md).
 | Base image | `ghcr.io/ublue-os/aurora:latest` — KDE, Fedora **44**, **3.46 GiB**, 256 layers |
 | Chosen over | `ghcr.io/ublue-os/bazzite` (4.69 GiB, gaming stack). Reverted to Aurora 2026-09-21 — rationale in the comment block of `recipes/recipe.yml` |
 | NVIDIA caveat | Aurora publishes **no** NVIDIA image. Bazzite and Bluefin do (`bazzite-nvidia`, `bluefin-nvidia`) |
-| Image publishing | `ghcr.io/<owner>/prime-linux` via `.github/workflows/build.yml` (daily 06:00 UTC) — **no repo pushed yet** |
-| Installable media | `.github/workflows/build-disk.yml` (qcow2 + anaconda-iso via bootc-image-builder) — written, **not yet run** |
+| Image publishing | `ghcr.io/<owner>/prime-linux` via `.github/workflows/build.yml` (daily 06:00 UTC) — **green and signed** (run 35641849466, tags `latest`/`44`/`20260921`) |
+| Installable media | `.github/workflows/build-disk.yml` (qcow2 + anaconda-iso via bootc-image-builder) — **BROKEN, blocked on a mount failure inside the builder.** Everything ruled out so far, the exact failing call, and the one experiment left: [`DISK-BUILD-DEBUG.md`](DISK-BUILD-DEBUG.md). No qcow2/ISO artifact exists yet, so the VM boot is not possible |
 | Hardware probe | `files/system/usr/libexec/prime/hw-probe.sh` — written, tested live (~0.2s), degrades cleanly when tools fail |
 | Identity seed | `docs/schemas/identity.schema.json` + `templates/identity.example.yaml` — validates, negative tests pass |
 | Permission model | `templates/capability-ladder.yaml` — `destructive.*` and `secrets.*` pinned at approve-each |
@@ -32,7 +32,7 @@ Pitch (for red-teaming): [`PITCH.md`](PITCH.md).
 | Interview beats 1–6 writers | **not written** |
 | Desktop route plugin | **not written** |
 | Backups | Design only. Aurora already ships `restic`, `rclone`, `DejaDup` |
-| Rebranding | `files/system/usr/lib/os-release` — `ID=primelinux`, `ID_LIKE=fedora` |
+| Rebranding | `files/system/usr/lib/os-release` — `ID=fedora` **on purpose** (the disk builder matches `ID`+`VERSION_ID` against its distro definitions), identity in `NAME`/`PRETTY_NAME`/`VARIANT`/`VARIANT_ID=primelinux`/`IMAGE_ID`. Guarded by `tools/check-os-release.sh` |
 | **Supervisor prototype** | `backends/arch/` — `prime` CLI + sandbox and btrfs backends. Lifecycle test: **26/26 passing** (`./backends/arch/test-lifecycle.sh`) |
 | Supervisor on a real machine | **not run.** The btrfs backend refuses unless `PRIME_ALLOW_REAL_SYSTEM_CHANGES=yes`; live restore is deliberately not wired up until it has been rehearsed on a throwaway VM |
 
@@ -103,6 +103,9 @@ then stops retrying after 2 bad boots so it cannot loop.
   layer by `tools/sync-supervisor.sh`; CI fails if the copies drift.
 
 ## Two rules about `usr/lib/os-release` (learned the hard way)
+
+See also [`DISK-BUILD-DEBUG.md`](DISK-BUILD-DEBUG.md) for the mount failure that
+currently blocks installable media.
 
 The disk build parses this file with a strict reader and fails in two separate ways:
 

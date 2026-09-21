@@ -33,6 +33,8 @@ Pitch (for red-teaming): [`PITCH.md`](PITCH.md).
 | Desktop route plugin | **not written** |
 | Backups | Design only. Aurora already ships `restic`, `rclone`, `DejaDup` |
 | Rebranding | `files/system/usr/lib/os-release` — `ID=primelinux`, `ID_LIKE=fedora` |
+| **Supervisor prototype** | `backends/arch/` — `prime` CLI + sandbox and btrfs backends. Lifecycle test: **26/26 passing** (`./backends/arch/test-lifecycle.sh`) |
+| Supervisor on a real machine | **not run.** The btrfs backend refuses unless `PRIME_ALLOW_REAL_SYSTEM_CHANGES=yes`; live restore is deliberately not wired up until it has been rehearsed on a throwaway VM |
 
 ## Rules
 

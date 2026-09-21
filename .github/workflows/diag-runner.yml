@@ -1,54 +1,42 @@
 ---
-# Throwaway diagnostic, round 3. Round 2 proved a --privileged container on this
-# runner CAN mount tmpfs and chown, before and after a root podman login. So the
-# failure is specific to what osbuild does: bind-mounting the container storage
-#   osbuild/util/containers.py:131 containers_storage_source
-#   osbuild/util/mnt.py:88 mount(...)  ->  mount: /run/osbuild/containers/storage:
-#                                          permission denied
-# Reproduce that exact call, with and without the storage volume present, and print
-# the namespace/capability state at that moment.
-name: diag storage bind mount
+# Throwaway diagnostic, round 4: the same action, the same config, two runner images.
+# Rounds 1-3 proved the runner can do everything osbuild needs (privileged root, no
+# user namespace, full capabilities, the storage bind mount succeeds interactively),
+# yet the real build fails inside bootc-image-builder at that same bind mount. So run
+# the actual action against a PUBLIC image on both runner images and see which one
+# gets further. No login anywhere: the variable under test is the runner, nothing else.
+name: diag runner A/B
 
 on:
   workflow_dispatch:
 
 jobs:
-  bind:
-    runs-on: ubuntu-26.04
+  build:
+    name: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-26.04]
+    runs-on: ${{ matrix.runner }}
     steps:
-      - name: who am I and what can I do inside the builder
-        run: |
-          sudo podman run --rm --privileged --security-opt label=type:unconfined_t \
-            --entrypoint /bin/sh quay.io/centos-bootc/bootc-image-builder:latest -c '
-              echo "id: $(id)"
-              echo "--- uid_map (a user namespace shows a non-trivial map) ---"
-              cat /proc/self/uid_map
-              echo "--- capabilities ---"
-              capsh --print 2>/dev/null | head -3 || grep Cap /proc/self/status
-            '
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - name: bind-mount the storage, exactly like osbuild does (with the volume)
+      - name: kernel and podman
         run: |
-          sudo podman run --rm --privileged --security-opt label=type:unconfined_t \
-            --volume /var/lib/containers/storage:/var/lib/containers/storage \
-            --entrypoint /bin/sh quay.io/centos-bootc/bootc-image-builder:latest -c '
-              mkdir -p /run/osbuild/containers/storage
-              mount --bind /var/lib/containers/storage /run/osbuild/containers/storage \
-                && echo BIND_OK || echo "BIND_FAILED rc=$?"
-              echo "--- mountinfo for the source ---"
-              grep containers/storage /proc/self/mountinfo | head -3
-            '
+          uname -r
+          podman --version
+          sudo podman info --format 'driver={{.Store.GraphDriverName}}'
 
-      - name: same bind mount, without the volume present
-        run: |
-          sudo podman run --rm --privileged --security-opt label=type:unconfined_t \
-            --entrypoint /bin/sh quay.io/centos-bootc/bootc-image-builder:latest -c '
-              mkdir -p /var/lib/containers/storage /run/osbuild/containers/storage
-              mount --bind /var/lib/containers/storage /run/osbuild/containers/storage \
-                && echo BIND_OK_NO_VOLUME || echo "BIND_FAILED_NO_VOLUME rc=$?"
-            '
+      - name: Build disk images (public fedora-bootc, no auth)
+        id: build
+        uses: osbuild/bootc-image-builder-action@8661cd3832544ad68c12dcde8681b13ab0f56a8d # main
+        with:
+          builder-image: quay.io/centos-bootc/bootc-image-builder:latest
+          config-file: ./disk_config/disk.toml
+          image: quay.io/fedora/fedora-bootc:latest
+          chown: "1001:1001"
+          types: qcow2
 
-      - name: does the builder see a Fedora 44 image to work from
-        run: |
-          sudo podman pull -q quay.io/fedora/fedora-bootc:latest >/dev/null 2>&1 || true
-          sudo podman images --format '{{.Repository}}:{{.Tag}} {{.Size}}' | head -5
+      - name: Did it produce anything?
+        if: always()
+        run: ls -la out/ 2>/dev/null || ls -la ${{ steps.build.outputs.output-directory }} 2>/dev/null || echo "no output directory"

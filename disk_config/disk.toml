@@ -1,0 +1,6 @@
+# bootc-image-builder config for the qcow2 disk image (VM testing).
+# Disk layout only: Prime must run on a laptop with a small SSD as happily as on a
+# desktop, so we ask for a floor, not a fixed size.
+[[customizations.filesystem]]
+mountpoint = "/"
+minsize = "20 GiB"

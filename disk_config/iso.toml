@@ -1,0 +1,6 @@
+# bootc-image-builder config for the anaconda-iso (the USB you hand to someone).
+# Kept deliberately minimal: the stock installer plus our image. The interview is
+# what personalizes the machine, not the installer.
+[[customizations.filesystem]]
+mountpoint = "/"
+minsize = "20 GiB"

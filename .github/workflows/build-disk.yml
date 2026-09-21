@@ -1,0 +1,92 @@
+---
+name: Build disk images
+
+# Produces installable media straight from CI, so nobody needs podman, the
+# bluebuild CLI or sudo on their own machine to see the real thing:
+#   * qcow2        — boot it directly in QEMU, no install step (fastest feedback)
+#   * anaconda-iso — what gets flashed to a USB stick for real hardware
+#
+# Runs after the image build (build.yml) has published ghcr.io/<owner>/prime-linux.
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        required: true
+        type: choice
+        options:
+          - amd64
+          - arm64
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "./disk_config/disk.toml"
+      - "./disk_config/iso.toml"
+      - "./.github/workflows/build-disk.yml"
+
+env:
+  IMAGE_NAME: prime-linux # must match recipes/recipe.yml `name:` and build.yml
+  IMAGE_REGISTRY: "ghcr.io/${{ github.repository_owner }}" # do not edit
+  DEFAULT_TAG: "latest"
+  BIB_IMAGE: "quay.io/centos-bootc/bootc-image-builder:latest"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build disk images
+    runs-on: ${{ inputs.platform == 'arm64' && 'ubuntu-26.04-arm' || 'ubuntu-26.04' }}
+    strategy:
+      fail-fast: false # a failing ISO leg must not hide a good qcow2
+      matrix:
+        disk-type: ["qcow2", "anaconda-iso"]
+    permissions:
+      contents: read
+      packages: read
+      id-token: write
+
+    steps:
+      - name: Prepare environment
+        run: |
+          USER_UID=$(id -u)
+          USER_GID=$(id -g)
+          DISK_TYPE=$(echo "${{ matrix.disk-type }}" | tr ' ' '-')
+          # GHCR repository paths are lowercase-only
+          echo "IMAGE_REGISTRY=${IMAGE_REGISTRY,,}" >> ${GITHUB_ENV}
+          echo "IMAGE_NAME=${IMAGE_NAME,,}" >> ${GITHUB_ENV}
+          echo "DISK_TYPE=${DISK_TYPE}" >> ${GITHUB_ENV}
+          echo "USER_UID=${USER_UID}" >> ${GITHUB_ENV}
+          echo "USER_GID=${USER_GID}" >> ${GITHUB_ENV}
+
+      - name: Maximize build space
+        if: inputs.platform != 'arm64'
+        uses: ublue-os/remove-unwanted-software@695eb75bc387dbcd9685a8e72d23439d8686cba6
+        with:
+          remove-codeql: true
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Build disk images
+        id: build
+        uses: osbuild/bootc-image-builder-action@8661cd3832544ad68c12dcde8681b13ab0f56a8d # main
+        with:
+          builder-image: ${{ env.BIB_IMAGE }}
+          config-file: ${{ matrix.disk-type == 'anaconda-iso' && './disk_config/iso.toml' || './disk_config/disk.toml' }}
+          image: ${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.DEFAULT_TAG }}
+          chown: ${{ env.USER_UID }}:${{ env.USER_GID }}
+          types: ${{ matrix.disk-type }}
+          additional-args: --use-librepo=True
+
+      - name: Upload disk images and checksum as job artifacts
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          path: ${{ steps.build.outputs.output-directory }}
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+          overwrite: true

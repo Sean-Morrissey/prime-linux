@@ -416,6 +416,173 @@ that the user can edit with a text editor if they want to.
 
 ---
 
+## Beats 7–13: the deep surface
+
+Beats 1–6 make a working machine. Beats 7–13 make it *their* machine, and they are
+the reason the interview is the product rather than a form. Every one of these is a
+real choice a person can have an opinion about, so Prime asks — but it never asks
+blind (see the asking policy below).
+
+### Beat 7 — How the desktop behaves
+
+Prime says: *"Last big one — how do you want the desktop itself to work?"*
+
+| Choice | What it means | Suggested when |
+|---|---|---|
+| **Prime** (Hyprland) | keyboard-driven tiling, workspaces, hotkeys, voice-first | the user codes, or asks for "fast", or picks it deliberately |
+| **Familiar** (KDE, Windows-like) | taskbar, start menu, minimise buttons — what most people already know | the user is not technical (default) |
+| **Ubuntu-like** | dock on the left, top bar, app-grid launcher | the user has used Ubuntu or a school Linux box |
+| **Minimal** | one panel, no dock, no desktop icons | the user asks for "nothing in my way" |
+
+The choice renders **live**: the panel switches while they are still looking at it,
+on a preview desktop, before it is applied for real. Nobody has to imagine what
+"tiling" means — they see two windows snap into place.
+
+Switching later is one command and loses nothing; this is a preference, not an
+identity.
+
+### Beat 8 — Look: theme, colour, wallpaper, type
+
+- **Theme family** — suggested from the monitor's colour profile and the lighting in
+  the room if a webcam exists, otherwise dark (default).
+- **Accent colour** — 8 swatches plus "pick anything" (colour wheel).
+- **Wallpaper** — generated options, a folder of choices, or "use my photo".
+- **Fonts and text size** — previewed live in a sample paragraph, not described.
+- **Density** — compact vs comfortable rows, spacing of the interface.
+- **Logo/motd** — which Prime mark shows in the terminal (`logo-block.txt`, the
+  ASCII Optimus, or none). Themed so it is not a sticker on top of a wardrobe.
+
+### Beat 9 — Keyboard and hotkeys
+
+Prime reads the layout from the system, then shows a **binding sheet** and asks
+what to change. The suggested set is the Prime preset, which is the set already
+proven on the author's machine:
+
+| Key | Action |
+|---|---|
+| Super+R (hold) | push-to-talk — the assistant listens while held, sends on release |
+| Super+R (tap) | typing box — same bar, keyboard instead of voice |
+| Print | snip a region → annotate sheet |
+| Shift+Print | full screen | 
+| Super+Print | focused window |
+| Alt+Print | the monitor under the pointer |
+| Super+Alt+A | snip region → "what is this?" |
+| Super+Return | terminal | 
+| Super+Q | close window | 
+| Super+1..9 | workspace |
+
+Honest rule: hotkeys that could collide with an application or an accessibility
+feature are listed with their collision, not silently taken.
+
+### Beat 10 — Terminal and tools
+
+Shell (fish/zsh/bash, suggested from what they already type), prompt theme, editor,
+file manager, and the package strategy: **flatpak first, `brew` for CLI tools,
+containers for dev, system packages last** — because that is the order that cannot
+break the machine. The user is told the difference in one sentence:
+
+> *"Apps install instantly. System-level things need a rebuild and a reboot, and I
+> can roll those back. That is why I do it in that order."*
+
+### Beat 11 — Voice
+
+Off by default: nobody should be surprised by a machine that talks.
+
+- **Push-to-talk key** (default Super+R, hold to talk, release to send).
+- **Voice** — a small menu of installed voices, each previewed in one sentence so
+  they can hear it rather than read a name.
+- **Style** — pace, warmth, how much it says. The default is *"one or two sentences
+  when something finishes or needs a decision; full detail in the transcript"* —
+  a voice that reads an essay aloud is a voice people switch off.
+- **Ducking** — lower other audio while Prime speaks (never mute it), so it works
+  over music.
+- **Quiet hours** — when Prime will not speak, only write.
+- **Spoken-language lock** — the voice speaks one language, chosen here, and never
+  guesses per token. (Hard-won: a multilingual voice reading maths symbols aloud in
+  a random language is a bug people experience as "the assistant is broken".)
+
+### Beat 12 — How the assistant behaves
+
+| Capability | Asked as | Default |
+|---|---|---|
+| **Snip & ask** | "want screen capture on a hotkey?" | on |
+| **Tutor mode** | "should I teach or just answer?" | teach for coursework, answer elsewhere |
+| **Whiteboard** | "want a board app I can draw on with you?" | on for students |
+| **Study tracker** | "want me to keep your term organised?" | on if courses were entered |
+| **Web + research** | "may I look things up for you?" | on |
+| **Self-improvement** | "may I review my own mistakes and change how I work?" | on, with a weekly summary of what it changed |
+| **Read scope** | "which folders may I look at without asking?" | home only; everything else asks each time |
+| **Spending** | "what's the most I should ever spend in a month?" | a hard number, shown back |
+
+### Beat 13 — Memory and the record
+
+This is what makes it feel like the same assistant in month six:
+
+- **Everything is documented.** Every conversation, every command Prime runs,
+  every change it makes — appended to a local, human-readable log
+  (`~/.config/prime/audit.jsonl` for actions, the session archive for talk). Not
+  telemetry: it never leaves the machine, and the user can read or delete any of it.
+- **Memory has two speeds** — a small curated set of facts that is always in mind,
+  and a searchable archive of everything else. Prime is told, in words, the
+  difference: *"I always remember a few things about you; I can look up the rest."*
+- **Patterns become defaults.** If they always decline the same suggestion, Prime
+  stops making it. If they always change one setting back, Prime changes its
+  suggestion. This is recorded as a preference, not inferred silently.
+- **Patterns get reviewed out loud** — a weekly digest: what Prime learned, what it
+  changed about itself, what it wants to ask next. One screen, dismissible, and the
+  user can strike anything from it.
+- **Forgetting is a feature.** "Forget that" and "forget everything after a date"
+  are real commands, and they work.
+
+---
+
+## The asking policy
+
+Sean's framing: *ask every customizable option Prime feels the user would want to
+know about, but make suggestions and learn off the answer patterns.* Made concrete:
+
+1. **Ask about anything a person could reasonably have an opinion about.** Opinion
+   is the test, not complexity.
+2. **Never ask what can be observed.** Screen size, GPU, keyboard layout, locale,
+   printer presence: detect, then *state what was detected* — confirm, don't quiz.
+3. **Every question arrives with a suggestion and a reason.** *"Dark theme — it
+   matches your monitor and it's 11pm."* A question without a recommendation wastes
+   the user's attention.
+4. **One question, one decision.** No compound questions, no menus inside menus.
+5. **Skip is always available and always free.** Every beat has a working default,
+   and "later" is a valid answer that is honoured by not asking again that session.
+6. **Answers become data, not instructions.** Each answer is written to a file, and
+   the *deviations* from Prime's suggestions are what get remembered: accepting a
+   suggestion is a weak signal, overriding one is a strong signal.
+7. **Learn the pattern, then stop asking.** After a few consistent answers, Prime
+   proposes the new default instead of asking again — and says so: *"I've noticed
+   you always want the terminal maximised, so I've started doing that."*
+8. **Never ask twice about the same thing.** If it was answered, it is a preference
+   from then on, and changing it is a conversational edit rather than a wizard.
+9. **Depth on request, not by default.** The full list of options is available on
+   demand ("show me everything") for the user who wants to go deep — that is a
+   different person from the one who wants to be done in five minutes, and the
+   interview must serve both without making either sit through the other.
+10. **The interview never ends.** Beats are re-runnable one at a time, forever,
+    by voice: *"Prime, I want the Prime session instead"* re-runs Beat 7.
+
+---
+
+## The power preset
+
+For the author's own machine, the interview collapses to one answer: every beat
+described above already exists and works — push-to-talk on Super+R, snip on Print
+and friends, a whiteboard service, a study dashboard, the activity timeline logging
+every move, an academic tutor persona, and an archive of every past conversation
+that can be searched. In the distro this is packaged as **"set it up like mine"** —
+one choice on Beat 7 that answers Beats 7–12 at once, and every individual beat
+stays editable afterwards.
+
+That preset is also the honest demo: it is a working reference implementation of
+the whole idea, not a design document.
+
+---
+
 ## Implementation plan
 
 ### Phase 1 — Script-only interview (no model required)

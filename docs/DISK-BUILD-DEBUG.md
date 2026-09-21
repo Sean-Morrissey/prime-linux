@@ -64,17 +64,21 @@ flags differs from the build that worked.** Round 7's success had
 builds had none of the flags and a private image that was pre-pulled.
 
 `.github/workflows/diag-builder.yml` holds that experiment, four legs, one variable
-each, ready to dispatch. Read leg C first:
+each, ready to dispatch. Read leg D (the public control) first:
 
-- **C fails at the storage mount** → the flags are the difference; add them to
+- **D fails** → the environment regressed; nothing in the run is about our image.
+- **D passes, C fails** → the difference is our image (ublue/Aurora-derived); compare
+  its storage/driver metadata next.
+- **D and C both pass** → the missing flags were the whole fix; add them to
   `build-disk.yml`.
-- **C passes** → the difference is our image (ublue/Aurora-derived), and leg D
-  (our image + the same flags) says whether the flags rescue it too.
 
-Run 35649008504 was the first attempt at this and is **not** usable: the diagnostic
-workflow did not declare `permissions: packages: read`, so its root podman login was
-refused with `invalid username/password: unauthorized` and three legs never got to the
-part under test. The corrected workflow declares it.
+Run 35649008504 was the first attempt and is **not** usable, for two separate reasons:
+the diagnostic workflow did not declare `permissions: packages: read`, so its root podman
+login was refused with `invalid username/password: unauthorized` and legs A, B and D died
+at `failed to inspect the image: exit status 125` — which reads like a build failure and
+is actually bad credentials; and the public control omitted `--rootfs`, so it died with
+`missing required info: DefaultRootFs` before reaching anything under test. The corrected
+workflow declares the permission and gives fedora-bootc the `--rootfs ext4` it requires.
 
 ## The lessons that cost the most
 

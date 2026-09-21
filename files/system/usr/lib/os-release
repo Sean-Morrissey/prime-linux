@@ -1,7 +1,10 @@
 NAME="Prime Linux"
 PRETTY_NAME="Prime Linux 1 (Student Edition)"
 VERSION="1 (Student Edition)"
-VERSION_ID=1
+# VERSION_ID must stay the BASE Fedora release, not our own version number: build
+# tooling and dnf read it to resolve repos and chroots. Our own numbering lives in
+# the PRIME_* keys so we never lie to a package manager again.
+VERSION_ID=44
 VERSION_CODENAME=prime
 ID=primelinux
 ID_LIKE="fedora"

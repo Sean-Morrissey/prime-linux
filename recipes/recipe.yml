@@ -37,30 +37,21 @@ base-image: ghcr.io/ublue-os/aurora
 image-version: latest
 
 modules:
-  # --- 1. The Prime layer: everything in files/system/ is copied over / ---------
-  - type: files
-    files:
-      - source: system
-        destination: /
-
-  # --- 2. Packages ------------------------------------------------------------
+  # --- Packages ---------------------------------------------------------------
+  # The Prime file layer deliberately runs LAST, not first: our os-release rebrand
+  # must not be visible to modules that run at build time. It was visible before and
+  # it broke the build — see the note on the files module at the bottom.
   - type: dnf
-    repos:
-      copr:
-        # Hyprland stack for the "Prime" session (Sean's desktop).
-        # If this COPR breaks a build, comment out the copr entry + the hypr* packages
-        # below and ship the KDE-only image until it is healthy again.
-        - solopasha/hyprland
     install:
       packages:
-        # Prime session (Hyprland)
-        - hyprland
-        - hyprpaper
-        - hypridle
-        - hyprlock
-        - hyprpicker
-        - xdg-desktop-portal-hyprland
-        # Prime session shell + tools
+        # NOTE (verified 2026-09-21): the Hyprland session is NOT installed yet.
+        # `solopasha/hyprland` — the COPR this used to pull from — publishes ONLY
+        # fedora-rawhide, its last build succeeded 10 months ago, and its own project
+        # page says "Very likely personal repository for testing purpose, which you
+        # should not use." It cannot feed Fedora 44. Sourcing Hyprland is a milestone-2
+        # problem (build it from source in a build stage, or find a maintained repo);
+        # the default desktop for the target user is KDE anyway.
+        # Prime session shell + tools (all present in Fedora 44 — verified)
         - waybar
         - fuzzel
         - kitty
@@ -108,5 +99,15 @@ modules:
       enabled:
         - prime-firstboot.service
 
-  # --- 6. Signing so updates verify ------------------------------------------
+  # --- The Prime layer: everything in files/system/ is copied over / ----------
+  # Runs LAST on purpose. Our os-release rebrand used to run first, and the dnf
+  # module then read VERSION_ID=1 from it and asked COPR for a `fedora-1-x86_64`
+  # chroot — the build died on "Chroot not found in the given Copr project".
+  # Rule: branding lands after anything that inspects the base system.
+  - type: files
+    files:
+      - source: system
+        destination: /
+
+  # --- Signing so updates verify ----------------------------------------------
   - type: signing

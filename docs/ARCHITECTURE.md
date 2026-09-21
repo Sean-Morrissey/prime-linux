@@ -133,3 +133,88 @@ Sean's own machine stays CachyOS. Prime Linux is what gets *shipped*.
 5. Student layer: StudyHub, term scaffolding, whiteboard, math practice.
 6. Always-on: voice service, reminders, spend cap UI, activity audit viewer.
 7. Polish: logo, wallpaper, Plymouth, installer branding, `prime` CLI.
+
+---
+
+## 8. The hard problems
+
+Four objections get raised against this design. Three have answers; one is a real
+long-term bet.
+
+### 8.1 The onboarding conversation is the entire product
+
+Correct, with one correction to the usual framing: **the failure mode is not
+"too many questions", it is "a form".** Asking eight questions before anything
+happens is a traditional installer with a chat skin.
+
+The contract instead:
+
+- **Prime acts while it asks.** Inside the first sixty seconds it does something
+  visible and useful — profiles the hardware, sets up the desktop, reports what it
+  found ("your Wi-Fi, printer and display are working; you have 460 GB free"). The
+  user sees competence before being asked for anything.
+- **Each answer produces an immediate visible effect.** Courses typed in → the term
+  scaffolding and reminders appear, right there, on screen.
+- **Terse by design, inferred by default.** Name, what you study, what you mostly
+  do, do you code, do you game, accessibility needs, light/dark, anything else.
+  Everything else is inferred from the machine or deferred until first needed
+  ("I'll set up LaTeX when you first need it").
+- **Interruption is free.** Skip, stop, come back, or say "actually, change my
+  dark mode" a year later. The interview never really ends — it just gets quieter.
+- **Not chat-only.** A novice mis-hearing an AI is worse than a form. The interview
+  is a small wizard Prime narrates and drives, with voice optional.
+
+### 8.2 Memory architecture decides whether Prime is still useful in week two
+
+The shape is right and **most of it already exists in shipping form on Sean's
+machine** — this is the strongest evidence the design is buildable:
+
+| Piece | Existing implementation |
+|---|---|
+| Identity / preference seed | `~/.hermes/memories/USER.md` + `MEMORY.md` (curated, char-capped) |
+| Episodic log (what happened, when) | `~/.hermes/state.db` + full-text search over every past session |
+| Event log (what Prime *did*, outcome) | `~/College/whiteboard/activity.jsonl` via the activity-timeline hook |
+| Retrieval layer | `session_search` + memory injection per turn; `ai-search` over archived transcripts |
+| Procedures (how to do recurring tasks) | skills |
+| Long-term archive | `~/AI-Transcripts-Archive/` Markdown transcripts |
+
+What the distro adds is not the mechanism, it is **ownership and legibility**: the
+memory is visible and editable by the user, exportable, and never leaves the
+machine. The real gaps to design are the pruning policy (a capped store needs
+consolidation rules, not just appends) and *proactive recall* — nothing surfaces
+last Tuesday's group project unless something triggers the search.
+
+### 8.3 Cloud dependency vs local inference
+
+The usual answer — bolt on a small local model for offline mode — is the wrong
+first move, because **most supervision does not need a model at all.** Prime's
+routine work is deterministic: is the disk filling, did the last update boot
+cleanly, is the printer reachable, is the snapshot chain intact, is the service
+alive. That has to be scripts: free, offline, instant, auditable, and impossible to
+hallucinate.
+
+So the tiering is three rungs, not two:
+
+1. **Scripts** — health, updates, rollback, reminders, setup actions. Always
+   available, no network, no cost. This is the majority of "always on".
+2. **Cloud model** — conversation, novel reasoning, coursework help, the interview
+   itself. Needs network and money: hence a spend cap, a free-tier provider
+   option, and honest degradation ("I can't reach the model right now; the system
+   itself is fine and healthy").
+3. **Local model** — optional, later, for talking to Prime offline. Not v1.
+
+### 8.4 Who maintains it for years
+
+The real risk, and the honest answer is *make the maintenance surface small enough
+to survive one person.*
+
+- The overlay is a **recipe and a file tree**, not a fork: no kernel, no drivers, no
+  desktop source. Upstream carries security updates, hardware support and the
+  desktop; the daily CI rebuild absorbs them without a human.
+- **Publish it rebasable.** The artifact is the recipe — anyone can point it at
+  their own registry and carry it. That is what stops the project from dying with
+  one person's enthusiasm.
+- **Upstream the layer.** The agent packaging, voice stack and self-repair belong
+  in the upstream project, not a private fork of it.
+- The per-Fedora-release work is real and recurring; the mitigation is thinness,
+  not heroics.

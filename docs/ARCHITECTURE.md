@@ -239,3 +239,48 @@ to survive one person.*
   in the upstream project, not a private fork of it.
 - The per-Fedora-release work is real and recurring; the mitigation is thinness,
   not heroics.
+
+---
+
+## 9. Base-agnostic supervision (and the honest Arch story)
+
+The question that keeps coming back: can this work on Arch, like Sean's own CachyOS?
+The answer splits cleanly, and the split is the useful part.
+
+**The agent layer does not care what distro it runs on.** hw-probe, the interview,
+the identity seed, the capability ladder, the voice stack, the reminders — none of
+it is Fedora-specific. What is base-specific is exactly one thing: *how a bad update
+gets undone.* So supervision is an interface with swappable backends:
+
+| Verb | What it means |
+|---|---|
+| `check_update` | is there a newer version, and what changed |
+| `apply_update` | take it, and leave the previous state reachable |
+| `list_rollbacks` | what points can we go back to, in plain language |
+| `apply_rollback` | go back |
+| `health_check` | did the machine come up sane — services, network, audio, disk, session |
+
+Three backends implement it:
+
+1. **Atomic image (bootc/ostree)** — Aurora, Bazzite, Bluefin. Rollback is a boot
+   menu entry; the previous image is always there. Failure is bounded and rare.
+2. **btrfs snapshots** — CachyOS / Arch with `snapper` plus `limine-snapper-sync`,
+   which snapshots every pacman transaction and exposes the snapshots *in the
+   bootloader*, so recovery is "pick the older entry", not "chroot and pray".
+   CachyOS documents this as a first-class feature.
+3. **Arch image systems** — `arkdep` (Arkane Linux) and Manjaro Immutable. Real,
+   image-based, and interesting — but small community projects with narrower
+   hardware coverage. Not what ships to a beginner.
+
+Two honest differences, in opposite directions:
+
+- **On Arch, Prime's powers are stronger.** `pacman -S` is synchronous, so "install
+  this for me" actually installs instead of triggering an image rebuild and a
+  reboot. The async limitation in §2 is a Fedora-Atomic property, not a universal
+  one.
+- **On Arch, failure is more frequent.** Rolling updates break things more often,
+  and recovery still requires a human at a boot menu when the system doesn't come
+  up. Rollback makes Arch *recoverable*; it does not make it *safe for someone who
+  cannot diagnose it*. So atomic stays the default for the shipped distro and
+  snapshot-based Arch is the power option: Prime Linux (Atomic) and Prime Linux
+  (Arch edition) are two backends over one supervisor, not two rival ideas.

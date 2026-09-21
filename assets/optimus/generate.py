@@ -98,8 +98,9 @@ rrect([43, 30, 53, 40], fill=SILVER, r=3, w=1)                   # mouthplate
 d.line([(45, 32), (51, 32)], fill=SILVER_D)
 d.line([(45, 36), (51, 36)], fill=SILVER_D)
 rrect([41, 40, 55, 45], fill=SILVER_D, r=2, w=1)                 # chin
-rect([32, 45, 64, 49], GREY, GREY_D, 1)                          # wide collar: breaks
-#   the head off from the chest so the faceplate and grille stop reading as one stalk
+rect([36, 46, 60, 49], GREY, GREY_D, 1)                          # collar: inside the
+#   chest edge, so it reads as the head's base rather than a bar running out to the
+#   shoulders and ending in stray nubs
 
 # ================================================================== output
 px = img.load()

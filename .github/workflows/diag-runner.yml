@@ -1,58 +1,54 @@
 ---
-# Throwaway diagnostic. The disk build keeps dying inside bootc-image-builder with
-#   mount: /run/osbuild/containers/storage: permission denied
-# and `fchownat() ... Operation not permitted` — symptoms of a container that is not
-# really privileged. Two questions:
-#   1. can a --privileged container on this runner mount at all?
-#   2. does the real build path work against a PUBLIC image with no login? (if yes,
-#      our GHCR login / root podman storage is the difference, not the runner)
-name: diag runner capabilities
+# Throwaway diagnostic, round 3. Round 2 proved a --privileged container on this
+# runner CAN mount tmpfs and chown, before and after a root podman login. So the
+# failure is specific to what osbuild does: bind-mounting the container storage
+#   osbuild/util/containers.py:131 containers_storage_source
+#   osbuild/util/mnt.py:88 mount(...)  ->  mount: /run/osbuild/containers/storage:
+#                                          permission denied
+# Reproduce that exact call, with and without the storage volume present, and print
+# the namespace/capability state at that moment.
+name: diag storage bind mount
 
 on:
   workflow_dispatch:
 
 jobs:
-  caps:
-    name: privileged container can mount?
+  bind:
     runs-on: ubuntu-26.04
     steps:
-      - name: podman and storage
-        run: |
-          podman --version
-          sudo podman info --format 'driver={{.Store.GraphDriverName}} graphroot={{.Store.GraphRoot}} runroot={{.Store.RunRoot}}'
-          sudo ls -ld /var/lib/containers/storage
-          cat /etc/containers/storage.conf 2>/dev/null || echo "(no /etc/containers/storage.conf)"
-
-      - name: mount test, before any login
+      - name: who am I and what can I do inside the builder
         run: |
           sudo podman run --rm --privileged --security-opt label=type:unconfined_t \
-            --entrypoint /bin/sh quay.io/centos-bootc/bootc-image-builder:latest \
-            -c 'id; mkdir -p /tmp/t; mount -t tmpfs tmpfs /tmp/t && echo MOUNT_OK || echo MOUNT_FAILED; \
-                touch /tmp/t/f && chown 1001:1001 /tmp/t/f && echo CHOWN_OK || echo CHOWN_FAILED'
+            --entrypoint /bin/sh quay.io/centos-bootc/bootc-image-builder:latest -c '
+              echo "id: $(id)"
+              echo "--- uid_map (a user namespace shows a non-trivial map) ---"
+              cat /proc/self/uid_map
+              echo "--- capabilities ---"
+              capsh --print 2>/dev/null | head -3 || grep Cap /proc/self/status
+            '
 
-      - name: mount test, after logging in as root
+      - name: bind-mount the storage, exactly like osbuild does (with the volume)
         run: |
-          echo "${{ secrets.GITHUB_TOKEN }}" | sudo podman login ghcr.io -u "${{ github.actor }}" --password-stdin
-          sudo podman info --format 'driver={{.Store.GraphDriverName}} graphroot={{.Store.GraphRoot}}'
           sudo podman run --rm --privileged --security-opt label=type:unconfined_t \
-            --entrypoint /bin/sh quay.io/centos-bootc/bootc-image-builder:latest \
-            -c 'mkdir -p /tmp/t; mount -t tmpfs tmpfs /tmp/t && echo MOUNT_OK || echo MOUNT_FAILED'
+            --volume /var/lib/containers/storage:/var/lib/containers/storage \
+            --entrypoint /bin/sh quay.io/centos-bootc/bootc-image-builder:latest -c '
+              mkdir -p /run/osbuild/containers/storage
+              mount --bind /var/lib/containers/storage /run/osbuild/containers/storage \
+                && echo BIND_OK || echo "BIND_FAILED rc=$?"
+              echo "--- mountinfo for the source ---"
+              grep containers/storage /proc/self/mountinfo | head -3
+            '
 
-  public-image:
-    name: real build path, public image, no login
-    runs-on: ubuntu-26.04
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - name: bootc-image-builder against fedora-bootc
+      - name: same bind mount, without the volume present
         run: |
-          mkdir -p out
-          cp disk_config/disk.toml disk_config/diag.toml
           sudo podman run --rm --privileged --security-opt label=type:unconfined_t \
-            -v /var/lib/containers/storage:/var/lib/containers/storage \
-            -v "$PWD/out:/output" \
-            -v "$PWD/disk_config/diag.toml:/config.toml:ro" \
-            quay.io/centos-bootc/bootc-image-builder:latest \
-            build --output /output --chown 1001:1001 --type qcow2 \
-            quay.io/fedora/fedora-bootc:latest 2>&1 | tail -40
-          echo "--- did it produce an image? ---"
-          ls -la out/
+            --entrypoint /bin/sh quay.io/centos-bootc/bootc-image-builder:latest -c '
+              mkdir -p /var/lib/containers/storage /run/osbuild/containers/storage
+              mount --bind /var/lib/containers/storage /run/osbuild/containers/storage \
+                && echo BIND_OK_NO_VOLUME || echo "BIND_FAILED_NO_VOLUME rc=$?"
+            '
+
+      - name: does the builder see a Fedora 44 image to work from
+        run: |
+          sudo podman pull -q quay.io/fedora/fedora-bootc:latest >/dev/null 2>&1 || true
+          sudo podman images --format '{{.Repository}}:{{.Tag}} {{.Size}}' | head -5

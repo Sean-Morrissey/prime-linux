@@ -14,7 +14,7 @@ This document is the design of record. Everything in `recipes/` follows from it.
 
 | Layer | What lives there | Who changes it |
 |---|---|---|
-| **Base image** | Fedora Atomic (Aurora/KDE) — kernel, drivers, firmware, desktop | upstream + daily CI rebuild |
+| **Base image** | Fedora Atomic (Bazzite/KDE) — kernel, drivers, firmware, desktop | upstream + daily CI rebuild |
 | **Prime layer** | Hermes agent, voice stack, StudyHub, whiteboard, self-repair, branding | you, by editing `recipes/recipe.yml` (CI rebuilds) |
 | **User layer** | identity, courses, projects, dotfiles, installed apps, habits | **Prime**, during and after the first-boot interview |
 
@@ -109,6 +109,20 @@ opened a terminal, for exactly one reason:
 
 Sean's own machine stays CachyOS. Prime Linux is what gets *shipped*.
 
+**Why Bazzite specifically, of the Universal Blue images:** a student machine that
+can't run the games its owner already plays gets dual-booted back to Windows within
+a month, and then the whole project is pointless. Bazzite ships KDE Plasma as the
+default desktop, Steam/Proton/Gamescope working out of the box, the broadest
+hardware support of the set, and the most heavily tested update stream — for the
+cost of a larger image and a pile of gaming tooling we never use for coursework.
+That trade is worth it: it removes the single most common reason a curious student
+abandons Linux. Aurora (no gaming stack) and `bazzite-nvidia` remain one-line swaps
+in `recipes/recipe.yml` if the target hardware or the size budget says otherwise.
+
+One consequence to handle: Bazzite ships its own first-run welcome tooling. Our
+first-boot interview replaces it, so the recipe has to disable the upstream one
+rather than let two setup experiences race on first login.
+
 ---
 
 ## 6. Runtime shape
@@ -126,7 +140,7 @@ Sean's own machine stays CachyOS. Prime Linux is what gets *shipped*.
 
 ## 7. Milestones
 
-1. Bootable ISO from this repo: Aurora base, rebranded, stock install works. **← now**
+1. Bootable ISO from this repo: Bazzite base, rebranded, stock install works. **← now**
 2. Two sessions at login: "Desktop" (KDE, default) and "Prime" (Hyprland).
 3. The interview: first-boot conversation that personalizes the install.
 4. Supervision: update watcher, post-update health check, guided rollback.

@@ -5,15 +5,27 @@
 name: prime-linux
 description: Prime Linux — a student-first atomic desktop that ships with a resident AI agent.
 
-# Base: Aurora = KDE Plasma on Fedora Atomic (Universal Blue). Batteries included
-# (drivers, codecs, flatpak setup, ujust helpers) and it is the friendliest base
-# for someone who has never used Linux.
-#   Swap options:
-#     ghcr.io/ublue-os/aurora          -> KDE (default, beginner-safe)
-#     ghcr.io/ublue-os/bazzite         -> KDE + gaming stack
-#     ghcr.io/ublue-os/bluefin         -> GNOME
+# Base: Bazzite (Universal Blue) — Fedora Atomic with KDE Plasma as the default
+# desktop, plus drivers, codecs, flatpak setup, ujust helpers and a working gaming
+# stack (Steam/Proton/Gamescope) out of the box.
+#
+# Why Bazzite for a student machine: a Linux laptop that can't run the games they
+# already own gets dual-booted back to Windows within a month. Bazzite removes that
+# excuse, broadens hardware support (handhelds, GPUs, laptops) and inherits the
+# most actively tested Universal Blue surface. The cost is honest: a larger image
+# and a pile of preinstalled gaming tooling we do not need for coursework.
+#
+#   Alternatives:
+#     ghcr.io/ublue-os/bazzite-nvidia         -> Bazzite + NVIDIA driver stack
+#     ghcr.io/ublue-os/bazzite-dx             -> Bazzite + developer tooling
+#     ghcr.io/ublue-os/aurora                 -> leaner KDE, no gaming stack
+#     ghcr.io/ublue-os/bluefin                -> GNOME instead of KDE
 #     ghcr.io/blue-build/base-images/fedora-kinoite -> bare KDE, no extras
-base-image: ghcr.io/ublue-os/aurora
+#
+# Tags: `latest` tracks the newest stable build (currently Fedora 44); `stable` is
+# the conservative alias. Pin a version tag instead of `latest` once this ships to
+# someone else, so their machine only moves when we decide it moves.
+base-image: ghcr.io/ublue-os/bazzite
 image-version: latest
 
 modules:
@@ -80,6 +92,8 @@ modules:
           - com.github.tchx84.Flatseal
 
   # --- 5. First-boot wizard (per-user setup, never ships any secrets) ---------
+  # TODO: Bazzite ships its own first-run welcome/portal tooling — disable it here
+  # so two setup experiences don't race on first login.
   - type: systemd
     system:
       enabled:

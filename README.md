@@ -46,7 +46,7 @@ machine that can always be rolled back.
 
 ## How it works
 
-Prime Linux is a **custom image built on an atomic Fedora base** (Aurora / KDE via
+Prime Linux is a **custom image built on an atomic Fedora base** (Bazzite / KDE via
 Universal Blue) using [BlueBuild](https://blue-build.org). You do not fork a
 distro from scratch — you declare a recipe, CI builds it, and the recipe plus the
 base's package stream *is* your distro.
@@ -107,7 +107,7 @@ as the `SIGNING_SECRET` repo secret, commit the public key as `cosign.pub`.
 
 ## Roadmap
 
-1. **Bootable base** — Aurora base, rebranded, stock install works from ISO. ← *we are here*
+1. **Bootable base** — Bazzite base, rebranded, stock install works from ISO. ← *we are here*
 2. **Two sessions** — "Desktop" (KDE, default) and "Prime" (Hyprland) at login.
 3. **The interview** — first-boot conversation that personalizes the install
    (identity, courses, projects, apps, dotfiles, memory seed).

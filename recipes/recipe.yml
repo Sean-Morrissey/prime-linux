@@ -109,7 +109,7 @@ modules:
   # build breaker. Belt and braces with the executable bit committed in git.
   - type: script
     snippets:
-      - "chmod +x /usr/libexec/prime/firstboot.sh /usr/libexec/prime/hw-probe.sh /usr/libexec/prime/prime /usr/libexec/prime/prime-autoupdate /usr/libexec/prime/backend-*.sh"
+      - "chmod +x /usr/libexec/prime/firstboot.sh /usr/libexec/prime/hw-probe.sh /usr/libexec/prime/prime /usr/libexec/prime/prime-autoupdate /usr/libexec/prime/prime-setup /usr/libexec/prime/first-login-interview.sh /usr/libexec/prime/backend-*.sh"
 
   # --- 7. First-boot wizard + the unattended update cycle ---------------------
   # NOTE: if the base ships its own first-run/welcome tooling, disable it here so

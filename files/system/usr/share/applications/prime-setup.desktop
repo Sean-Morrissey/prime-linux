@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Prime Setup
+GenericName=Set up this machine
+Comment=Re-run the setup questions any time
+Exec=/usr/libexec/prime/first-login-interview.sh
+TryExec=/usr/libexec/prime/first-login-interview.sh
+Terminal=false
+Categories=System;Settings;
+Keywords=prime;setup;interview;questions;personalize;

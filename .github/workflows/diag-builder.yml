@@ -51,7 +51,7 @@ jobs:
             src: quay.io/fedora/fedora-bootc:latest
             extra: "--rootfs ext4 --use-librepo=True"
     name: ${{ matrix.name }}
-    runs-on: ubuntu-26.04
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       packages: read
@@ -64,7 +64,10 @@ jobs:
             -u "${{ github.actor }}" --password-stdin --authfile /root/ghcr-auth.json
 
       - name: Pre-pull into host storage (what the action does)
-        run: sudo podman pull -q "${{ matrix.src }}"
+        # The login above wrote to /root/ghcr-auth.json, so the pre-pull must read
+        # from there too — without it, the private-image legs die at pull with exit
+        # 125 (auth) and never reach the build (that is what ruined run 36171019184).
+        run: sudo podman pull -q --authfile /root/ghcr-auth.json "${{ matrix.src }}"
 
       - name: Show what the host storage holds
         run: sudo podman images --format '{{.Repository}}:{{.Tag}}'

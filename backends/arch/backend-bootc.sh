@@ -147,13 +147,21 @@ backend_restore() { # <id> — bootc rolls back one deployment, which is the one
 
 backend_restore_last_good() { backend_restore last; }
 
+# digests for the "skip a known-bad image" policy (see prime-autoupdate cmd_cycle)
+backend_current_digest() { need_bootc >/dev/null 2>&1 || { echo ""; return 0; }; bt_booted_digest; }
+backend_pending_digest() { need_bootc >/dev/null 2>&1 || { echo ""; return 0; }; bt_staged_digest; }
+
 # ---------------------------------------------------------------- health
-# Runs as root at boot, so every check has to work without a user session. The
-# strongest signal that an image update went wrong is a failed systemd unit, so that
-# carries the most weight; the rest answer "can this person still use their computer".
+# Two tiers, on purpose (P0-3). `backend_health_boot` is the *boot-time verifier*:
+# it must only assert things that are guaranteed true at boot — failed units,
+# storage, and the root filesystem. Network (a Wi-Fi laptop that has not associated
+# yet), a screen (a lid-closed laptop) and a session (the login screen) are all
+# legitimately absent right after boot, so they would produce false failures and
+# trigger a rollback-reboot loop. Those live in `backend_health`, which `prime
+# health` runs once someone is actually using the machine.
 hd_free_gb() { df -BG --output=avail / 2>/dev/null | tail -1 | tr -d ' G'; }
 
-backend_health() {
+backend_health_boot() {
   # storage
   local free; free="$(hd_free_gb)"
   if [ "${free:-0}" -lt 2 ]; then printf 'storage\t0\tStorage: only %s GB free\n' "${free:-?}"
@@ -168,6 +176,17 @@ backend_health() {
   else
     printf 'services\t1\tServices: nothing failed\n'
   fi
+
+  # root filesystem mounted and readable
+  if [ -r /etc/os-release ] && [ -d /usr ]; then
+    printf 'rootfs\t1\tRoot filesystem readable\n'
+  else
+    printf 'rootfs\t0\tRoot filesystem not readable\n'
+  fi
+}
+
+backend_health() { # everything: boot-critical plus the desktop-is-usable checks
+  backend_health_boot
 
   # network
   if ip route show default 2>/dev/null | grep -q .; then

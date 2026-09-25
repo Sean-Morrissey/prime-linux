@@ -85,8 +85,10 @@ prime audit                    # every action Prime has ever taken on this machi
 
 ## Autonomy: what it is allowed to decide alone
 
-The capability ladder (`templates/capability-ladder.yaml`) sets this, and the update
-cycle is the clearest example of it:
+The update cycle is driven by `PRIME_AUTONOMY` (the shipped unit sets `auto-user`),
+not by the capability ladder — the ladder (`templates/capability-ladder.yaml`) is the
+*AI assistant's* policy, and its `system.update` / `system.rollback` entries are
+written to match what the supervisor actually does. The two agree:
 
 | Level | What the cycle may do |
 |---|---|
@@ -117,8 +119,11 @@ that makes the rest of the machine safe for someone who is not a sysadmin.
 
 - **Proven:** the whole decision policy — when to install, when to restart, when to
   keep quiet, when to give up — tested end to end in a sandbox with no root and no
-  real machine, 29 checks across 9 scenarios, including a broken boot and the loop
-  guard. `backends/arch/test-autoupdate.sh`.
+  real machine. `backends/arch/test-autoupdate.sh` (40 checks across 12 scenarios,
+  including a broken boot, the rollback loop that must terminate, and skipping a
+  known-bad image), `backends/arch/test-lifecycle.sh` (26 checks),
+  `backends/arch/test-idle.sh` (the idle-time math), and
+  `backends/arch/test-boot-health.sh` (the boot-time verifier).
 - **Not yet proven in the wild:** the thin adapter that talks to `bootc` on the
   shipped image. It is small and boring on purpose, and it needs a shipped image booted
   in a VM to be tested honestly.

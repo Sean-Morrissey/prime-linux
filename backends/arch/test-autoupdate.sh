@@ -13,6 +13,12 @@
 #   6  autonomy = suggest             -> installs nothing, asks instead
 #   7  the new version is broken      -> rolls back by itself, counts the failure
 #   8  that update failed twice       -> stops retrying, does not loop
+#  10  rollback into another broken boot -> stops after FAIL_LIMIT (P0-2)
+#  11  a known-bad image is offered again -> skipped until a newer image (P1-ii)
+#  12  the audit trail exists for all of it
+#
+# (9 is the audit trail, numbered for history; see also test-idle.sh for the idle
+#  math and test-boot-health.sh for the boot-time verifier.)
 #
 # Run: ./test-autoupdate.sh
 
@@ -115,7 +121,38 @@ check "nothing installed" "228" "$(pending "$d")"
 check "no restart" "no" "$(rebooted "$d")"
 grep -q "not retrying today" "$d/out.txt" && good "refused to loop" || nope "would have retried a known-bad update"
 
-head "9. the audit trail exists for all of it"
+head "10. rollback that rolls into another broken boot -> stops after FAIL_LIMIT (P0-2)"
+d="$(fresh flipflop)"; facts "$d" 45 4
+cycle "$d" >/dev/null                        # installs, reboots, stages verification
+touch "$d/sandbox/health_broken"              # boot #1 into the new image is broken
+PRIME_BACKEND=sandbox PRIME_STATE_DIR="$d" PRIME_AUTONOMY=auto-all PRIME_NOTIFY=0 \
+  "$ENGINE" post-boot >"$d/post1.txt" 2>&1    # fails, restores, reboots
+reboot1="$(cat "$d/sandbox/last_reboot" 2>/dev/null)"
+touch "$d/sandbox/health_broken"              # the restored image ALSO boots broken
+PRIME_BACKEND=sandbox PRIME_STATE_DIR="$d" PRIME_AUTONOMY=auto-all PRIME_NOTIFY=0 \
+  "$ENGINE" post-boot >"$d/post2.txt" 2>&1
+reboot2="$(cat "$d/sandbox/last_reboot" 2>/dev/null)"
+check "fail count reached the limit" "2" "$(cat "$d/autoupdate.failcount" 2>/dev/null || echo 0)"
+check "no third reboot (reboot clock stopped)" "$reboot1" "$reboot2"
+grep -q "I am stopping here" "$d/post2.txt" && good "stopped instead of looping" || nope "kept rebooting"
+grep -q "needs a human" "$d/post2.txt" && good "said a human is needed" || nope "did not flag human intervention"
+check "wrote the needs-human marker" "yes" "$([ -e "$d/autoupdate.needs-human" ] && echo yes || echo no)"
+check "remembered which image broke it" "yes" "$([ -s "$d/autoupdate.baddigest" ] && echo yes || echo no)"
+
+head "11. a known-bad image is skipped until a newer one appears (P1-ii)"
+d="$(fresh skipbad)"; facts "$d" 45 4
+printf 'bad-image-1\n' > "$d/autoupdate.baddigest"
+bash -c "export PRIME_STATE_DIR='$d'; source '$SELF_DIR/backend-sandbox.sh'; sb_set_offer_id bad-image-1"
+cycle "$d" >/dev/null
+check "did not re-install the known-bad image" "228" "$(pending "$d")"
+check "no restart for a known-bad image" "no" "$(rebooted "$d")"
+grep -q "already broke this machine" "$d/out.txt" && good "explained why it skipped" || nope "did not explain the skip"
+bash -c "export PRIME_STATE_DIR='$d'; source '$SELF_DIR/backend-sandbox.sh'; sb_set_offer_id bad-image-2"
+cycle "$d" >/dev/null
+check "installs the newer image" "0" "$(pending "$d")"
+check "forgot the old bad image" "no" "$([ -e "$d/autoupdate.baddigest" ] && echo yes || echo no)"
+
+head "12. the audit trail exists for all of it"
 if [ -s "$ROOT/broken/audit.jsonl" ]; then
   good "every decision was logged to audit.jsonl"
   grep -q '"action":"rollback"' "$ROOT/broken/audit.jsonl" \

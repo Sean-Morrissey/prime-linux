@@ -35,8 +35,14 @@ entries plus the firmware entry, and a single capped `Prime rollback` line.
 3. **The boot menu stays short.** `prime-pc boot-entry <N>` writes a bootable entry for
    snapshot N; `boot-entry-prune` keeps the newest `ROLLBACK_ENTRIES` (default 1) and drops
    the rest. Older snapshots stay in snapper and can be re-added in seconds with
-   `prime-pc boot-entry <N>`. Never build the rollback story on `grub-btrfs` — there is no
-   GRUB on a systemd-boot machine.
+   `prime-pc boot-entry <N>`. **Which loader provides the menu is an open decision**, and it
+   changes who does the work: CachyOS's installer offers GRUB, rEFInd, systemd-boot and
+   Limine (default **limine**), where Limine gets snapshot entries and Windows detection out
+   of the box and GRUB reaches the same place through `grub-btrfs`; systemd-boot does neither
+   and needs `prime-pc` to generate the single rollback entry itself — which is what the
+   reference machine does, and which is already written and tested. Building the rollback
+   story on `grub-btrfs` on *Sean's* box would be wrong (it has no GRUB); on a CachyOS
+   install it is a supported path. Do not carry the constraint across bases.
 4. **Nothing reboots into a bad state.** Boot-time verification (failed units, session,
    network, audio) with automatic rollback to the previous entry, and a hard stop after two
    bad boots so it cannot loop.
@@ -52,10 +58,37 @@ entries plus the firmware entry, and a single capped `Prime rollback` line.
 | Two bootloaders fighting | Prime adds its own entries and sets itself default **once**, then honours `@saved` — it does not silently re-assert itself after the user picks Windows. |
 | A user who removes Prime | An uninstall path must be able to remove its own EFI directory and boot entries and leave Windows bootable. Windows' own bootloader is never touched, so this is a delete, not a repair. |
 
+## The first target machine already has Windows (confirmed 2026-09-27)
+
+So install-alongside is the path, not a hypothetical, and the pre-install checklist is part
+of the product rather than a support article. In this order, in plain language:
+
+1. **Free space first.** Prime does not resize a Windows partition. Windows' own Disk
+   Management must shrink it. If there is not enough unallocated space, the installer stops
+   and says so — it never performs surgery on a partition another OS boots from.
+2. **Check the EFI partition, don't assume it.** Windows' ESP is commonly 100–260 MB and is
+   *reused* as `/boot`, never reformatted. A kernel plus initramfs has to fit beside it. A
+   separate new ESP is a last resort: firmware does not reliably boot a second one.
+3. **Get the BitLocker recovery key in hand before installing anything.** Changing the boot
+   order is the classic trigger for a recovery prompt, and the installer must not change
+   Secure Boot state either.
+4. **Turn off Windows Fast Startup** (Control Panel → Power Options → Choose what the power
+   buttons do). A dirty NTFS volume shared with another OS is how files get lost.
+5. **Do not pre-select a partition layout.** `initialPartitioningChoice: none` is a safety
+   property: with another OS on the disk, a one-click "erase everything" is the worst thing
+   this product could put in front of a stranger. See
+   `os/cachyos/archiso/calamares/modules/partition.conf`, rule 1.
+6. **The clock.** Prime keeps the hardware clock in UTC and says so, instead of leaving the
+   user with a wrong clock in Windows.
+
 ## Status
 
-Nothing here is implemented for the CachyOS base yet — there is no archiso profile, and the
-drivers that exist (`prime-pc` on the reference machine) are the *source*, not a shipped
+The buildset now exists — `os/cachyos/archiso/` (an overlay for CachyOS's own
+`CachyOS-Live-ISO` builder: our package list, the boot-menu chooser in plain language, and
+the partitioning rules above) — but **no ISO has ever been built**: there is no `archiso` on
+the reference machine, and the Calamares files have been validated as YAML and diffed
+against CachyOS's originals, not rendered by Calamares. The drivers that exist (`prime-pc` on
+the reference machine) are the *source*, not a shipped
 installer. Two gates belong in `SHIP-GATES.md` once the owner agrees the numbering:
 
 - **A7 (install alongside):** on a machine with Windows already installed, Prime installs

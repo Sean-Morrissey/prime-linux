@@ -73,19 +73,28 @@ Owner's pick, and CachyOS ships the whole thing as packages rather than as a cla
 Its config already protects a dual-boot machine: `EXCLUDE_SNAPSHOT_ENTRIES="Windows*, windows*"`
 keeps Windows entries out of snapshot bookkeeping.
 
-**And it answers the very complaint that started all this** (a boot menu filling up with one
-rollback line per update): `limine-snapper-sync.conf` caps the menu itself —
-`MAX_SNAPSHOT_ENTRIES` (default `auto`) plus `LIMIT_USAGE_PERCENT=85`, "no new snapshot
-entries will be added to Limine if this limit is reached". On the target machine we set
-`MAX_SNAPSHOT_ENTRIES` to a small number explicitly (3) instead of leaving it on `auto`, so
-the menu length is a decision rather than a side effect of disk usage.
+**One rollback entry, and it is Prime's, not a feature for the student** (owner, 2026-09-27:
+*"he only needs snapshots for 1 rollback. only if something breaks is all, he wont even use
+it its for prime"*). Our override lives in
+`os/cachyos/archiso/limine/limine-snapper-sync.conf` and sets exactly two values:
 
-**The real constraint is the boot partition, not the loader.** Snapshot entries live on the
-FAT32 ESP, and the tool's own documentation warns against raising the usage limit to 95 %+
-because restoration then cannot complete. A Windows-created ESP is commonly 100–260 MB, so
-on the first target machine the ESP size decides how many rollback entries are even
-possible — measure it before install day, and treat "one or two" as the likely budget rather
-than promising a long list.
+- `MAX_SNAPSHOT_ENTRIES=1` — one line, always. Not `auto`, so the menu cannot grow with free
+  space. This is the complaint that started the whole workstream, prevented by declaration.
+- `EXCLUDE_SNAPSHOT_TYPES="post"` — the important one. snap-pac writes a *pre* snapshot before
+  a transaction and a *post* one after. An update that installs cleanly and then fails to boot
+  leaves a healthy pre and a broken post; with a single menu line, showing post would offer
+  the broken state and hide the good one. Excluding post means the one visible entry is always
+  the state from **before** the last change — which is what "go back if the update broke it"
+  actually means.
+
+Because the menu holds one entry, it also fits a Windows-sized EFI partition (~100–260 MB),
+which removes the constraint below for this product. The usage limit stays at CachyOS's 85 %:
+their own documentation warns that 95 %+ can leave too little room for a restore to complete.
+
+**And it answers the very complaint that started all this** (a boot menu filling up with one
+rollback line per update): the cap exists upstream in `limine-snapper-sync.conf`, so on this
+base the menu length is a setting rather than an accident of disk usage — which is what we
+had to hand-fix on Sean's systemd-boot machine.
 
 
 

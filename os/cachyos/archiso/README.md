@@ -14,7 +14,14 @@ archiso/
   calamares/modules/
     packagechooser_bootloader.conf       our default + plain-language descriptions
     partition.conf                       CachyOS's file, annotated for a Windows dual-boot
+  limine/
+    limine-snapper-sync.conf             ONE rollback entry, and never the broken one
 ```
+
+All three config files are whole-file overrides copied from the shipped packages
+(`cachyos-calamares` 3.4.2-4, `limine-snapper-sync` 1.32.0-1) and then edited — each one has
+been diffed against its original to prove that only the lines marked PRIME changed. Their
+target paths are the obvious ones (`/etc/limine-snapper-sync.conf`, `/etc/calamares/modules/…`).
 
 Calamares does **not** merge config files: an override replaces the whole file. Every file
 here is therefore the complete real one (copied out of `cachyos-calamares` 3.4.2-4 and

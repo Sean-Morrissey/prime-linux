@@ -75,8 +75,9 @@ keeps Windows entries out of snapshot bookkeeping.
 
 **One rollback entry, and it is Prime's, not a feature for the student** (owner, 2026-09-27:
 *"he only needs snapshots for 1 rollback. only if something breaks is all, he wont even use
-it its for prime"*). Our override lives in
-`os/cachyos/archiso/limine/limine-snapper-sync.conf` and sets exactly two values:
+it its for prime"*). It is applied by our post-install step
+(`os/cachyos/archiso/airootfs/etc/calamares/scripts/prime-target-setup`, wired in as
+`shellprocess@prime_target`), which sets exactly three things in the installed system:
 
 - `MAX_SNAPSHOT_ENTRIES=1` — one line, always. Not `auto`, so the menu cannot grow with free
   space. This is the complaint that started the whole workstream, prevented by declaration.
@@ -86,6 +87,10 @@ it its for prime"*). Our override lives in
   the broken state and hide the good one. Excluding post means the one visible entry is always
   the state from **before** the last change — which is what "go back if the update broke it"
   actually means.
+- the boot entry name the rollback tool attaches to is read from the installed system's
+  `/etc/os-release` instead of being hardcoded to `"CachyOS"` (CachyOS's own post-setup step
+  hardcodes it). Snapshot entries only appear for the entry whose name the tool knows, so a
+  hardcoded name is a silent failure waiting for the first rebrand.
 
 Because the menu holds one entry, it also fits a Windows-sized EFI partition (~100–260 MB),
 which removes the constraint below for this product. The usage limit stays at CachyOS's 85 %:

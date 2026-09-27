@@ -2,75 +2,104 @@
 
 We do **not** hand-roll an ISO builder. CachyOS publishes one
 ([`CachyOS/CachyOS-Live-ISO`](https://github.com/CachyOS/CachyOS-Live-ISO), `buildiso.sh`
-with a `-p <profile>` buildset flag), and the installer UI is Calamares from the
-`cachyos-calamares` package. This directory is the overlay we drop into a clone of that
-repo — nothing more.
+with a `-p <profile>` flag), and the installer UI is Calamares from the
+`cachyos-calamares-next` package. This directory is the overlay we apply to a clone of that
+repo.
 
-## What is in here
+## How it is applied
+
+```bash
+git clone https://github.com/CachyOS/CachyOS-Live-ISO.git ~/Projects/cachyos-archiso
+~/Projects/prime-linux.capture/tools/apply-buildset.sh ~/Projects/cachyos-archiso
+cd ~/Projects/cachyos-archiso && sudo ./buildiso.sh -p desktop
+```
+
+`tools/apply-buildset.sh` does the work and **verifies its own output** — it exits non-zero
+if any of the twelve checks fail, so a broken buildset cannot be mistaken for a good one.
+
+## Why nothing here is a vendored copy
+
+The installer config is fetched from the real package at apply time
+(`cachyos-calamares-next`, the one the ISO's package list installs and its launcher
+reinstalls at boot). Vendoring its ~800-line `netinstall.yaml` into this repo would drift
+silently against upstream; instead the script fetches, edits programmatically, and asserts.
+The only file we author ourselves is `shellprocess_prime_target.conf`.
 
 ```
 archiso/
-  packages_prime.x86_64                  target-side packages for the Prime layer
+  packages_prime.x86_64            target-side package list (single source of truth)
   calamares/modules/
-    packagechooser_bootloader.conf       our default + plain-language descriptions
-    partition.conf                       CachyOS's file, annotated for a Windows dual-boot
-  limine/
-    limine-snapper-sync.conf             ONE rollback entry, and never the broken one
+    shellprocess_prime_target.conf our post-install step for the installed system
+  airootfs/                        copied into the live image
+    etc/calamares/scripts/prime-target-setup      runs inside the install target
+    etc/pacman.d/hooks/95-prime-os-overrides.hook fires when the installer package lands
+    usr/local/bin/prime-live-overrides            copies the staged config into place
 ```
 
-All three config files are whole-file overrides copied from the shipped packages
-(`cachyos-calamares` 3.4.2-4, `limine-snapper-sync` 1.32.0-1) and then edited — each one has
-been diffed against its original to prove that only the lines marked PRIME changed. Their
-target paths are the obvious ones (`/etc/limine-snapper-sync.conf`, `/etc/calamares/modules/…`).
+## The two mechanisms that make the overrides stick
 
-Calamares does **not** merge config files: an override replaces the whole file. Every file
-here is therefore the complete real one (copied out of `cachyos-calamares` 3.4.2-4 and
-edited), never a partial fragment — a fragment would silently drop the settings it does not
-mention.
+**1. Into the live image, after the packages land.** archiso copies `airootfs/` in *before*
+packages are installed, so a config file dropped there is simply overwritten by the package
+version. Our staged tree therefore lives at `/usr/share/prime/overrides/` and a pacman hook
+copies it over the packaged files in a `PostTransaction` run.
 
-## Build (never run on Sean's machine)
+That hook deliberately does **not** carry CachyOS's `remove from airootfs` marker: their
+`zzzz99-…` hook deletes every hook containing it, and our hook has to survive into the live
+session because `calamares-online.sh` reinstalls `cachyos-calamares-next` right before
+launching the installer. Without that, the reinstall would restore the packaged config and
+quietly undo everything. The hook's `Exec` is written so it cannot fail a transaction inside
+the target, where the script does not exist.
 
-```bash
-git clone https://github.com/cachyos/cachyos-live-iso.git cachyos-archiso
-cd cachyos-archiso
-# copy this directory's contents over archiso/ (packages_prime.x86_64 is additive)
-./buildiso.sh -p desktop
-```
+The authoritative settings file is `/usr/share/calamares/settings_online.conf`: the launcher
+copies it to `/etc/calamares/settings.conf` at start-up, so a copy sitting only at the
+destination would be replaced on every boot.
 
-The build needs `archiso`/`mkarchiso` and root, and it is a **container or CI job**, not a
-package install on the reference desktop. Nothing here has been built yet — there is no
-`archiso` on Sean's CachyOS box and no ISO has ever been produced from this profile. Say
-that plainly until a boot says otherwise.
+**2. Into the installed system, after it installs.** A Calamares `shellprocess` step
+(`shellprocess@prime_target`, appended after `shellprocess@btrfs_snapshot`, which is already
+after `- bootloader`) runs `prime-target-setup` *inside* the new system. It caps the boot
+menu at one rollback entry, excludes post-update snapshots so the surviving entry is never
+the broken state, and points the rollback tool at the boot entry by the name the system
+gives itself in `/etc/os-release` — so a later rebrand cannot silently break rollbacks.
 
-## The desktop stack it installs
+### Modes are not preserved (this cost a build)
 
-`packages_prime.x86_64` is derived from `pacman -Qe` on the reference desktop
-(2026-09-27), filtered to what the product actually needs: Hyprland, the two Waybar bars'
-dependencies, rofi, the notification daemon, the PipeWire stack, fonts, and the
-snapshot/rollback tooling. AUR-only items (cursor and theme packages, `uv`) are listed in a
-clearly marked section — they cannot come from a repo during image build and need either a
-local repo or a first-boot install step, which does not exist yet.
+`mkarchiso` copies `airootfs` with `cp -af --no-preserve=ownership,mode`, so **every file
+arrives in the live image as `0644`** — nothing from `airootfs` is executable there. Both of
+our scripts are therefore invoked through an interpreter (`sh`, `/bin/bash`) and the hook
+tests `-f`, never `-x`.
 
-## Loader choice — the open owner decision
+A gate that tests the executable bit fails *silently*: the hook runs, the test fails, the
+overrides are never applied, and the image looks fine until someone inspects the installer's
+actual configuration. That is exactly what the first build did — caught only by checking the
+built root's `/etc/calamares/modules/packagechooser_desktop.conf` and finding upstream's
+default still in it. Verify by inspecting the built image, not by trusting that a hook ran.
 
-CachyOS's installer offers five loaders (`grub`, `refind`, `refind-ai`, `systemd-boot`,
-`limine`) and defaults to **limine**. Their own descriptions, which we are replacing, say
-systemd-boot does **not** do snapshots while limine has "Btrfs snapshot integration out of
-the box" plus Windows dual-boot via `limine-scan`. Sean's own rig runs **systemd-boot**,
-where the single rollback entry is produced by `prime-pc` rather than by the loader.
+## What the buildset changes, and nothing else
 
-So the boot-menu requirement in [`docs/DUALBOOT.md`](../../../docs/DUALBOOT.md) resolves
-differently per loader, and picking one is a product decision, not an implementation detail:
-ship the loader that gives the menu for free (limine/grub + snapshots), or ship the one the
-reference machine runs and own the rollback entry ourselves (`prime-pc`, already written and
-tested). `packagechooser_bootloader.conf` currently keeps limine as the default with a
-comment pointing here.
+| Change | Why |
+|---|---|
+| Desktop chooser offers **Prime Desktop** and pre-selects it | the product's desktop, not a menu of twenty |
+| Package source pinned to our local list | upstream's is a floating `groupsUrl` on GitHub `master`; a machine installed in a year must not depend on it |
+| Boot-manager chooser descriptions rewritten in plain language | every option says what the menu gives him; no loader trivia |
+| Partition step asserted to pre-select **nothing** | the first target machine already has Windows |
+| One rollback entry, post-update snapshots hidden | owner's requirement: rollback is Prime's safety net, not a feature the user browses |
 
-## Unverified, and not to be described otherwise
+## Limine (settled)
 
-- No ISO has been built, so no profile file here has been executed by `mkarchiso`.
-- The Calamares overrides have not been rendered by Calamares.
-- The `archiso/` layout above is CachyOS's, read from their repository tree; our files are
-  meant to be copied into it, and that copy has not been rehearsed either.
-- First-boot wiring for the payload (`os/cachyos/README.md` → `tools/expand-payload.py`)
-  does not exist yet: nothing runs it after the install.
+The installer's own default is `limine`, and CachyOS packages the whole story:
+`limine-snapper-sync` (snapshots as boot entries, with a "restore now" prompt at login),
+`limine-mkinitcpio-hook` (kernels as entries), `limine-entry-tool` (finds the Windows Boot
+Manager). Sean chose it over matching his own systemd-boot rig, which does **not** do
+snapshots — there the single rollback entry is produced by `prime-pc` instead.
+
+## Not done yet
+
+- The Prime layer itself (theme, bars, assistant scripts = `../payload/`) is **not** wired
+  into an install: nothing runs `tools/expand-payload.py` after the target installs. That is
+  the next milestone, and it decides the shape of the installer package we ship.
+- Branding: the installed system still calls itself CachyOS (`os-release`, boot entry,
+  Calamares branding). The rollback tooling reads that name instead of hardcoding one, so
+  branding is a rename plus a `limine-update`, not a repair.
+- AUR-only items (cursor/theme packages, `libastal`) need a local repo or a first-boot step.
+- Until a built ISO boots on real hardware and installs to a dual-boot machine, none of this
+  is "working" — it is a tested buildset, which is a weaker claim.

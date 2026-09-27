@@ -29,6 +29,10 @@ grim
 slurp
 playerctl
 
+# --- login screen + a browser (no way to log in, or no browser, is not a desktop) ----
+sddm
+firefox
+
 # --- terminals + file manager -------------------------------------------------------
 kitty
 alacritty

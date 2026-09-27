@@ -58,6 +58,37 @@ entries plus the firmware entry, and a single capped `Prime rollback` line.
 | Two bootloaders fighting | Prime adds its own entries and sets itself default **once**, then honours `@saved` — it does not silently re-assert itself after the user picks Windows. |
 | A user who removes Prime | An uninstall path must be able to remove its own EFI directory and boot entries and leave Windows bootable. Windows' own bootloader is never touched, so this is a delete, not a repair. |
 
+## Limine: what actually provides the menu (verified 2026-09-27)
+
+Owner's pick, and CachyOS ships the whole thing as packages rather than as a claim:
+
+| Package | What it does |
+|---|---|
+| `limine` 12.9.0 | the bootloader |
+| `limine-mkinitcpio-hook` | installs each kernel as a boot entry automatically |
+| `limine-entry-tool` | entry management **and the Windows entry** — its scripts handle `Windows Boot Manager` |
+| `limine-snapper-sync` | turns snapper snapshots into boot-menu entries; ships `limine-snapper-list`, `limine-snapper-remove`, `limine-snapper-restore` and a login notification that offers *Restore now* when you have booted a snapshot |
+| `cachyos-calamares-qt6-*-limine` | the Limine-flavoured installer variant — this path is supported, not assembled by us |
+
+Its config already protects a dual-boot machine: `EXCLUDE_SNAPSHOT_ENTRIES="Windows*, windows*"`
+keeps Windows entries out of snapshot bookkeeping.
+
+**And it answers the very complaint that started all this** (a boot menu filling up with one
+rollback line per update): `limine-snapper-sync.conf` caps the menu itself —
+`MAX_SNAPSHOT_ENTRIES` (default `auto`) plus `LIMIT_USAGE_PERCENT=85`, "no new snapshot
+entries will be added to Limine if this limit is reached". On the target machine we set
+`MAX_SNAPSHOT_ENTRIES` to a small number explicitly (3) instead of leaving it on `auto`, so
+the menu length is a decision rather than a side effect of disk usage.
+
+**The real constraint is the boot partition, not the loader.** Snapshot entries live on the
+FAT32 ESP, and the tool's own documentation warns against raising the usage limit to 95 %+
+because restoration then cannot complete. A Windows-created ESP is commonly 100–260 MB, so
+on the first target machine the ESP size decides how many rollback entries are even
+possible — measure it before install day, and treat "one or two" as the likely budget rather
+than promising a long list.
+
+
+
 ## The first target machine already has Windows (confirmed 2026-09-27)
 
 So install-alongside is the path, not a hypothetical, and the pre-install checklist is part

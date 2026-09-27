@@ -1,0 +1,16 @@
+[Unit]
+Description=Prime's Whiteboard — live tutoring board (markdown + LaTeX over SSE)
+After=graphical-session.target network.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h@STUDY_DIR@/whiteboard
+ExecStart=/usr/bin/python3 %h@STUDY_DIR@/whiteboard/server.py
+Environment=WB_PORT=8777
+Environment=WB_HOST=127.0.0.1
+Environment=PYTHONUNBUFFERED=1
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=default.target

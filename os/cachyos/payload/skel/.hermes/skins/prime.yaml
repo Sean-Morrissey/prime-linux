@@ -1,0 +1,107 @@
+# ~/.hermes/skins/prime.yaml
+# Prime — the OS guardian. Autobot red, chrome and command blue.
+# Activate:  /skin prime      (persists via display.skin in config.yaml)
+# Pure data: no code changes needed, missing keys inherit from 'default'.
+
+name: prime
+description: Prime — Autobot red, chrome and command blue
+
+colors:
+  banner_border: "#1B4FA0"      # command blue frame
+  banner_title: "#C8102E"       # Autobot red
+  banner_accent: "#C9CFD6"      # chrome
+  banner_dim: "#5B6B85"
+  banner_text: "#E6E9ED"
+  ui_accent: "#C8102E"
+  ui_label: "#7FA8DC"
+  ui_ok: "#4CAF50"
+  ui_error: "#EF5350"
+  ui_warn: "#FFB300"
+  prompt: "#E6E9ED"
+  input_rule: "#1B4FA0"
+  response_border: "#C9CFD6"
+  session_label: "#C8102E"
+  session_border: "#2E5FA3"
+  status_bar_bg: "#0F1420"
+  voice_status_bg: "#0F1420"
+  status_bar_text: "#C9CFD6"
+  status_bar_strong: "#C8102E"
+  status_bar_dim: "#55709B"
+  status_bar_good: "#6FCF97"
+  status_bar_warn: "#FFC857"
+  status_bar_bad: "#E57373"
+  status_bar_critical: "#FF5252"
+  selection_bg: "#23355C"
+  completion_menu_bg: "#0F1420"
+  completion_menu_current_bg: "#23355C"
+  completion_menu_meta_bg: "#0F1420"
+  completion_menu_meta_current_bg: "#23355C"
+  shell_dollar: "#2E5FA3"
+
+spinner:
+  waiting_faces:
+    - "(━)"
+    - "(─)"
+    - "(▪)"
+    - "(•)"
+  thinking_faces:
+    - "(━)"
+    - "(⌁)"
+    - "(◆)"
+    - "(═)"
+    - "(▪)"
+  thinking_verbs:
+    - "transforming"
+    - "plotting the route"
+    - "scanning the horizon"
+    - "converting energy"
+    - "routing the convoy"
+    - "reinforcing the chassis"
+    - "aligning the matrix"
+    - "holding formation"
+  wings:
+    - ["⟪⛨", "⛨⟫"]
+    - ["⟪▸", "▸⟫"]
+    - ["⟪◆", "◆⟫"]
+    - ["⟪⬢", "⬢⟫"]
+
+branding:
+  agent_name: "Prime"
+  welcome: "Prime online. I run this machine — what are we building?"
+  goodbye: "Standing down. Ping me if anything breaks."
+  response_label: " ⛨ Prime "
+  prompt_symbol: "⛨"
+  help_header: "(⛨) Available Commands"
+
+tool_prefix: "▏"
+
+tool_emojis:
+  terminal: "⛨"
+  read_file: "📄"
+  write_file: "💾"
+  patch: "🔧"
+  web_search: "🔍"
+  browser_navigate: "🌐"
+  vision_analyze: "👁"
+  delegate_task: "🤖"
+
+# ANSI-shadow "PRIME", red → blue across the glyphs.
+banner_logo: |
+  [bold #C8102E]██████╗  ██████╗  ██╗  ███╗   ███╗ ███████╗[/]
+  [#C0172F]██╔══██╗ ██╔══██╗ ██║  ████╗ ████║ ██╔════╝[/]
+  [#8B2A63]██████╔╝ ██████╔╝ ██║  ██╔████╔██║ █████╗  [/]
+  [#4A5A9E]██╔═══╝  ██╔══██╗ ██║  ██║╚██╔╝██║ ██╔══╝  [/]
+  [#1B4FA0]██║      ██║  ██║ ██║  ██║ ╚═╝ ██║ ███████╗[/]
+  [bold #7FA8DC]╚═╝      ╚═╝  ╚═╝ ╚═╝  ╚═╝     ╚═╝ ╚══════╝[/]
+
+# Monolithic Sentinel Warden (cand7-test-render4)
+banner_hero: |
+  [#C8102E]⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣀⣶⣿⣿⣿⣿⣿⣿⣶⣀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀[/]
+  [#C8102E]⠀⠀⠀⠀⠀⠀⠀⣀⣤⣶⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣶⣤⣀⠀⠀⠀⠀⠀⠀⠀[/]
+  [#C9CFD6]⠀⠀⠀⠀⠀⠀⠀⠛⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⠛⠀⠀⠀⠀⠀⠀⠀[/]
+  [#7FA8DC]⠀⠀⠀⠀⠀⠀⠀⠀⣿⣿⠀⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠀⣿⣿⠀⠀⠀⠀⠀⠀⠀⠀[/]
+  [#C9CFD6]⠀⠀⠀⠀⠀⠀⠀⠀⠛⠿⣄⠻⢿⣿⣿⣿⣿⣿⣿⡿⠟⣠⠿⠛⠀⠀⠀⠀⠀⠀⠀⠀[/]
+  [#1B4FA0]⠀⣀⣶⣿⣿⣿⣿⣿⣤⠀⠀⠀⣿⣿⣿⣿⣿⣿⣿⣿⠀⠀⠀⣤⣿⣿⣿⣿⣿⣶⣀⠀[/]
+  [#1B4FA0]⠀⣿⣿⣿⣿⣿⣿⣿⣿⠀⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⠀⣿⣿⣿⣿⣿⣿⣿⣿⠀[/]
+  [#1B4FA0]⠀⠉⠛⠿⣿⣿⣿⣿⣿⠀⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⠀⣿⣿⣿⣿⣿⠿⠛⠉⠀[/]
+  [dim #1B4FA0]  guardian · enforcer · teacher  [/]

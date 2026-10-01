@@ -170,13 +170,16 @@ cmd_prime() {
         ck 'volume popups (swayosd)'     'pgrep -x swayosd-server'
         ck 'notifications (swaync)'      'pgrep -x swaync'
         ck 'wallpaper (hyprpaper)'       'pgrep -x hyprpaper'
-        ck 'wallpaper shown'             'hyprctl hyprpaper listactive | grep -q /'
         ck 'window title bars (built at first login)' 'for i in \$(seq 48); do hyprctl plugin list | grep -qi hyprbars && exit 0; sleep 5; done; exit 1'
         ck 'keyboard layout applied'     'hyprctl -j devices | jq -e \".keyboards[] | select(.main) | .layout\"'
         ck 'binds have descriptions'     '[ \$(hyprctl -j binds | jq \"[.[] | select(.has_description | not)] | length\") = 0 ]'
         ck 'login health check clean'    '~/.local/share/prime-linux/layer/bin/prime-doctor --login'
         grim /tmp/desktop.png" | tee "$WORK/session-checks.log"
     scp_vm alex@127.0.0.1:/tmp/desktop.png "$WORK/desktop.png" && say "screenshot: $WORK/desktop.png"
+    # an empty desktop is one flat colour in the middle; a wallpaper is thousands
+    local colours; colours="$(magick "$WORK/desktop.png" -gravity center -crop 40%x40%+0+0 -format %k info: 2>/dev/null || echo 0)"
+    if [ "${colours:-0}" -gt 200 ]; then echo "    ✓ wallpaper visible ($colours colours mid-screen)" | tee -a "$WORK/session-checks.log"
+    else echo "    ✗ no wallpaper on screen ($colours colours mid-screen)" | tee -a "$WORK/session-checks.log"; fi
     say "uninstall in the VM, then check the account is back"
     ssh_vm 'bash ~/.local/share/prime-linux/layer/bin/prime-uninstall --yes' > "$WORK/uninstall.log" 2>&1 \
         && echo "    ✓ prime-uninstall ran (log: uninstall.log)" || echo "    ✗ prime-uninstall failed"

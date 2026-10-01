@@ -1,0 +1,20 @@
+{
+    "layer": "top",
+    "position": "left",
+    "width": 44,
+    "modules-left": ["hyprland/workspaces", "custom/whiteboard", "custom/weather"],
+    "modules-right": ["custom/ledger"],
+    "custom/whiteboard": {
+        "format": "󰃥",
+        "tooltip-format": "Whiteboard",
+        "on-click": "systemctl --user restart prime-whiteboard.service"
+    },
+    "custom/ledger": {
+        "exec": "~/.config/waybar/scripts/ledger-pill.sh",
+        "interval": 60
+    },
+    "custom/weather": {
+        "exec": "~/.config/waybar/scripts/weather.sh",
+        "interval": 900
+    }
+}

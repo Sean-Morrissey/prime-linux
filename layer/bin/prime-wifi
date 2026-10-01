@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+# prime-wifi — Wi-Fi from the bar (click the network icon): see the networks
+# around you, join one, turn Wi-Fi on or off. A password is asked for in a
+# Prime box; everything is said in words (signal "strong", "secured"), so
+# nothing depends on reading an icon or a colour.
+#
+#   prime-wifi            the picker
+#   prime-wifi --list     the rows it would show (tests)
+set -u
+BIN="$(dirname "$(readlink -f "$0")")"
+notify() { notify-send -a Prime -t 5000 "Wi-Fi" "$1" >/dev/null 2>&1 || true; }
+command -v nmcli >/dev/null || { notify "Wi-Fi settings aren't available on this computer"; exit 1; }
+
+ROW_ON="󰖩  Turn Wi-Fi on"
+ROW_OFF="󰖪  Turn Wi-Fi off"
+ROW_RESCAN="󰑓  Look for networks again"
+ROW_ADVANCED="󰒓  Network settings (wired, VPN, hidden networks)"
+
+strength() {  # signal % → a word
+    if   [ "$1" -ge 70 ]; then echo "strong"
+    elif [ "$1" -ge 45 ]; then echo "good"
+    elif [ "$1" -ge 25 ]; then echo "weak"
+    else echo "very weak"; fi
+}
+
+rows() {
+    if [ "$(nmcli -t -f WIFI radio 2>/dev/null)" != enabled ]; then
+        echo "$ROW_ON"; return
+    fi
+    # IN-USE:SSID:SIGNAL:SECURITY, strongest first, each network once
+    nmcli -t -f IN-USE,SSID,SIGNAL,SECURITY device wifi list 2>/dev/null |
+        awk -F: '$2 != "" && !seen[$2]++' | sort -t: -k3,3nr |
+        while IFS=: read -r used ssid signal sec; do
+            state=""; [ "$used" = "*" ] && state="connected · "
+            lock="open"; [ -n "$sec" ] && [ "$sec" != "--" ] && lock="secured"
+            printf '%s  %s\t%s%s signal · %s\n' "$([ "$used" = "*" ] && echo "󰄬" || echo "󰤨")" "$ssid" \
+                "$state" "$(strength "${signal:-0}")" "$lock"
+        done
+    echo "$ROW_RESCAN"
+    echo "$ROW_OFF"
+    command -v nm-connection-editor >/dev/null && echo "$ROW_ADVANCED"
+    return 0
+}
+
+if [ "${1:-}" = "--list" ]; then rows | tr '\t' ' '; exit 0; fi
+
+ROWS="$(rows)"
+pick="$(printf '%s\n' "$ROWS" | tr '\t' '\034' | sed 's/\x1c/  —  /' |
+        ROFI_HINT="Enter joins  ·  Esc closes  ·  type to filter" \
+        "$BIN/prime-rofi" -dmenu -i -no-custom -p "󰖩 Wi-Fi" -theme spotlight)" || exit 0
+
+case "$pick" in
+    "$ROW_ON")       nmcli radio wifi on && notify "Wi-Fi is on"; sleep 2; exec "$0" ;;
+    "$ROW_OFF")      nmcli radio wifi off && notify "Wi-Fi is off" ;;
+    "$ROW_RESCAN")   nmcli device wifi rescan >/dev/null 2>&1; sleep 2; exec "$0" ;;
+    "$ROW_ADVANCED") exec nm-connection-editor ;;
+    *)
+        ssid="$(printf '%s' "$pick" | sed 's/  —  .*$//; s/^[^ ]*  //')"
+        [ -n "$ssid" ] || exit 0
+        case "$pick" in *"connected ·"*) notify "Already connected to $ssid"; exit 0 ;; esac
+        # a network joined before connects without asking again
+        if nmcli -t -f NAME connection show 2>/dev/null | grep -qxF "$ssid"; then
+            nmcli connection up id "$ssid" >/dev/null 2>&1 && { notify "Connected to $ssid"; exit 0; }
+        fi
+        if [[ "$pick" == *"secured"* ]]; then
+            pass="$(ROFI_HINT="the Wi-Fi password for $ssid  ·  hidden while you type  ·  Esc cancels" \
+                    "$BIN/prime-rofi" -dmenu -password -p "󰌾 Password" -theme spotlight < /dev/null)" || exit 0
+            out="$(nmcli device wifi connect "$ssid" password "$pass" 2>&1)"
+        else
+            out="$(nmcli device wifi connect "$ssid" 2>&1)"
+        fi
+        if [ $? = 0 ]; then notify "Connected to $ssid"
+        elif grep -qi "secrets\|password\|802-11-wireless-security" <<<"$out"; then
+            nmcli connection delete id "$ssid" >/dev/null 2>&1
+            notify "Couldn't join $ssid — the password wasn't accepted. Try again from the Wi-Fi icon."
+        else notify "Couldn't join $ssid — it may be out of range. Try again from the Wi-Fi icon."; fi ;;
+esac

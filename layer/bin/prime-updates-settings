@@ -1,0 +1,106 @@
+#!/usr/bin/env bash
+# prime-updates-settings — the "Update settings" screen, and the update status
+# lines other parts of Prime show.
+#
+#   prime-updates-settings                  pick: automatic / ask / security only / off,
+#                                           update hours, pause, update now, undo
+#   prime-updates-settings --status-line    "Last update: today 03:41 — 212 updates, all good"
+#   prime-updates-settings --login-summary  one notification about an update you haven't
+#                                           heard about yet (pop-ups are held at night)
+set -u
+BIN="$(dirname "$(readlink -f "$0")")"
+ENGINE=/usr/local/lib/prime-linux/prime-system-update
+STATE="${PRIME_UPDATES_STATE:-/var/lib/prime-linux/updates}"
+SEEN="${XDG_STATE_HOME:-$HOME/.local/state}/prime/updates-seen"
+
+when() { # epoch -> today 03:41 / yesterday 03:41 / Mon 28 Sep
+  local t="$1"
+  if [ "$(date -d "@$t" +%F)" = "$(date +%F)" ]; then date -d "@$t" '+today %H:%M'
+  elif [ "$(date -d "@$t" +%F)" = "$(date -d yesterday +%F)" ]; then date -d "@$t" '+yesterday %H:%M'
+  else date -d "@$t" '+%a %d %b'; fi
+}
+last_field() { jq -r "$1 // empty" "$STATE/last-run.json" 2>/dev/null; }
+
+status_line() {
+  [ -r "$STATE/last-run.json" ] || { echo "Last update: not yet — $("$BIN/prime-update-policy" get 2>/dev/null || echo automatic) updates"; return; }
+  local t st n words
+  t="$(last_field .time)"; st="$(last_field .status)"; n="$(last_field .updates)"
+  case "$st" in
+    ok)        words="${n:-0} update(s), all good" ;;
+    attention) words="${n:-0} update(s), one thing to look at" ;;
+    broken)    words="didn't finish — open Update → Undo last update" ;;
+    *)         words="$(last_field .summary)" ;;
+  esac
+  [ "$(last_field .restart)" = yes ] && words="$words · restart to finish"
+  echo "Last update: $(when "$t") — $words"
+}
+
+login_summary() {
+  [ -r "$STATE/last-run.json" ] || return 0
+  local seq seen; seq="$(last_field .seq)"; seen="$(cat "$SEEN" 2>/dev/null || echo 0)"
+  [ -n "$seq" ] && [ "$seq" -gt "${seen:-0}" ] 2>/dev/null || return 0
+  mkdir -p "$(dirname "$SEEN")"; echo "$seq" > "$SEEN"
+  [ "$(last_field .mode)" = manual ] && return 0          # you watched that one happen
+  local st urg=low title body
+  st="$(last_field .status)"
+  case "$st" in
+    ok)        title="Updated while you were away"; body="$(status_line | sed 's/^Last update: //')" ;;
+    attention) title="Updated — one thing to look at"; urg=normal; body="$(last_field '.problems[0]'). Prime menu → Update shows details." ;;
+    broken)    title="Last night's update didn't finish"; urg=critical
+               body="Your computer works, but please open Prime menu → Update → Undo last update before restarting." ;;
+    *)         title="Update postponed"; body="$(last_field .summary)" ;;
+  esac
+  notify-send -a "Prime Linux" -i system-software-update -u "$urg" "$title" "$body" 2>/dev/null || true
+}
+
+pick() { # pick <prompt> <hint> <rows…> -> index of the chosen row
+  printf '%s\n' "${@:3}" | ROFI_HINT="$2" "$BIN/prime-rofi" -dmenu -i -no-custom -format i -p "$1" -theme spotlight
+}
+
+as_admin() { # the engine's settings verbs need the administrator password
+  [ -x "$ENGINE" ] || { notify-send -a Prime "Updates aren't set up yet" "Run Update everything once — it sets them up."; return 1; }
+  if [ -t 0 ]; then sudo "$ENGINE" "$@"; else pkexec "$ENGINE" "$@"; fi
+}
+
+menu() {
+  local pol mark rows i
+  pol="$("$BIN/prime-update-policy" get 2>/dev/null || echo automatic)"
+  mark() { [ "$pol" = "$1" ] && echo "●" || echo "○"; }
+  rows=(
+    "$(mark automatic)  Automatic (recommended) — installs at night, snapshot first, checks afterwards"
+    "$(mark ask)  Ask me first — tells you when updates are ready; you click Install"
+    "$(mark security)  Only security fixes — updates when a security fix is waiting (at least monthly)"
+    "$(mark off)  Off — never updates by itself (not recommended)"
+    "󰥔  Update hours…"
+    "󰏤  Pause automatic updates for a week"
+    "󰚰  Update everything now"
+    "󰕍  Undo the last update"
+  )
+  i="$(pick "󰚰 Updates" "$(status_line)" "${rows[@]}")" || exit 0
+  case "$i" in
+    0) "$BIN/prime-update-policy" set automatic ;;
+    1) "$BIN/prime-update-policy" set ask ;;
+    2) "$BIN/prime-update-policy" set security ;;
+    3) "$BIN/prime-update-policy" set off ;;
+    4) local h
+       h="$(pick "󰥔 Update hours" "when the computer is usually on but nobody is using it" \
+            "Night, 3:00–6:00 (recommended)" "Late night, 1:00–4:00" "Early morning, 5:00–8:00" \
+            "Lunchtime, 12:00–14:00" "Evening, 19:00–22:00")" || exit 0
+       case "$h" in 0) as_admin set WINDOW_START=3 WINDOW_END=6 ;; 1) as_admin set WINDOW_START=1 WINDOW_END=4 ;;
+                    2) as_admin set WINDOW_START=5 WINDOW_END=8 ;; 3) as_admin set WINDOW_START=12 WINDOW_END=14 ;;
+                    4) as_admin set WINDOW_START=19 WINDOW_END=22 ;; esac ;;
+    5) as_admin pause 7 >/dev/null && notify-send -a Prime "Automatic updates paused" "They start again by themselves in a week." ;;
+    6) exec "$BIN/prime-update" ;;
+    7) exec "$BIN/prime-update" --undo ;;
+    *) exit 0 ;;
+  esac
+  notify-send -a Prime "Updates" "$("$BIN/prime-update-policy" describe)" 2>/dev/null || true
+}
+
+case "${1:-}" in
+  --status-line)   status_line ;;
+  --login-summary) login_summary ;;
+  "")              menu ;;
+  -h|--help)       sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//' ;;
+  *)               echo "unknown option: $1" >&2; exit 2 ;;
+esac

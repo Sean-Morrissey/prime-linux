@@ -1,18 +1,21 @@
-// Prime Linux — top bar. Don't edit this copy (prime-update replaces it):
+// Prime — top bar. Every item has a tooltip that says what it is and its state
+// in words, and every item is reachable from the keyboard: Super+Alt+B lists
+// them all (prime-bar --keys). Don't edit this copy (prime-update replaces it):
 // put a full replacement at ~/.config/waybar/config.jsonc, or styling tweaks in
 // ~/.config/waybar/user.css. Add-ons insert their own modules at start-up.
+// image#logo needs an "interval": without one, waybar never draws the bar when it runs on 2+ screens.
 {
   "layer": "top",
   "position": "top",
   "mod": "dock",
-  "height": 38,
-  "margin-top": 6,
-  "margin-left": 10,
-  "margin-right": 10,
+  "height": 34,
+  "margin-top": 0,
+  "margin-left": 0,
+  "margin-right": 0,
   "exclusive": true,
   "passthrough": false,
   "gtk-layer-shell": true,
-  "spacing": 0,
+  "spacing": 4,
   "modules-left": [
     "image#logo",
     "custom/mediaPrev",
@@ -24,24 +27,48 @@
     "clock"
   ],
   "modules-right": [
+    "custom/recording",
+    "custom/toggles",
+    "custom/keyboard",
     "tray",
-    "custom/audio",
-    "network",
-    "bluetooth",
-    "cpu",
-    "memory",
-    "custom/gpu",
+    "group/status",
+    "group/stats",
     "custom/updates",
-    "custom/theme",
     "custom/notification",
     "custom/power"
   ],
   "tray": {
     "icon-size": 16,
-    "spacing": 6
+    "spacing": 10
+  },
+  "custom/recording": {
+    "exec": "~/.local/share/prime-linux/layer/bin/prime-record status",
+    "return-type": "json",
+    "interval": 1,
+    "signal": 9,
+    "escape": false,
+    "on-click": "~/.local/share/prime-linux/layer/bin/prime-record stop",
+    "on-click-right": "~/.local/share/prime-linux/layer/bin/prime-context bar.recording"
+  },
+  "custom/toggles": {
+    "exec": "~/.local/share/prime-linux/layer/bin/prime-toggle status",
+    "return-type": "json",
+    "interval": 5,
+    "signal": 10,
+    "on-click": "~/.local/share/prime-linux/layer/bin/prime-toggle menu",
+    "on-click-right": "~/.local/share/prime-linux/layer/bin/prime-context bar.toggles"
+  },
+  "custom/keyboard": {
+    "exec": "~/.local/share/prime-linux/layer/bin/prime-keyboard status",
+    "return-type": "json",
+    "interval": 2,
+    "signal": 11,
+    "on-click": "~/.local/share/prime-linux/layer/bin/prime-keyboard next",
+    "on-click-right": "~/.local/share/prime-linux/layer/bin/prime-context bar.keyboard"
   },
   "clock": {
-    "format": "{:%a %b %d   %I:%M %p}",
+    "format": "{:%a %b %e   %I:%M %p}",
+    "tooltip": true,
     "format-alt": "{:%A, %B %d, %Y  (%R)}",
     "interval": 1,
     "tooltip-format": "<tt><small>{calendar}</small></tt>",
@@ -60,7 +87,7 @@
     "on-click-right": "~/.local/share/prime-linux/layer/bin/prime-context bar.clock"
   },
   "custom/mediaPrev": {
-    "tooltip": false,
+    "tooltip": true,
     "on-click": "~/.local/share/prime-linux/layer/bin/prime-media prev",
     "on-click-right": "~/.local/share/prime-linux/layer/bin/prime-context bar.media",
     "on-click-middle": "~/.local/share/prime-linux/layer/bin/prime-media toggle",
@@ -80,7 +107,7 @@
     "on-scroll-down": "~/.local/share/prime-linux/layer/bin/prime-media voldown"
   },
   "custom/mediaNext": {
-    "tooltip": false,
+    "tooltip": true,
     "on-click": "~/.local/share/prime-linux/layer/bin/prime-media next",
     "on-click-right": "~/.local/share/prime-linux/layer/bin/prime-context bar.media",
     "on-click-middle": "~/.local/share/prime-linux/layer/bin/prime-media toggle",
@@ -104,55 +131,91 @@
     "return-type": "json",
     "interval": 1,
     "signal": 8,
-    "on-click": "pavucontrol",
+    "on-click": "~/.local/share/prime-linux/layer/bin/prime-sound",
     "on-click-right": "~/.local/share/prime-linux/layer/bin/prime-context bar.audio",
-    "on-scroll-up": "wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%+",
-    "on-scroll-down": "wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-"
+    "on-scroll-up": "~/.local/share/prime-linux/layer/bin/prime-osd volume up",
+    "on-scroll-down": "~/.local/share/prime-linux/layer/bin/prime-osd volume down",
+    "on-click-middle": "pavucontrol"
   },
   "network": {
-    "format-wifi": "󰤨",
+    "format-wifi": "{icon}",
     "format-ethernet": "󰈀",
     "format-disconnected": "󰤮",
-    "tooltip-format": "{essid} · {signalStrength}% · {ipaddr}",
-    "on-click": "~/.local/share/prime-linux/layer/bin/prime-float nmtui",
-    "on-click-right": "~/.local/share/prime-linux/layer/bin/prime-context bar.network"
+    "tooltip-format-wifi": "Wi-Fi: connected to {essid} ({signalStrength}% signal)\nclick to change network",
+    "tooltip-format-ethernet": "Network: connected by cable\nclick for Wi-Fi",
+    "tooltip-format-disconnected": "Network: not connected\nclick to join a Wi-Fi network",
+    "tooltip-format-disabled": "Wi-Fi: off\nclick to turn it on",
+    "on-click": "~/.local/share/prime-linux/layer/bin/prime-wifi",
+    "on-click-right": "~/.local/share/prime-linux/layer/bin/prime-context bar.network",
+    "format-icons": [
+      "󰤟",
+      "󰤢",
+      "󰤥",
+      "󰤨"
+    ],
+    "format-linked": "󰈂"
   },
   "bluetooth": {
     "format": "󰂯",
-    "format-disabled": "󰂲",
-    "format-connected": "󰂱  {device_alias}",
-    "tooltip-format": "{status} · {device_alias}",
-    "on-click": "blueman-manager",
-    "on-click-right": "~/.local/share/prime-linux/layer/bin/prime-context bar.bluetooth"
+    "format-disabled": "",
+    "format-connected": "󰂱",
+    "tooltip-format": "Bluetooth: {status}\nclick to connect a device",
+    "tooltip-format-connected": "Bluetooth: connected to {device_alias}\nclick to connect a device",
+    "tooltip-format-disabled": "Bluetooth: off\nclick to turn it on",
+    "on-click": "~/.local/share/prime-linux/layer/bin/prime-bluetooth",
+    "on-click-right": "~/.local/share/prime-linux/layer/bin/prime-context bar.bluetooth",
+    "format-off": "󰂲",
+    "format-connected-battery": "󰂱"
+  },
+  "battery": {
+    "interval": 30,
+    "states": {
+      "warning": 20,
+      "critical": 10
+    },
+    "format": "{icon}  {capacity}%",
+    "format-charging": "󰂄  {capacity}%",
+    "format-plugged": "󰚥",
+    "format-full": "󰁹",
+    "format-icons": [
+      "󰁺",
+      "󰁼",
+      "󰁾",
+      "󰂀",
+      "󰁹"
+    ],
+    "tooltip-format": "{timeTo}\nClick: battery saver / balanced / performance",
+    "on-click": "~/.local/share/prime-linux/layer/bin/prime-power-profile",
+    "on-click-right": "~/.local/share/prime-linux/layer/bin/prime-context bar.battery"
   },
   "cpu": {
-    "format": "󰻠  {usage}%",
+    "format": "󰍛 {usage}%",
     "interval": 3,
     "states": {
       "warning": 70,
       "critical": 90
     },
-    "tooltip-format": "CPU: {usage}%  Load: {load}",
-    "on-click": "~/.local/share/prime-linux/layer/bin/prime-float btop",
+    "tooltip-format": "Processor: {usage}% busy\nclick to see what's using it",
+    "on-click": "~/.local/share/prime-linux/layer/bin/prime-activity",
     "on-click-right": "~/.local/share/prime-linux/layer/bin/prime-context bar.cpu"
   },
   "memory": {
-    "format": "󰍛  {percentage}%",
+    "format": "󰘚 {percentage}%",
     "interval": 3,
     "states": {
       "warning": 75,
       "critical": 90
     },
-    "tooltip-format": "RAM: {used:0.1f}G / {total:0.1f}G  ({percentage}%)",
-    "on-click": "~/.local/share/prime-linux/layer/bin/prime-float btop",
+    "tooltip-format": "Memory: {used:0.1f} of {total:0.1f} GB in use ({percentage}%)\nclick to see what's using it",
+    "on-click": "~/.local/share/prime-linux/layer/bin/prime-activity",
     "on-click-right": "~/.local/share/prime-linux/layer/bin/prime-context bar.memory"
   },
   "custom/gpu": {
     "exec": "~/.local/share/prime-linux/layer/bin/prime-gpu-monitor",
     "return-type": "json",
     "interval": 2,
-    "format": "󰢮  {}",
-    "on-click": "~/.local/share/prime-linux/layer/bin/prime-float btop",
+    "format": "󰢮 {}",
+    "on-click": "~/.local/share/prime-linux/layer/bin/prime-activity",
     "on-click-right": "~/.local/share/prime-linux/layer/bin/prime-context bar.gpu",
     "exec-if": "~/.local/share/prime-linux/layer/bin/prime-gpu-monitor | grep -q ."
   },
@@ -162,49 +225,61 @@
     "interval": 60,
     "escape": true,
     "tooltip": true,
-    "format": "󰚰  {}",
-    "tooltip-format": "{} updates · click to update everything · right-click for more",
-    "on-click": "~/.local/share/prime-linux/layer/bin/prime-float ~/.local/share/prime-linux/layer/bin/prime-update",
+    "format": "󰚰 {}",
+    "on-click": "~/.local/share/prime-linux/layer/bin/prime-update",
     "on-click-right": "~/.local/share/prime-linux/layer/bin/prime-context bar.updates"
   },
-  "custom/theme": {
-    "format": "<span color='#a1a1a6'>󰸉</span>",
-    "on-click": "~/.local/share/prime-linux/layer/bin/prime-theme",
-    "tooltip-format": "Theme — wallpaper + accent colour (Super+Shift+W)",
-    "on-click-right": "~/.local/share/prime-linux/layer/bin/prime-context bar.theme"
-  },
   "custom/notification": {
-    "tooltip": false,
+    "tooltip": true,
     "format": "{icon}",
     "format-icons": {
-      "notification": "<span foreground='#fbbf24'>󰂚</span>",
-      "none": "<span foreground='#a1a1aa'>󰂜</span>",
-      "dnd-notification": "<span foreground='#fbbf24'>󰂛</span>",
-      "dnd-none": "<span foreground='#a1a1aa'>󰂛</span>",
-      "inhibited-notification": "<span foreground='#fbbf24'>󰂚</span>",
-      "inhibited-none": "<span foreground='#a1a1aa'>󰂜</span>",
-      "dnd-inhibited-notification": "<span foreground='#fbbf24'>󰂛</span>",
-      "dnd-inhibited-none": "<span foreground='#a1a1aa'>󰂛</span>"
+      "notification": "󰂚",
+      "none": "󰂜",
+      "dnd-notification": "󰂛",
+      "dnd-none": "󰂛",
+      "inhibited-notification": "󰂚",
+      "inhibited-none": "󰂜",
+      "dnd-inhibited-notification": "󰂛",
+      "dnd-inhibited-none": "󰂛"
     },
     "return-type": "json",
     "exec-if": "which swaync-client",
-    "exec": "swaync-client -swb",
+    "exec": "~/.local/share/prime-linux/layer/bin/prime-notify-pill",
     "on-click": "swaync-client -t -sw",
     "on-click-right": "~/.local/share/prime-linux/layer/bin/prime-context bar.notification",
     "escape": true
   },
   "custom/power": {
-    "format": "⏻",
+    "format": "󰐥",
     "on-click": "~/.local/share/prime-linux/layer/bin/prime-power-menu",
-    "tooltip": false,
+    "tooltip": true,
+    "tooltip-format": "Power: lock, sleep, restart, shut down, log out",
     "on-click-right": "~/.local/share/prime-linux/layer/bin/prime-context bar.power"
   },
   "image#logo": {
     "path": "~/.config/prime/theme/mark.svg",
-    "size": 20,
+    "size": 18,
     "tooltip": true,
-    "tooltip-format": "Prime Linux\nMenu · Super+Alt+Space   Search · Super+Space   Shortcuts · Super+/",
-    "on-click": "~/.local/share/prime-linux/layer/bin/prime-menu",
-    "on-click-right": "~/.local/share/prime-linux/layer/bin/prime-context bar.logo"
+    "tooltip-format": "Start (Super+X) — apps, pinned, recent files\nRight-click for more · Prime menu Super+Alt+Space · Search Super+Space",
+    "on-click": "~/.local/share/prime-linux/layer/bin/prime-start",
+    "on-click-right": "~/.local/share/prime-linux/layer/bin/prime-context bar.logo",
+    "interval": 3600
+  },
+  "group/status": {
+    "orientation": "horizontal",
+    "modules": [
+      "network",
+      "bluetooth",
+      "custom/audio",
+      "battery"
+    ]
+  },
+  "group/stats": {
+    "orientation": "horizontal",
+    "modules": [
+      "cpu",
+      "memory",
+      "custom/gpu"
+    ]
   }
 }

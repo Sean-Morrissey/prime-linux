@@ -108,6 +108,17 @@ backend_restore_last_good() { # the newest rollback point — used by post-boot 
   backend_restore "$(basename "$d")"
 }
 
+# The sandbox has no real image digest, so it models one with two plain files:
+# image_id is what is "booted" now, offer_id is what an update would install.
+# They exist so the digest-based policy (skip a known-bad image, remember what
+# broke) can be exercised here exactly as it is on bootc.
+backend_current_digest() { sb_init; cat "$SANDBOX_W/image_id" 2>/dev/null || echo "sandbox-image-0"; }
+backend_pending_digest() { # digest of the update being offered, empty if none
+  sb_init
+  [ "$(sb_pending)" != "0" ] || { echo ""; return 0; }
+  cat "$SANDBOX_W/offer_id" 2>/dev/null || echo "sandbox-offer"
+}
+
 backend_pending_reboot() { # 1 = an update is installed but needs a restart
   sb_init
   [ -e "$SANDBOX_W/reboot_pending" ] && echo 1 || echo 0
@@ -131,17 +142,33 @@ backend_restore() { # backend_restore <id>
   return 0
 }
 
-backend_health() { # id, ok(1/0), label
+backend_health_boot() { # boot-critical only — what the boot-time verifier may roll back on
   sb_init
   printf 'cpu\t1\tProcessor: AMD Ryzen 5 7500X3D (sandbox)\n'
   printf 'memory\t1\tMemory: 24.4 GB available\n'
-  printf 'display\t1\tDisplay: 1920x1080 x2\n'
   printf 'storage\t1\tStorage: 301 GB free of 752 GB\n'
-  printf 'network\t1\tNetwork: wired connection active\n'
   if [ -e "$SANDBOX_W/health_broken" ]; then
+    printf 'services\t0\tA system service failed to start after the update\n'
+  else
+    printf 'services\t1\tServices: nothing failed\n'
+  fi
+}
+
+backend_health() { # everything: boot-critical + the desktop-is-usable checks
+  backend_health_boot
+  if [ -e "$SANDBOX_W/health_broken" ]; then
+    printf 'display\t1\tDisplay: 1920x1080 x2\n'
+    printf 'network\t1\tNetwork: wired connection active\n'
     printf 'session\t0\tDesktop session failed to start after the update\n'
     printf 'audio\t0\tAudio: no output device found\n'
+  elif [ -e "$SANDBOX_W/comfort_broken" ]; then
+    printf 'display\t1\tDisplay: 1920x1080 x2\n'
+    printf 'network\t0\tNetwork: no connection (laptop not associated yet)\n'
+    printf 'session\t0\tDesktop session did not start (login screen)\n'
+    printf 'audio\t0\tAudio: no sound server running\n'
   else
+    printf 'display\t1\tDisplay: 1920x1080 x2\n'
+    printf 'network\t1\tNetwork: wired connection active\n'
     printf 'session\t1\tDesktop session started cleanly\n'
     printf 'audio\t1\tAudio: output and microphone working\n'
   fi
@@ -161,3 +188,6 @@ sb_set_pending()       { sb_init; echo "$1" > "$SANDBOX_W/pending"; }
 sb_set_facts()         { sb_init; printf '%s\n' "$1" > "$SANDBOX_W/facts.json"; }
 sb_rebooted()          { sb_init; [ -e "$SANDBOX_W/last_reboot" ] && echo 1 || echo 0; }
 sb_pending_now()       { sb_pending; }
+sb_set_offer_id()      { sb_init; printf '%s\n' "$1" > "$SANDBOX_W/offer_id"; }
+sb_set_image_id()      { sb_init; printf '%s\n' "$1" > "$SANDBOX_W/image_id"; }
+sb_comfort_broken()    { sb_init; touch "$SANDBOX_W/comfort_broken"; }

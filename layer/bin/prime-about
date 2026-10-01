@@ -1,26 +1,59 @@
 #!/usr/bin/env bash
-# prime-about — what Prime Linux is, which version, and where things live.
+# prime-about — what Prime is, which version, and where to find things.
+# Opens in a Prime window; in a terminal it prints the same rows.
+#
+#   prime-about              About Prime
+#   prime-about --computer   This computer: model, processor, graphics, memory, disk
 set -u
 LAYER="$(readlink -f "$(dirname "$(readlink -f "$0")")/..")"
 REPO="$(readlink -f "$LAYER/..")"
-A=$'\e[38;2;248;113;113m'; D=$'\e[2m'; B=$'\e[1m'; R=$'\e[0m'
-ver="$(git -C "$REPO" describe --tags --always 2>/dev/null || echo unknown)"
-when="$(git -C "$REPO" log -1 --format=%cd --date=short 2>/dev/null)"
+BIN="$LAYER/bin"
+if [ -z "${PRIME_PANEL:-}${PRIME_NO_PANEL:-}" ] && [ ! -t 1 ] && [ -n "${WAYLAND_DISPLAY:-}${DISPLAY:-}" ]; then
+    if [ "${1:-}" = --computer ]; then
+        exec "$BIN/prime-panel" --title "This computer" --subtitle "What's inside, in plain words." -- "$0" --computer
+    fi
+    exec "$BIN/prime-panel" --title "About Prime" \
+        --subtitle "A fast desktop that sets itself up, explains itself, and can undo a bad update." -- "$0"
+fi
+row() { if [ -n "${PRIME_PANEL:-}" ]; then printf '@row %s\t%s\n' "$1" "$2"; else printf '  %-16s %s\n' "$1" "$2"; fi; }
 
-printf '\n  %s%sPrime Linux%s  %s%s · %s%s\n' "$B" "$A" "$R" "$D" "$ver" "$when" "$R"
-printf '  %sPlease Relax, I'"'"'ll Manage Everything%s\n' "$A" "$R"
-printf '  %sCachyOS speed · Hyprland power · a desktop that explains itself%s\n\n' "$D" "$R"
-row() { printf '  %s%-16s%s %s\n' "$A" "$1" "$R" "$2"; }
-row "Search"        "Super+Space"
-row "Menu"          "Super+Alt+Space  (settings, theme, updates, power)"
-row "Shortcuts"     "Super+/"
-row "Theme"         "Super+Shift+W"
-row "Health check"  "Super+H"
-row "Update"        "prime-update  (or Menu → Update)"
-echo
-row "Your settings" "~/.config/hypr/hyprland.conf · ~/.config/kitty/kitty.conf"
-row "Bar tweaks"    "~/.config/waybar/user.css"
-row "Backups"       "~/.config-backups/desktop  (Menu → Style → Restore)"
-row "Prime itself"  "$REPO"
-row "Add-ons"       "$(grep -v '^#' "$HOME/.config/prime/addons" 2>/dev/null | paste -sd, | sed 's/^$/none/')"
-echo
+if [ "${1:-}" = --computer ]; then
+    model="$(cat /sys/devices/virtual/dmi/id/sys_vendor /sys/devices/virtual/dmi/id/product_name 2>/dev/null | paste -sd' ')"
+    cpu="$(LC_ALL=C lscpu 2>/dev/null | sed -n 's/^Model name: *//p' | head -1)"
+    gpu="$(lspci 2>/dev/null | grep -iE 'vga|3d|display' | sed -E 's/^[^:]*: *[^:]*: //; s/ \(rev [0-9a-f]+\)//' | paste -sd';' | sed 's/;/ · /g')"
+    mem="$(free -b 2>/dev/null | awk '/^Mem:/ { printf "%.0f GB (%.0f GB free)", $2/1e9, $7/1e9 }')"
+    disk="$(df -B1 / 2>/dev/null | awk 'NR==2 { printf "%.0f GB (%.0f GB free)", $2/1e9, $4/1e9 }')"
+    up="$(uptime -p 2>/dev/null | sed 's/^up //')"
+    row "Computer"   "${model:-unknown}"
+    row "Processor"  "${cpu:-unknown} · $(nproc) cores"
+    row "Graphics"   "${gpu:-unknown}"
+    row "Memory"     "${mem:-unknown}"
+    row "Disk"       "${disk:-unknown}"
+    row "System"     "Prime on $(. /etc/os-release 2>/dev/null; echo "${NAME:-Linux}")"
+    [ -n "$up" ] && row "Switched on" "$up ago"
+    exit 0
+fi
+
+ver="$(git -C "$REPO" describe --tags --always 2>/dev/null || echo unknown)"
+when="$(git -C "$REPO" log -1 --format=%cd --date=format:'%-d %B %Y' 2>/dev/null)"
+base="$(. /etc/os-release 2>/dev/null; echo "${NAME:-}")"
+addons=""
+. "$LAYER/addons/_lib/resolve.sh"
+while read -r d; do
+    DESCRIPTION=""; . "$d/addon.conf"
+    addons+="${addons:+, }${DESCRIPTION%% — *}"
+done < <(enabled_addon_dirs)
+
+row "Version"       "Prime $ver${when:+ · $when}"
+row "Prime means"   "P.R.I.M.E — Please Relax I'll Manage Everything"
+[ -n "$base" ] && row "Built on" "$base"
+row "Search"        "Super+Space — apps, files, sums, the web"
+row "Prime menu"    "Super+Alt+Space — settings, theme, updates, power"
+row "Bar, by keys"  "Super+Alt+B — every bar item from the keyboard"
+row "Shortcuts"     "Super+/ — every shortcut, searchable"
+row "Theme"         "Super+Shift+W — wallpaper, accent colour, text size"
+row "Health check"  "Super+H — checks the desktop and repairs it"
+row "Updates"       "Click the update count in the bar, or Prime menu → Update"
+row "Undo"          "Prime menu → Style & repair → Restore desktop settings"
+row "Add-ons"       "${addons:-none yet — Prime menu → Settings → Add-ons}"
+[ -n "${PRIME_PANEL:-}" ] && echo "@summary Prime menu → Update keeps Prime and everything else up to date."

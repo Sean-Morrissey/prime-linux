@@ -1,0 +1,16 @@
+[Unit]
+Description=Prime Linux automatic updates — hourly look, the updater decides
+Documentation=file:///etc/prime/updates.conf
+
+[Timer]
+# Cheap hourly wake-up: the updater checks its own rules (update hours, a day
+# since the last check, nobody gaming, power, disk) before it touches the
+# network. Hourly instead of one fixed time means a computer that is off at
+# night still gets its updates — once it is overdue and nobody is using it.
+OnBootSec=20min
+OnCalendar=hourly
+RandomizedDelaySec=10min
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target

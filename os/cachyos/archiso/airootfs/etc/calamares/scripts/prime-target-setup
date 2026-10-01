@@ -1,5 +1,6 @@
 #!/bin/bash
-# Prime OS: one rollback entry in the boot menu, and never the broken one.
+# Prime OS: the Prime desktop for each new account, then one rollback entry in the
+# boot menu, and never the broken one.
 #
 # Runs INSIDE the freshly installed system (shellprocess with dontChroot: false), after the
 # package step, so limine-snapper-sync.conf exists by now if Limine was chosen.
@@ -14,6 +15,43 @@
 # Owner's words, 2026-09-27: "he only needs snapshots for 1 rollback. only if something
 # breaks is all, he wont even use it its for prime."
 set -uo pipefail
+
+# ── The Prime desktop for every account the installer made ──────────────────────
+# The buildset stages the Prime repository at /usr/share/prime-linux. From it, two of
+# the payload's system files go to / (the "Prime" login-screen session and the
+# first-login step) and its skel files into each account's home (the seeded
+# hyprland.conf that loads Prime and runs prime-first-login once). The rest of the
+# payload's system/ (snapper, prime-pc) is the captured machine's and is NOT written
+# here: CachyOS's own snapshot setup on this disk stays as the installer made it. The layer itself is then put in place
+# by prime-first-login at that account's first login, as the account, with
+# install.sh — the same path a CachyOS install takes with the install script.
+prime_desktop() {
+    local repo=/usr/share/prime-linux home user uid sys
+    if [ ! -d "$repo/os/cachyos/payload" ]; then
+        echo "prime: $repo not staged in this image — desktop left to the install script"
+        return 0
+    fi
+    sys="$repo/os/cachyos/payload/system"
+    install -Dm644 "$sys/usr/share/wayland-sessions/prime.desktop" /usr/share/wayland-sessions/prime.desktop
+    install -Dm755 "$sys/usr/local/bin/prime-first-login" /usr/local/bin/prime-first-login
+    for home in /home/*; do
+        [ -d "$home" ] || continue
+        user="$(stat -c %U "$home")"; uid="$(id -u "$user" 2>/dev/null || echo 0)"
+        [ "$uid" -ge 1000 ] || continue
+        if python3 "$repo/tools/expand-payload.py" --payload "$repo/os/cachyos/payload" \
+                --home "$home" --user "$user" --monitors "" \
+                --study-dir "$home/Documents" --study-platform "" --wallpaper "$repo/layer/wallpapers/prime-emblem.jpg" \
+                --audio-sink "" --gpu-env ""; then
+            chown -R "$user:" "$home/.config" "$home/.hermes" 2>/dev/null
+            echo "prime: Prime desktop seeded for $user"
+        else
+            echo "prime: could not seed the Prime desktop for $user" >&2
+            return 1
+        fi
+    done
+    return 0
+}
+prime_desktop || exit 1
 
 conf=/etc/limine-snapper-sync.conf
 

@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+# prime-keyboard — keyboard layouts (languages).
+#
+#   prime-keyboard            add or remove layouts from a searchable list
+#   prime-keyboard next       switch to the next layout (Super+Ctrl+Space)
+#   prime-keyboard status     JSON for the bar (shows only with 2+ layouts)
+#   prime-keyboard current    the layouts in use, e.g. "us,de"
+#
+# Your choice is saved in ~/.config/hypr/keyboard.conf (yours; Prime never
+# overwrites it) and applied straight away.
+set -u
+BIN="$(dirname "$(readlink -f "$0")")"
+CONF="$HOME/.config/hypr/keyboard.conf"
+LST=/usr/share/X11/xkb/rules/base.lst
+note() { notify-send -a Prime -t 3000 -h string:x-canonical-private-synchronous:prime-keyboard "$1" "${2:-}" >/dev/null 2>&1 || true; }
+
+current() {
+    local l=""
+    [ -f "$CONF" ] && l="$(sed -nE 's/^\s*kb_layout\s*=\s*([^#]*).*/\1/p' "$CONF" | tail -1 | tr -d ' ')"
+    printf '%s\n' "${l:-us}"
+}
+
+write_conf() {   # write_conf "us,de"
+    mkdir -p "$(dirname "$CONF")"
+    cat > "$CONF" <<EOF
+# Keyboard layouts — written by Settings → Keyboard layout (prime-keyboard).
+# Switch between them with Super+Ctrl+Space. You can edit this file too.
+input {
+    kb_layout = $1
+}
+EOF
+    if [ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]; then
+        hyprctl keyword input:kb_layout "$1" >/dev/null 2>&1
+    fi
+    pkill -RTMIN+11 -x waybar 2>/dev/null || true
+}
+
+describe() { awk -v c="$1" '/^! layout/{f=1;next} /^!/{f=0} f && $1==c {$1=""; sub(/^ +/,""); print; exit}' "$LST" 2>/dev/null; }
+
+case "${1:-}" in
+    current) current ;;
+    next)
+        hyprctl switchxkblayout all next >/dev/null 2>&1
+        km="$(hyprctl -j devices 2>/dev/null | jq -r '[.keyboards[] | select(.main)][0].active_keymap // empty')"
+        note "Keyboard: ${km:-next layout}"
+        pkill -RTMIN+11 -x waybar 2>/dev/null || true ;;
+    status)
+        cur="$(current)"
+        case "$cur" in *,*) ;; *) echo '{"text":""}'; exit 0 ;; esac
+        idx="$(hyprctl -j devices 2>/dev/null | jq -r '[.keyboards[] | select(.main)][0].active_layout_index // 0')"
+        IFS=, read -r -a L <<<"$cur"
+        code="${L[${idx:-0}]:-${L[0]}}"
+        printf '{"text":"󰌌  %s","tooltip":"Keyboard: %s\\nSuper+Ctrl+Space or click to switch · right-click for more","class":"multi"}\n' \
+            "$code" "$(describe "$code")" ;;
+    "")
+        [ -r "$LST" ] || { note "Keyboard layouts list not found" "$LST"; exit 1; }
+        cur="$(current)"; IFS=, read -r -a ON <<<"$cur"
+        rows="$(awk '/^! layout/{f=1;next} /^!/{f=0} f && NF {c=$1; $1=""; sub(/^ +/,""); print c "\t" $0}' "$LST")"
+        choice="$( { for c in "${ON[@]}"; do printf '●  %s  —  %s\n' "$(describe "$c")" "$c"; done
+                     printf '%s\n' "$rows" | while IFS=$'\t' read -r c d; do
+                         case ",$cur," in *",$c,"*) ;; *) printf '○  %s  —  %s\n' "$d" "$c" ;; esac
+                     done; } \
+            | ROFI_HINT="● in use — choose to remove  ·  ○ choose to add  ·  type to search" \
+              "$BIN/prime-rofi" -dmenu -i -no-custom -theme bar -p "󰌌 Keyboard layouts" \
+              -theme-str 'mainbox { children: [ inputbar, message, listview ]; }' -theme-str 'listview { lines: 12; }')" || exit 0
+        code="$(printf '%s' "$choice" | awk -F'  —  ' '{print $NF}' | tr -d ' ')"
+        [ -n "$code" ] || exit 0
+        case "$choice" in
+            "●"*) [ "${#ON[@]}" -gt 1 ] || { note "That's your only layout" "Add another one before removing this one"; exit 0; }
+                  new="$(printf '%s\n' "${ON[@]}" | grep -vxF "$code" | paste -sd,)"
+                  write_conf "$new"; note "Removed $(describe "$code")" "Layouts: $new" ;;
+            *)    new="$cur,$code"; write_conf "$new"
+                  note "Added $(describe "$code")" "Switch layouts with Super+Ctrl+Space" ;;
+        esac ;;
+    *) sed -n '2,11p' "$0"; exit 2 ;;
+esac

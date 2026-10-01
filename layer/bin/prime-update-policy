@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+# prime-update-policy — read or change what Prime does about updates by itself.
+#
+#   prime-update-policy get           prints: automatic | ask | security | off
+#   prime-update-policy set <value>   automatic  install updates at night, snapshot first (recommended)
+#                                     ask        tell me when updates are ready
+#                                     security   only when a security fix is waiting
+#                                     off        never by itself
+#   prime-update-policy describe      one plain sentence about the current setting
+#
+# `set` needs the administrator password (a password box on the desktop, or sudo
+# in a terminal). Exit 0 = done; 1 = not changed; 2 = not a valid value.
+set -u
+CONF="${PRIME_UPDATES_CONF:-/etc/prime/updates.conf}"
+ENGINE="${PRIME_UPDATES_ENGINE:-/usr/local/lib/prime-linux/prime-system-update}"
+
+current() {
+  local v; v="$(sed -n 's/^POLICY=\(auto\|ask\|security\|off\)[[:space:]]*$/\1/p' "$CONF" 2>/dev/null | tail -1)"
+  [ "${v:-auto}" = auto ] && echo automatic || echo "$v"
+}
+
+case "${1:-get}" in
+  get) current ;;
+  describe)
+    case "$(current)" in
+      automatic) echo "Automatic: updates install during the night, with a safety snapshot first, and are checked afterwards." ;;
+      ask)       echo "Ask me first: Prime tells you when updates are ready, and you click Install." ;;
+      security)  echo "Only security fixes: Prime updates when a security fix is waiting, and at least once a month." ;;
+      off)       echo "Off: nothing updates by itself. Use Update everything now and then." ;;
+    esac ;;
+  set)
+    case "${2:-}" in
+      automatic|auto) v=auto ;;
+      ask|ask-first)  v=ask ;;
+      security|security-only|security-relevant) v=security ;;
+      off|manual)     v=off ;;
+      *) echo "prime-update-policy: choose automatic, ask, security or off" >&2; exit 2 ;;
+    esac
+    [ -x "$ENGINE" ] || { echo "Prime's update service isn't installed yet — run prime-update once to set it up." >&2; exit 1; }
+    if [ "$(id -u)" = 0 ] || [ "${PRIME_TEST_ALLOW_NONROOT:-0}" = 1 ]; then "$ENGINE" set "POLICY=$v" >/dev/null || exit 1
+    elif sudo -n true 2>/dev/null; then sudo -n "$ENGINE" set "POLICY=$v" >/dev/null || exit 1
+    elif [ -t 0 ] && command -v sudo >/dev/null; then sudo "$ENGINE" set "POLICY=$v" >/dev/null || exit 1
+    elif command -v pkexec >/dev/null; then pkexec "$ENGINE" set "POLICY=$v" >/dev/null || exit 1
+    else echo "need administrator rights to change this" >&2; exit 1; fi
+    [ "$(current)" = "$([ $v = auto ] && echo automatic || echo $v)" ] || exit 1
+    echo "Updates: $(current)" ;;
+  -h|--help|help) sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//' ;;
+  *) echo "usage: prime-update-policy get | set <automatic|ask|security|off>" >&2; exit 2 ;;
+esac

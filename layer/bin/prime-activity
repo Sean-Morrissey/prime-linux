@@ -1,0 +1,198 @@
+#!/usr/bin/python3
+"""Prime Activity — what is using the computer right now (click CPU, memory or
+GPU in the bar). The busiest apps first, with how much of the processor and
+memory each one is using, in words as well as numbers; select one and press
+Quit (or Delete) to close it politely — it gets the chance to save first.
+
+  prime-activity              open the window
+  prime-activity --list       print the rows once (tests)
+  prime-activity --screenshot F   render the window to a PNG (needs a display)
+"""
+from __future__ import annotations
+
+import os
+import signal
+import subprocess
+import sys
+import time
+
+import gi
+
+gi.require_version("Gtk", "3.0")
+gi.require_version("Gdk", "3.0")
+from gi.repository import Gdk, GLib, Gtk, Pango  # noqa: E402
+
+GLib.set_prgname("prime-activity")
+BIN = os.path.dirname(os.path.realpath(__file__))
+sys.dont_write_bytecode = True          # never leave a cache file inside the layer
+import importlib.machinery, importlib.util  # noqa: E402,E401
+
+# the window style, header and helpers are shared with prime-panel
+_loader = importlib.machinery.SourceFileLoader("prime_panel", os.path.join(BIN, "prime-panel"))
+panel = importlib.util.module_from_spec(importlib.util.spec_from_loader("prime_panel", _loader))
+_loader.exec_module(panel)
+SHOWN = 14
+# the list, in the Prime window's look (sizes in rem: Theme → Text size)
+CSS = """
+#activity { background-color: transparent; color: #f4f4f6; font-size: 1rem; }
+#activity:selected, #activity:selected:focus { background-color: alpha(@ACCENT@, 0.28); color: #ffffff; }
+#activity header button {
+    border-radius: 0; background-color: transparent; background-image: none; box-shadow: none;
+    border: none; border-bottom: 1px solid rgba(255, 255, 255, 0.08); padding: 8px 14px;
+    font-size: 0.85rem; font-weight: 600; color: rgba(255, 255, 255, 0.55);
+}
+"""
+
+
+def level(pct: float) -> str:
+    """A word for a share of the machine — the number alone is easy to misread."""
+    if pct >= 60:
+        return "very busy"
+    if pct >= 25:
+        return "busy"
+    if pct >= 5:
+        return "light"
+    return "idle"
+
+
+def snapshot() -> list:
+    """[(pid, name, cpu%, mem%, mem MB)] for this person's apps, busiest first."""
+    try:
+        out = subprocess.run(["ps", "-u", str(os.getuid()), "-o", "pid=,pcpu=,pmem=,rss=,comm=",
+                              "--sort=-pcpu"], capture_output=True, text=True, timeout=5).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    rows, me = [], os.getpid()
+    for line in out.splitlines():
+        parts = line.split(None, 4)
+        if len(parts) < 5 or int(parts[0]) == me or parts[4] in ("ps", "prime-activity"):
+            continue
+        pid, cpu, mem, rss, name = int(parts[0]), float(parts[1]), float(parts[2]), int(parts[3]), parts[4]
+        if rss == 0:                       # kernel threads: nothing a person can quit
+            continue
+        rows.append((pid, name, cpu / max(os.cpu_count() or 1, 1), mem, rss // 1024))
+    return rows
+
+
+class Activity:
+    def __init__(self, offscreen: bool = False):
+        self.win, card = panel.card_window("Activity — Prime")
+        self.win.set_default_size(760, 560)
+        self.win.connect("delete-event", lambda *_: Gtk.main_quit())
+        self.win.connect("key-press-event", self.on_key)
+        panel.header(card, "Activity", "What is using the computer right now, busiest first.")
+        self.store = Gtk.ListStore(int, str, str, str)
+        self.view = Gtk.TreeView(model=self.store)
+        self.view.set_name("activity")
+        panel.labelled(self.view, "Running apps, busiest first")
+        for i, (title, expand) in enumerate((("App", True), ("Processor", False), ("Memory", False)), 1):
+            r = Gtk.CellRendererText()
+            r.set_padding(14, 7)
+            r.set_property("ellipsize", Pango.EllipsizeMode.END if expand else Pango.EllipsizeMode.NONE)
+            col = Gtk.TreeViewColumn(title, r, text=i)
+            col.set_expand(expand)
+            self.view.append_column(col)
+        scroll = Gtk.ScrolledWindow()
+        scroll.add(self.view)
+        card.pack_start(scroll, True, True, 0)
+        foot = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        foot.set_name("footer")
+        self.status = Gtk.Label(xalign=0.0)
+        self.status.set_name("status")
+        foot.pack_start(self.status, True, True, 0)
+        self.quit_btn = Gtk.Button(label="Quit the selected app")
+        panel.labelled(self.quit_btn, "Quit the selected app")
+        self.quit_btn.connect("clicked", lambda *_: self.quit_selected())
+        close = Gtk.Button(label="Close")
+        close.get_style_context().add_class("suggested")
+        close.connect("clicked", lambda *_: Gtk.main_quit())
+        foot.pack_end(close, False, False, 0)
+        foot.pack_end(self.quit_btn, False, False, 0)
+        card.pack_end(foot, False, False, 0)
+        self.refresh()
+        if not offscreen:
+            GLib.timeout_add_seconds(2, self.refresh)
+
+    def refresh(self) -> bool:
+        sel = self.selected_pid()
+        rows = snapshot()[:SHOWN]
+        self.store.clear()
+        for pid, name, cpu, mem, mb in rows:
+            it = self.store.append([pid, name, f"{cpu:4.1f}%  {level(cpu)}", f"{mb} MB"])
+            if pid == sel:
+                self.view.get_selection().select_iter(it)
+        try:
+            la = os.getloadavg()[0] / max(os.cpu_count() or 1, 1) * 100
+        except OSError:
+            la = 0.0
+        self.status.set_text(f"The computer overall: {level(la)}  ·  updates every 2 seconds")
+        return True
+
+    def selected_pid(self) -> int:
+        model, it = self.view.get_selection().get_selected()
+        return model[it][0] if it else 0
+
+    def quit_selected(self):
+        model, it = self.view.get_selection().get_selected()
+        if not it:
+            self.status.set_text("Pick an app in the list first, then Quit.")
+            return
+        pid, name = model[it][0], model[it][1]
+        try:
+            os.kill(pid, signal.SIGTERM)
+            self.status.set_text(f"Asked {name} to quit — it can save first.")
+        except OSError:
+            self.status.set_text(f"{name} couldn't be closed from here.")
+
+    def on_key(self, _w, event) -> bool:
+        if event.keyval == Gdk.KEY_Escape:
+            Gtk.main_quit()
+            return True
+        if event.keyval == Gdk.KEY_Delete:
+            self.quit_selected()
+            return True
+        return False
+
+
+def main() -> int:
+    if "--list" in sys.argv:
+        for pid, name, cpu, mem, mb in snapshot()[:SHOWN]:
+            print(f"{name:<28} {cpu:5.1f}% {level(cpu):<10} {mb} MB")
+        return 0
+    if not Gtk.init_check(sys.argv)[0]:
+        print("Activity needs the desktop", file=sys.stderr)
+        return 1
+    panel.install_css()
+    style = Gtk.CssProvider()
+    style.load_from_data(CSS.replace("@ACCENT@", panel.theme_accent()).encode())
+    Gtk.StyleContext.add_provider_for_screen(Gdk.Screen.get_default(), style,
+                                             Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION + 1)
+    if "--screenshot" in sys.argv:
+        path = sys.argv[sys.argv.index("--screenshot") + 1]
+        a = Activity(offscreen=True)
+        off = Gtk.OffscreenWindow()
+        if off.get_screen().get_rgba_visual() is not None:
+            off.set_visual(off.get_screen().get_rgba_visual())
+        card = a.win.get_child()
+        a.win.remove(card)
+        card.set_size_request(760, 560)
+        off.add(card)
+        off.show_all()
+        a.view.get_selection().select_path(Gtk.TreePath.new_first())
+        for _ in range(40):
+            while Gtk.events_pending():
+                Gtk.main_iteration_do(False)
+            time.sleep(0.01)
+        off.get_pixbuf().savev(path, "png", [], [])
+        print(path)
+        return 0
+    a = Activity()
+    a.win.set_position(Gtk.WindowPosition.CENTER)
+    a.win.show_all()
+    a.view.grab_focus()
+    Gtk.main()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

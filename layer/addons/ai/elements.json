@@ -43,7 +43,7 @@
         },
         {
           "label": "󰒓  Change the model",
-          "cmd": "~/.local/share/prime-linux/layer/bin/prime-float ~/.local/share/prime-linux/layer/addons/ai/bin/prime-ai-setup"
+          "cmd": "~/.local/share/prime-linux/layer/addons/ai/bin/prime-ai-setup"
         }
       ]
     }

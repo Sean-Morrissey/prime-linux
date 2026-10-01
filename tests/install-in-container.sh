@@ -29,9 +29,23 @@ docker cp "$REPO/." "$NAME":/home/alex/src-worktree    # uncommitted changes too
 docker exec "$NAME" bash -c 'rm -rf /home/alex/src-worktree/.git && cp -a /home/alex/src-worktree/. /home/alex/src/ &&
     chown -R alex: /home/alex/src && cd /home/alex/src && sudo -u alex git add -A && sudo -u alex git -c user.name=t -c user.email=t@t commit -qm wip || true'
 
+# GSETTINGS_BACKEND=keyfile: no D-Bus session in a container, but the theme
+# settings must persist between commands for the uninstall check to mean anything
+AS_ALEX=(docker exec -u alex -e HOME=/home/alex -e XDG_RUNTIME_DIR=/run/user/1000 -e GSETTINGS_BACKEND=keyfile "$NAME")
+
+# a stranger's account is never empty: an old terminal config Prime must back up and restore
+"${AS_ALEX[@]}" bash -c 'mkdir -p ~/.config/kitty && echo "# my settings, before-prime" > ~/.config/kitty/kitty.conf
+    for k in gtk-theme icon-theme font-name; do echo "$k $(gsettings get org.gnome.desktop.interface $k)"; done > /tmp/gsettings-before'
+
 echo "== install"
-docker exec -u alex -e HOME=/home/alex -e XDG_RUNTIME_DIR=/run/user/1000 "$NAME" bash /home/alex/src/install.sh
+"${AS_ALEX[@]}" bash /home/alex/src/install.sh --yes
 
 echo "== checks"
 docker cp "$REPO/tests/check-install.sh" "$NAME":/tmp/check-install.sh
-docker exec -u alex -e HOME=/home/alex -e XDG_RUNTIME_DIR=/run/user/1000 "$NAME" bash /tmp/check-install.sh
+docker cp "$REPO/tests/check-uninstall.sh" "$NAME":/tmp/check-uninstall.sh
+rc=0
+"${AS_ALEX[@]}" env PRIME_TEST_PLANTED_CONFIG=1 bash /tmp/check-install.sh || rc=$?
+
+echo "== uninstall"
+"${AS_ALEX[@]}" bash /tmp/check-uninstall.sh || rc=$((rc + $?))
+exit $rc

@@ -39,6 +39,8 @@ AUDIT="$PRIME_STATE_DIR/audit.jsonl"
 ULOG="$PRIME_STATE_DIR/updates.log"
 DEFER_FILE="$PRIME_STATE_DIR/autoupdate.defer"
 FAIL_FILE="$PRIME_STATE_DIR/autoupdate.failcount"
+BAD_FILE="$PRIME_STATE_DIR/autoupdate.baddigest"    # image that broke this machine
+HUMAN_FILE="$PRIME_STATE_DIR/autoupdate.needs-human" # set once a human must intervene
 STATE_FILE="$PRIME_STATE_DIR/autoupdate.state"
 mkdir -p "$PRIME_STATE_DIR" 2>/dev/null || true
 
@@ -50,18 +52,54 @@ bad()  { printf '  %s✗%s %s\n' "$c_bad" "$c_reset" "$*"; }
 dim()  { printf '%s%s%s\n' "$c_dim" "$*" "$c_reset"; }
 
 audit() { # audit <action> <outcome> [detail]
+  local action="$1" outcome="$2" detail="${3:-}"
+  # escape quotes so a detail like `snapshot "pre-update"` stays one parseable line
   printf '{"ts":"%s","action":"%s","outcome":"%s","detail":"%s","backend":"%s"}\n' \
-    "$(date -u +%FT%TZ)" "$1" "$2" "${3:-}" "$PRIME_BACKEND" >> "$AUDIT"
+    "$(date -u +%FT%TZ)" "$action" "$outcome" "${detail//\"/\'}" "$PRIME_BACKEND" >> "$AUDIT"
 }
 
 ulog() { # ulog <line> — the human-facing history of what Prime did to this machine
   printf '%s  %s\n' "$(date -u +%FT%TZ)" "$*" >> "$ULOG"
 }
 
+session_bus_env() { # prints "<uid> <runtime_dir>" of the first graphical session, or nothing
+  command -v loginctl >/dev/null 2>&1 || return 1
+  local s ty uid
+  for s in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $1}'); do
+    ty="$(loginctl show-session "$s" -p Type --value 2>/dev/null)"
+    case "$ty" in wayland|x11) ;; *) continue ;; esac
+    uid="$(loginctl show-session "$s" -p UID --value 2>/dev/null)"
+    [ -n "$uid" ] || continue
+    printf '%s %s\n' "$uid" "/run/user/$uid"
+    return 0
+  done
+  return 1
+}
+
+# Run a command as the owner of the first graphical session, with their D-Bus
+# address, so a root service can still reach the desktop. Falls back to running
+# directly when we are not root (tests, a user invoking the helper by hand).
+run_for_session() { # run_for_session <args...>
+  local senv uid xrd
+  senv="$(session_bus_env 2>/dev/null)" || return 1
+  uid="${senv%% *}"; xrd="${senv#* }"
+  if [ "$(id -u)" = "0" ] && [ -n "$uid" ] && command -v runuser >/dev/null 2>&1; then
+    DBUS_SESSION_BUS_ADDRESS="unix:path=$xrd/bus" XDG_RUNTIME_DIR="$xrd" \
+      runuser -u "$uid" -- "$@" 2>/dev/null
+  else
+    "$@" 2>/dev/null
+  fi
+}
+
 note() { # note <urgency> <title> <body> — a desktop notification if anyone can see one
   [ "${PRIME_NOTIFY:-1}" = "1" ] || return 0
   command -v notify-send >/dev/null 2>&1 || return 0
-  notify-send -a Prime -u "${1:-normal}" -r 4711 "$2" "$3" 2>/dev/null || true
+  if run_for_session notify-send -a Prime -u "${1:-normal}" -r 4711 "$2" "$3"; then
+    return 0
+  fi
+  # no graphical session reachable: fall back to something a logged-in user still sees
+  command -v wall >/dev/null 2>&1 && printf 'Prime: %s — %s\n' "$2" "$3" | wall 2>/dev/null
+  return 0
 }
 
 load_backend() {
@@ -75,6 +113,22 @@ load_backend() {
 # Every fact needed to decide "is now a safe moment" lives behind one function, so
 # the sandbox can lie about all of them and the tests can exercise every branch.
 
+# --------------------------------------------------------------- idle math
+# /proc/uptime is in *seconds*; loginctl's IdleSinceHintMonotonic is in
+# *microseconds*. Both are on the same monotonic clock, so idle time is simply
+# (uptime_us - idle_since_us). The old code multiplied uptime into microseconds
+# but then divided idle_since *out* of microseconds, so idle_minutes came back at
+# ~hundred-million for every session and the "only reboot when idle" gate was
+# always true. Kept pure so tests can feed it synthetic facts.
+read_uptime_us() { awk '{print int($1*1000000)}' /proc/uptime 2>/dev/null || echo 0; }
+
+idle_minutes_from() { # idle_minutes_from <uptime_us> <idle_since_us> -> integer minutes
+  local up="${1:-0}" since="${2:-0}" idle_us
+  idle_us=$(( up - since ))
+  [ "$idle_us" -lt 0 ] && idle_us=0
+  echo $(( idle_us / 60000000 ))   # 60s/min * 1_000_000us/s
+}
+
 facts_json() {
   if [ "$PRIME_BACKEND" = "sandbox" ]; then
     local f="$PRIME_STATE_DIR/sandbox/facts.json"
@@ -87,24 +141,24 @@ facts_json() {
   # idle: longest idle session. No logind, no idea -> 0, which means "busy" on
   # purpose: the safe answer to "may I reboot this machine" is no.
   if command -v loginctl >/dev/null 2>&1; then
-    local up now_use
-    up="$(awk '{print int($1*1000000)}' /proc/uptime 2>/dev/null || echo 0)"
+    local up hint since mins
+    up="$(read_uptime_us)"
     for s in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $1}'); do
-      local hint since mins
       hint="$(loginctl show-session "$s" -p IdleHint --value 2>/dev/null)"
       since="$(loginctl show-session "$s" -p IdleSinceHintMonotonic --value 2>/dev/null)"
       [ "$hint" = "yes" ] || continue
       if [ -n "$since" ] && [ "$since" != "0" ]; then
-        mins=$(( (up - since / 1000000) / 60 ))
+        mins="$(idle_minutes_from "$up" "$since")"
         [ "$mins" -gt "$idle" ] && idle="$mins"
       fi
     done
   fi
-  # power: no battery at all (a desktop) counts as plugged in
+  # power: no battery at all (a desktop) counts as plugged in. Several supplies may
+  # report at once (AC adapter + battery); any one plugged in means on AC.
   local ac_found=false
+  on_ac=false
   for p in /sys/class/power_supply/*/online; do
     [ -r "$p" ] || continue
-    on_ac=false
     ac_found=true
     [ "$(cat "$p")" = "1" ] && on_ac=true
   done
@@ -116,7 +170,7 @@ facts_json() {
   # long jobs that must not be interrupted — a print, a build, an encode, a download
   local pats=()
   [ -r /etc/prime/busy.conf ] && mapfile -t pats < <(grep -vE '^\s*(#|$)' /etc/prime/busy.conf)
-  [ "${#pats[@]}" -gt 0 ] || pats=(make ninja cc1 rustc cargo ffmpeg pacman dnf rpm-ostree podman blender orca-slicer qemu-system)
+  [ "${#pats[@]}" -gt 0 ] || pats=(make ninja cc1 cc1plus rustc cargo gcc clang node python python3 git ffmpeg pacman dnf rpm-ostree podman blender orca-slicer OrcaSlicer ElegooSlicer octoprint qemu-system)
   local hits=""
   for p in "${pats[@]}"; do
     pgrep -x "$p" >/dev/null 2>&1 && hits="$hits$p,"
@@ -132,6 +186,18 @@ fact() { # fact <key> — read one value out of facts_json
 import json,sys
 try: print(json.load(sys.stdin).get('$1',''))
 except Exception: print('')"
+}
+
+# boot_health() is the boot-time verifier (P0-3): only boot-critical checks, so a
+# laptop with no network yet, a lid-closed screen, or a machine at the login screen
+# does not look "broken". The full `backend_health` (used by `prime health`) stays
+# available for a human; the update cycle never rolls back on comfort checks.
+boot_health() {
+  if command -v backend_health_boot >/dev/null 2>&1; then
+    backend_health_boot
+  else
+    backend_health
+  fi
 }
 
 # ============================================================ policy
@@ -160,7 +226,11 @@ set_deferred() { # set_deferred <hours> <reason>
 
 fail_count() { cat "$FAIL_FILE" 2>/dev/null || echo 0; }
 mark_failed() { echo $(( $(fail_count) + 1 )) > "$FAIL_FILE"; }
-clear_failed() { rm -f "$FAIL_FILE"; }
+clear_failed() { rm -f "$FAIL_FILE"; }          # reset the streak only — the bad
+                                                # digest is forgotten separately,
+                                                # and only when a newer image shows up
+forget_bad_image() { rm -f "$BAD_FILE"; }
+short_digest() { printf '%s' "${1:0:12}"; }
 
 # --------------------------------------------------------------- should-reboot
 # The honest core of the whole thing: never reboot a machine someone is using.
@@ -189,11 +259,25 @@ cmd_should_reboot() {
 warn_and_wait() { # exit 0 = go ahead, 1 = the human deferred
   [ "${GRACE_SECONDS:-0}" -le 0 ] && return 0   # no countdown configured
   command -v notify-send >/dev/null 2>&1 || return 0
-  local out=""
-  out="$(timeout "$GRACE_SECONDS" notify-send -a Prime -u critical -r 4712 \
-        -A "later=Later" -i system-software-update \
+  local senv uid xrd out="" args
+  senv="$(session_bus_env 2>/dev/null)" || true
+  if [ -z "$senv" ]; then
+    warn "no desktop session to show the restart countdown to"
+    return 0
+  fi
+  uid="${senv%% *}"; xrd="${senv#* }"
+  # --wait makes notify-send block until the notification is acted on or dismissed,
+  # and print the chosen action id — this is how "Later" reaches us at all. Run it
+  # on the user's session bus so the button actually appears on the desktop.
+  args=(notify-send --wait -a Prime -u critical -r 4712 -A "later=Later" -i system-software-update \
         "Restarting in $(( GRACE_SECONDS / 60 )) minutes" \
-        "Your system is updated and needs one restart. Click Later and I will do it once you have stopped working." 2>/dev/null)" || true
+        "Your system is updated and needs one restart. Click Later and I will do it once you have stopped working.")
+  if [ "$(id -u)" = "0" ] && [ -n "$uid" ] && command -v runuser >/dev/null 2>&1; then
+    out="$(timeout "$GRACE_SECONDS" env DBUS_SESSION_BUS_ADDRESS="unix:path=$xrd/bus" XDG_RUNTIME_DIR="$xrd" \
+          runuser -u "$uid" -- "${args[@]}" 2>/dev/null)" || true
+  else
+    out="$(timeout "$GRACE_SECONDS" "${args[@]}" 2>/dev/null)" || true
+  fi
   [ "$out" = "later" ] && return 1
   return 0
 }
@@ -225,6 +309,24 @@ cmd_cycle() {
   fi
   say "  $n update(s) waiting"
 
+  # P1(ii): never re-stage the image that already broke this machine. clear_failed
+  # on a healthy boot would otherwise wipe the streak and let the same broken image
+  # be installed forever. Only a *newer* image clears the memory of the old one.
+  if [ -s "$BAD_FILE" ] && command -v backend_pending_digest >/dev/null 2>&1; then
+    local offered known_bad
+    offered="$(backend_pending_digest 2>/dev/null || true)"
+    known_bad="$(cat "$BAD_FILE" 2>/dev/null)"
+    if [ -n "$offered" ] && [ -n "$known_bad" ] && [ "$offered" = "$known_bad" ]; then
+      warn "the update on offer is the one that already broke this machine"
+      dim "    waiting for a newer image before trying again"
+      audit autoupdate skipped "known-bad image $(short_digest "$offered")"
+      return 0
+    fi
+    # a different (newer) image is on offer: the bad one is no longer what we'd boot
+    clear_failed
+    forget_bad_image
+  fi
+
   if [ "$PRIME_AUTONOMY" = "suggest" ]; then
     warn "autonomy is 'suggest' — I will not install these without you"
     dim "    run: prime update    (or tell me to just do it: prime autonomy auto)"
@@ -254,7 +356,7 @@ cmd_cycle() {
   local failed=0
   while IFS=$'\t' read -r id okflag label; do
     [ "$okflag" = "1" ] || { failed=$((failed+1)); }
-  done < <(backend_health)
+  done < <(boot_health)
   if [ "$failed" -gt 0 ]; then
     bad "$failed check(s) are failing right now"
     if [ "$PRIME_AUTONOMY" = "auto-all" ] && [ -n "$snap" ]; then
@@ -311,7 +413,7 @@ cmd_post_boot() {
   local failed=0
   while IFS=$'\t' read -r id okflag label; do
     if [ "$okflag" = "1" ]; then ok "$label"; else bad "$label"; failed=$((failed+1)); fi
-  done < <(backend_health)
+  done < <(boot_health)
   say
   if [ "$failed" -eq 0 ]; then
     ok "update verified — this machine is healthy"
@@ -325,25 +427,41 @@ cmd_post_boot() {
 
   bad "$failed check(s) failing after this update"
   mark_failed
+  # remember which image did this, so we never boot it again unprompted
+  local bad_dig; bad_dig="$(backend_current_digest 2>/dev/null || true)"
+  [ -n "$bad_dig" ] && printf '%s\n' "$bad_dig" > "$BAD_FILE"
   ulog "booted after update: UNHEALTHY ($failed checks)"
   audit verify unhealthy "post-boot, $failed failing"
 
-  # A broken machine cannot consent, and the previous version is a known-good
-  # state that still exists on disk. Restoring it is recovery, not destruction —
-  # it never touches the user's files. So this one acts even when autonomy is low,
-  # and says so in the log and on screen next time.
-  if [ "$PRIME_AUTONOMY" = "auto-all" ] || [ "$PRIME_AUTONOMY" = "auto-user" ] || [ "$FAIL_LIMIT" -gt 0 ]; then
-    warn "going back to the version that worked"
-    if backend_restore_last_good; then
-      ok "rolled back to the previous version (your files are untouched)"
-      ulog "rolled back after a failed update"
-      audit rollback ok "post-boot recovery"
-      backend_reboot
-    else
-      bad "automatic recovery failed — this needs a human"
-      audit rollback failed "post-boot recovery"
-      return 1
-    fi
+  # P0-2: this path must terminate. Once an image has failed FAIL_LIMIT boots in a
+  # row, restoring and rebooting again would just flip-flop between two broken
+  # deployments and brick the machine. Stop, flag that a human is needed, and
+  # refuse to keep rebooting.
+  if [ "$FAIL_LIMIT" -gt 0 ] && [ "$(fail_count)" -ge "$FAIL_LIMIT" ]; then
+    warn "this image has failed $FAIL_LIMIT boots in a row — I am stopping here"
+    warn "recovery needs a human: the previous version is still on disk, but I will not reboot again unattended"
+    : > "$HUMAN_FILE"
+    ulog "gave up after $FAIL_LIMIT bad boots; needs a human"
+    audit rollback stopped "post-boot: fail limit reached ($(fail_count))"
+    return 0
+  fi
+
+  # A broken machine cannot consent, and the previous version is a known-good state
+  # that still exists on disk. Restoring it is recovery, not destruction — it never
+  # touches the user's files. This happens at EVERY autonomy level (docs/UPDATES.md:
+  # "recovering from a broken boot happens at every level"), so it is deliberately
+  # not gated on PRIME_AUTONOMY.
+  warn "going back to the version that worked"
+  if backend_restore_last_good; then
+    ok "rolled back to the previous version (your files are untouched)"
+    ulog "rolled back after a failed update"
+    audit rollback ok "post-boot recovery"
+    backend_reboot
+  else
+    bad "automatic recovery failed — this needs a human"
+    : > "$HUMAN_FILE"
+    audit rollback failed "post-boot recovery"
+    return 1
   fi
 }
 
@@ -371,12 +489,17 @@ cmd_status() {
 }
 
 # ---------------------------------------------------------------------- main
-case "${1:-cycle}" in
-  cycle)         load_backend; cmd_cycle ;;
-  should-reboot) load_backend; cmd_should_reboot ;;
-  post-boot)     load_backend; cmd_post_boot ;;
-  later)         shift || true; cmd_later "${1:-}" ;;
-  status)        load_backend; cmd_status ;;
-  -h|--help|help) sed -n '2,26p' "$0" | sed 's/^# \{0,1\}//' ;;
-  *)             say "unknown command: $1"; exit 2 ;;
-esac
+# Guarded so the file can be `source`d by tests (which then call the functions
+# directly) without the top-level dispatch running. Run normally, BASH_SOURCE[0]
+# equals $0 and the dispatch below executes as before.
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then
+  case "${1:-cycle}" in
+    cycle)         load_backend; cmd_cycle ;;
+    should-reboot) load_backend; cmd_should_reboot ;;
+    post-boot)     load_backend; cmd_post_boot ;;
+    later)         shift || true; cmd_later "${1:-}" ;;
+    status)        load_backend; cmd_status ;;
+    -h|--help|help) sed -n '2,26p' "$0" | sed 's/^# \{0,1\}//' ;;
+    *)             say "unknown command: $1"; exit 2 ;;
+  esac
+fi

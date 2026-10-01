@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# prime-titlebars — make sure the window title bars (the hyprbars plugin) are
+# built for the Hyprland that's running, then load them.
+#
+#   prime-titlebars            at login (autostart): quick when already built;
+#                              otherwise builds once in the background (~1 min)
+#   prime-titlebars --rebuild  build again (after a Hyprland update)
+#
+# hyprpm can only add plugins from inside a running Hyprland session, so the
+# installer — usually run from another desktop — leaves this to the first login.
+set -u
+LOG="$HOME/.cache/prime-hyprpm.log"; mkdir -p "$HOME/.cache"
+note() { notify-send -a Prime -t "${3:-5000}" "$1" "${2:-}" >/dev/null 2>&1 || true; }
+[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ] || { echo "run this inside Hyprland" >&2; exit 1; }
+command -v hyprpm >/dev/null || exit 0
+
+enabled() { hyprpm list 2>/dev/null | sed 's/\x1b\[[0-9;]*m//g' | grep -A3 -i 'hyprbars' | grep -qi 'enabled: *\(true\|yes\)'; }
+
+if [ "${1:-}" != --rebuild ] && enabled; then
+    hyprpm reload -n >/dev/null 2>&1; exit 0
+fi
+note "Setting up window title bars" "A one-time build for this version of Hyprland — about a minute. Everything works meanwhile."
+{
+    echo "== $(date) prime-titlebars ${1:-}"
+    hyprpm update &&
+    { hyprpm list 2>/dev/null | grep -qi hyprbars || hyprpm add https://github.com/hyprwm/hyprland-plugins; } &&
+    hyprpm enable hyprbars && hyprpm reload -n
+} >>"$LOG" 2>&1 </dev/null
+if enabled; then note "Window title bars are ready"
+else note "Couldn't set up title bars" "No internet? Prime tries again at your next login. Details: ~/.cache/prime-hyprpm.log" 8000; fi

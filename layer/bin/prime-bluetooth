@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# prime-bluetooth — connect your headphones, mouse, speaker… in one click
+# (click the Bluetooth icon on the bar). Devices you've paired before are
+# listed; choose one to connect or disconnect it. "Pair a new device" opens
+# the Bluetooth window for first-time pairing.
+set -u
+BIN="$(dirname "$(readlink -f "$0")")"
+note() { notify-send -a Prime -t "${3:-4000}" "$1" "${2:-}" >/dev/null 2>&1 || true; }
+pick() {
+    ROFI_HINT="↑↓ move  ·  Enter choose  ·  Esc close" \
+        "$BIN/prime-rofi" -dmenu -i -no-custom -markup-rows -format i -theme bar -p "$1"
+}
+bt() { timeout 8 bluetoothctl "$@" 2>/dev/null; }
+NEW="󰂰  Pair a new device…"
+
+command -v bluetoothctl >/dev/null || { note "Bluetooth isn't installed"; exit 1; }
+if ! bt list | grep -q '^Controller'; then
+    note "No Bluetooth on this computer" "No adapter was found (or the bluetooth service is off — try Super+H)"; exit 0
+fi
+if ! bt show | grep -q 'Powered: yes'; then
+    i="$(printf '%s\n' "󰂯  Turn Bluetooth on" | pick "󰂲 Bluetooth is off")" || exit 0
+    [ "$i" = 0 ] && { bt power on >/dev/null; note "Bluetooth on"; sleep 1; exec "$0"; }
+    exit 0
+fi
+
+ROWS=(); MACS=(); CONN=()
+while read -r _ mac name; do
+    [ -n "$mac" ] || continue
+    if bt info "$mac" | grep -q 'Connected: yes'; then
+        ROWS+=("󰂱  <b>$name</b>  <span alpha=\"50%\">connected — choose to disconnect</span>"); CONN+=(1)
+    else ROWS+=("󰂯  $name"); CONN+=(0); fi
+    MACS+=("$mac")
+done < <(bt devices Paired)
+
+n=${#ROWS[@]}
+i="$( { [ "$n" -gt 0 ] && printf '%s\n' "${ROWS[@]}"; echo "$NEW"; echo "󰂲  Turn Bluetooth off"; } | pick "󰂯 Bluetooth")" || exit 0
+[ -n "$i" ] || exit 0
+if [ "$i" -eq "$n" ]; then exec blueman-manager; fi
+if [ "$i" -gt "$n" ]; then bt power off >/dev/null; note "Bluetooth off"; exit 0; fi
+mac="${MACS[$i]}"; name="$(bt info "$mac" | sed -n 's/^\s*Alias: //p')"
+if [ "${CONN[$i]}" = 1 ]; then bt disconnect "$mac" >/dev/null; note "Disconnected $name"; exit 0; fi
+note "Bluetooth" "Connecting $name…" 2000
+if bt connect "$mac" | grep -q 'Connection successful'; then note "Connected $name"
+else note "Couldn't connect $name" "Is it switched on and nearby? If it's paired to another device, pair it again here." 8000; fi

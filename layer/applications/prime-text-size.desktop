@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Text Size
+Comment=One text size for the whole desktop
+Exec=@LAYER@/bin/prime-theme --text
+Icon=preferences-desktop-font
+Categories=Settings;
+Keywords=font;size;bigger;smaller;zoom;accessibility;

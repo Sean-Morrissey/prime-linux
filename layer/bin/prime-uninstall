@@ -1,39 +1,136 @@
 #!/usr/bin/env bash
-# prime-uninstall — remove Prime Linux from this account.
+# prime-uninstall — take Prime Linux off this account and put back what was there.
 #
-# Puts back the config files the installer replaced (from its backup), removes
-# Prime's services, commands and update hook, and deletes ~/.local/share/prime-linux.
-# Packages stay installed (other things may use them); your desktop-settings
-# backups in ~/.config-backups stay too.
+#   prime-uninstall              asks first, then undoes the install
+#   prime-uninstall --yes        no question (automation)
+#   prime-uninstall --packages   also remove the packages Prime installed
+#                                (only those nothing else needs)
+#   prime-uninstall --dry-run    say what it would do, change nothing
+#
+# Uses the installer's record (~/.local/state/prime/install.manifest):
+#   · config files Prime replaced come back from its backup; files it created go
+#   · the GTK theme, icons, fonts and folder app go back to what they were
+#   · system services Prime switched on (login screen, Bluetooth, printing,
+#     power modes) are switched off again
+#   · Prime's services, commands, app-list entries, web apps and update hook go
+# Your Prime settings (~/.config/prime) are moved into ~/.config-backups, and
+# your desktop-settings backups stay where they are.
 set -u
 PRIME_HOME="$HOME/.local/share/prime-linux"
+STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/prime"
+MANIFEST="$STATE_DIR/install.manifest"
 BACKUP=""; [ -f "$HOME/.config/prime/install.conf" ] && . "$HOME/.config/prime/install.conf"
+STAMP="$(date +%Y%m%d-%H%M%S)"
+YES=0; PKGS=0; DRY=0
+for a in "$@"; do
+    case "$a" in
+        --yes|-y)   YES=1 ;;
+        --packages) PKGS=1 ;;
+        --dry-run)  DRY=1 ;;
+        -h|--help)  sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        *) echo "unknown option: $a" >&2; exit 2 ;;
+    esac
+done
+run() { if [ $DRY = 1 ]; then echo "    [dry-run] $*"; else "$@"; fi; }
+say() { printf '    %s\n' "$*"; }
 
-echo "This removes Prime Linux from your account (packages stay installed)."
-read -rp "Continue? [y/N] " ok; [ "${ok,,}" = y ] || exit 0
+[ -d "$PRIME_HOME" ] || [ -f "$MANIFEST" ] || { echo "Prime Linux isn't installed for $(id -un)."; exit 0; }
+echo "This removes Prime Linux from your account and restores what it changed."
+[ $PKGS = 1 ] && echo "The packages Prime installed are removed too (where nothing else needs them)."
+if [ $YES = 0 ] && [ $DRY = 0 ]; then read -rp "Continue? [y/N] " ok; [ "${ok,,}" = y ] || exit 0; fi
 
-systemctl --user stop prime-session.target prime-bar@top prime-bar@side prime-cliphist-text \
-    prime-cliphist-image prime-clip-persist 2>/dev/null
+# ── the desktop session's pieces ─────────────────────────────────────────────
+run systemctl --user stop prime-session.target 'prime-bar@top' 'prime-bar@side' prime-cliphist-text \
+    prime-cliphist-image prime-clip-persist prime-osd prime-battery-alert 2>/dev/null
 for u in "$HOME"/.config/systemd/user/prime-*; do
-    [ -L "$u" ] && [[ "$(readlink "$u")" == "$PRIME_HOME"/* ]] && rm -f "$u"
+    [ -L "$u" ] && [[ "$(readlink "$u")" == "$PRIME_HOME"/* ]] && run rm -f "$u"
 done
-systemctl --user daemon-reload
+run systemctl --user daemon-reload 2>/dev/null
 for c in "$HOME"/.local/bin/prime-*; do
-    [ -L "$c" ] && [[ "$(readlink "$c")" == "$PRIME_HOME"/* ]] && rm -f "$c"
+    [ -L "$c" ] && [[ "$(readlink "$c")" == "$PRIME_HOME"/* ]] && run rm -f "$c"
+done
+for d in "$HOME"/.local/share/applications/prime-*.desktop; do
+    [ -f "$d" ] && grep -q 'prime-linux' "$d" && run rm -f "$d"
+done
+run rm -f "$HOME/.local/share/icons/hicolor/scalable/apps/prime-linux.svg"
+run rm -rf "$HOME/.local/share/icons/prime-webapps"
+say "Removed Prime's services, commands and app-list entries"
+
+# ── files: put back what was replaced, remove what was created ──────────────
+if [ -f "$MANIFEST" ]; then
+    while read -r kind rest; do
+        case "$kind" in
+            created)  # only if it is still Prime's (a file the user rewrote stays)
+                f="$rest"; [ -e "$f" ] || continue
+                case "$f" in */hypr/monitors.conf|*/hypr/keyboard.conf|*/hypr/hardware.conf|*/hypr/addons.conf|*/prime/addons|*/autostart/nm-applet.desktop) run rm -f "$f" ;;
+                             *) grep -q 'prime-linux' "$f" 2>/dev/null && run rm -f "$f" ;; esac ;;
+            replaced)   # the OLDEST backup holding it is the pre-Prime version
+                f="$rest"; rel="${f#$HOME/.config/}"
+                for b in $(sed -n 's/^backup //p' "$MANIFEST") "$BACKUP"; do
+                    [ -n "$b" ] && [ -e "$b/$rel" ] || continue
+                    run mkdir -p "$(dirname "$f")"; run cp -a "$b/$rel" "$f"; say "Restored ~/.config/$rel"; break
+                done ;;
+        esac
+    done < "$MANIFEST"
+elif [ -n "$BACKUP" ] && [ -d "$BACKUP" ]; then
+    # installs from before the manifest existed: restore the whole backup
+    run cp -a "$BACKUP"/. "$HOME/.config/" && say "Restored your previous configs from $BACKUP"
+fi
+for f in "$HOME/.config/hypr/hyprland.conf" "$HOME/.config/kitty/kitty.conf"; do
+    [ -f "$f" ] && grep -q 'prime-linux' "$f" && say "! $f still points at Prime Linux — delete or edit it"
 done
 
-if [ -n "$BACKUP" ] && [ -d "$BACKUP" ]; then
-    cp -a "$BACKUP"/. "$HOME/.config/" && echo "Restored your previous configs from $BACKUP"
-else
-    echo "No earlier configs to restore — ~/.config/hypr/hyprland.conf and ~/.config/kitty/kitty.conf"
-    echo "still point at Prime Linux; edit or delete them."
+# ── look: GTK theme, icons, fonts, the app that opens folders ────────────────
+if [ -f "$MANIFEST" ]; then
+    while read -r kind schema key val; do
+        case "$kind" in
+            gsetting) run gsettings set "$schema" "$key" "$val" 2>/dev/null ;;
+        esac
+    done < <(grep -E '^gsetting ' "$MANIFEST" | awk '!seen[$2" "$3]++')
+    while read -r _ type app; do
+        [ "$app" != "-" ] && [ -n "$app" ] && run xdg-mime default "$app" "$type"
+    done < <(grep -E '^mime ' "$MANIFEST" | head -1)
+    say "Theme, icons and fonts are back to how they were"
 fi
-rm -f "$HOME/.config/autostart/nm-applet.desktop"
 
-# the update hook only acts for users who still have Prime Linux
-others="$(ls -d /home/*/.local/share/prime-linux 2>/dev/null | grep -v "^$PRIME_HOME\$")"
+# ── system: services Prime switched on, the update hook, packages ────────────
+need_sudo=0
+others="$(ls -d /home/*/.local/share/prime-linux 2>/dev/null | grep -v "^$PRIME_HOME\$" || true)"
+if [ -f "$MANIFEST" ] && grep -q '^service ' "$MANIFEST"; then need_sudo=1; fi
+[ -z "$others" ] && { [ -f /etc/pacman.d/hooks/zz-prime-desktop-backup.hook ] || [ -d /usr/local/lib/prime-linux ]; } && need_sudo=1
+[ $PKGS = 1 ] && need_sudo=1
+if [ $need_sudo = 1 ] && [ $DRY = 0 ]; then sudo -v || { echo "sudo is needed for the system parts — run again when you can."; exit 1; }; fi
 if [ -z "$others" ]; then
-    sudo rm -f /etc/pacman.d/hooks/zz-prime-desktop-backup.hook /usr/share/libalpm/scripts/prime-desktop-backup-all
+    # only when nobody else on this computer still uses Prime
+    # nightly updates, backup hook, firewall defaults — undone by the same script that set them up
+    if [ -f "$PRIME_HOME/layer/system/install-system.sh" ]; then
+        run sudo bash "$PRIME_HOME/layer/system/install-system.sh" uninstall && say "Nightly updates and Prime's system settings removed"
+    fi
+    [ -f /etc/pacman.d/hooks/zz-prime-desktop-backup.hook ] && \
+        run sudo rm -f /etc/pacman.d/hooks/zz-prime-desktop-backup.hook /usr/share/libalpm/scripts/prime-desktop-backup-all
+    if [ -f "$MANIFEST" ]; then
+        while read -r _ svc; do
+            run sudo systemctl disable "$svc" >/dev/null 2>&1 && say "Switched $svc back off (Prime had turned it on)"
+        done < <(grep '^service ' "$MANIFEST" | sort -u)
+    fi
+else
+    say "Other accounts still use Prime — system settings left as they are"
 fi
-rm -rf "$PRIME_HOME"
-echo "Prime Linux removed. Log out and back in."
+if [ $PKGS = 1 ] && [ -f "$MANIFEST" ]; then
+    mapfile -t pk < <(sed -n 's/^pkg //p' "$MANIFEST" | sort -u | while read -r p; do pacman -Qq "$p" >/dev/null 2>&1 && echo "$p"; done)
+    if [ ${#pk[@]} -gt 0 ]; then
+        say "Removing ${#pk[@]} packages Prime installed…"
+        # -u: anything another program still needs is left alone
+        run sudo pacman -Rsu --noconfirm "${pk[@]}" || say "! some packages couldn't be removed (others need them) — that's fine"
+    fi
+fi
+
+# ── Prime itself ─────────────────────────────────────────────────────────────
+if [ -d "$HOME/.config/prime" ]; then
+    run mkdir -p "$HOME/.config-backups"
+    run mv "$HOME/.config/prime" "$HOME/.config-backups/prime-settings-$STAMP"
+    say "Your Prime settings were moved to ~/.config-backups/prime-settings-$STAMP"
+fi
+run rm -f "$STATE_DIR/install.progress" "$STATE_DIR/install.manifest" "$STATE_DIR/nightlight"
+run rm -rf "$PRIME_HOME"
+echo "Prime Linux removed. Log out and back in (choose your previous desktop on the login screen)."

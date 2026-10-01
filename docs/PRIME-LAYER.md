@@ -16,7 +16,8 @@ curl -fsSL https://raw.githubusercontent.com/sean-morrissey/prime-linux/main/boo
 bash install.sh            # --dry-run to see what it would do
 ```
 
-Log out, choose **Hyprland** on the login screen. Undo: `prime-uninstall`.
+Log out, choose **Hyprland** on the login screen (after the first *Update everything* it is
+listed as **Prime**). Undo: `prime-uninstall`.
 (The repo is private today; the curl line works once it is public.)
 
 ## How it is put together
@@ -56,6 +57,40 @@ login check that repairs what it safely can (`prime-doctor --login`); the AI key
 stored `0600` and never in a config file; no kitty remote-control socket;
 nothing in the layer runs as root except the backup hook, which drops to each
 user with `runuser`.
+
+## The desktop's standard, and how it is held
+
+Every surface is judged against one bar: it feels like macOS, never needs a terminal,
+is discoverable from the bar or a menu, speaks plain language, says Prime, works
+from the keyboard with a name on every control, has no hardcoded font size, and never
+carries state in colour alone. `tests/check-static.sh` enforces it (no container
+needed); `tests/install-in-container.sh` repeats it on a real install.
+
+| Rule | How it is met |
+|---|---|
+| No terminal | Prime's own tasks (health check, updates, About, add-ons, update list, undo an update, the AI answer) run in a **Prime window** (`prime-panel`): progress and results as rows that say *OK*, *Fixed*, *Needs you*, with buttons for the fix. A password is asked for in a Prime box (`prime-askpass`, used by `sudo -A`). Wi-Fi is a picker (`prime-wifi`), the processor/memory/graphics readouts open **Activity** (`prime-activity`). Menu rows use `kind: "panel"` (the old `"term"` means the same and never opens a terminal); `prime-float` remains only as a shim for old custom rows. |
+| One text size | Theme → **Text size** (Small / Default / Large / Larger, `prime-theme --set-text`) is the only font size. It sets the system font; the bar, notifications, Spotlight and Prime windows size text in `rem` from it, and `prime-theme` writes `fonts.rasi` (menus), the lock-screen, title-bar and terminal sizes from the same base. |
+| Keyboard | `Super+Alt+B` lists every bar item and opens its menu (the same as right-clicking it); `Ctrl+Shift+Esc` opens Activity; every bind has a description (`Super+/`). |
+| Names | Every bar item has a worded tooltip; Prime windows and Spotlight give every row and control an accessible name. (rofi pickers have no screen-reader support — a known gap.) |
+| Not colour alone | Muted sound says *Muted*; the lock screen says *Caps Lock is on* and *Wrong password*; title-bar buttons carry ✕ − +; Activity says *idle / light / busy*; update and notification tooltips say the state. |
+
+Previews of each surface: `layer/branding/previews/` (re-render with
+`layer/branding/src/preview-desktop.sh`; the lock screen and title bars are mocks
+from the same values, because only Hyprland can draw them).
+
+## A fresh install comes up as Prime
+
+- **Install script** (CachyOS + `install.sh`): unchanged; the first *Update everything*
+  adds the **Prime** session to the login screen (`layer/system/wayland-sessions`).
+- **ISO** (`os/cachyos/`): the payload's `skel/` is now the layer's own seed (a
+  `hyprland.conf` that loads Prime) instead of the captured pre-layer desktop, plus
+  `prime-first-login`, which at an account's first login runs `install.sh
+  --no-packages` from the staged copy in a Prime window. `prime-target-setup` installs
+  the Prime session + that step and seeds each new account. The ISO's package list
+  now carries everything the layer needs. **Still open:** the buildset must stage the
+  repository at `/usr/share/prime-linux` in the image, and the ISO install path is
+  blocked upstream anyway (`cachyos-calamares-next` links boost-python 1.91; the
+  repos ship 1.92), so this path is untested end to end.
 
 ## Roadmap — what makes it "Prime sets it up for you"
 

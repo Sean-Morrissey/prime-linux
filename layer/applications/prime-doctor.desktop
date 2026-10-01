@@ -2,7 +2,7 @@
 Type=Application
 Name=Desktop Health Check
 Comment=Check the desktop and fix what can be fixed
-Exec=@LAYER@/bin/prime-float @LAYER@/bin/prime-doctor
+Exec=@LAYER@/bin/prime-doctor
 Icon=utilities-system-monitor
 Categories=System;Settings;
 Keywords=repair;fix;broken;doctor;

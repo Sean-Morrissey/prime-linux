@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# prime-askpass — what sudo runs (SUDO_ASKPASS) when Prime needs the password:
+# a Prime window asks for it instead of a terminal prompt.
+exec "$(dirname "$(readlink -f "$0")")/prime-panel" --askpass "$@"

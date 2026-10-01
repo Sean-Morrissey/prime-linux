@@ -16,6 +16,14 @@ _A=$'\e[38;2;248;113;113m'; _D=$'\e[2m'; _B=$'\e[1m'; _R=$'\e[0m'; _G=$'\e[32m';
 say()  { printf '    %s\n' "$*"; }
 note() { printf '    %s%s%s\n' "$_D" "$*" "$_R"; }
 warn() { printf '    %s!%s %s\n' "$_A" "$_R" "$*"; }
+# Inside a Prime window (prime-panel sets PRIME_PANEL): rows in its line protocol,
+# and sudo asks for the password in a Prime box (SUDO_ASKPASS) instead of a terminal.
+if [ -n "${PRIME_PANEL:-}" ]; then
+    say()  { printf '@note %s\n' "$*"; }
+    note() { printf '@note %s\n' "$*"; }
+    warn() { printf '@bad %s\n' "$*"; }
+    sudo() { command sudo -A "$@"; }
+fi
 have() { command -v "$1" >/dev/null 2>&1; }
 nonint() { [ "${PRIME_NONINTERACTIVE:-0}" = 1 ] || ! [ -t 0 ]; }
 

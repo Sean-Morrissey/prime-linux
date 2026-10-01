@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# prime-lock-status — one line of state for the lock screen, in words (the
+# password field also changes colour, but colour alone is not enough).
+for led in /sys/class/leds/*capslock*/brightness; do
+    [ -r "$led" ] && [ "$(cat "$led" 2>/dev/null)" != 0 ] && { echo "Caps Lock is on"; exit 0; }
+done
+echo ""

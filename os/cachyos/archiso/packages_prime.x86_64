@@ -101,3 +101,38 @@ docker
 # libastal-git / libastal-4-git  (AUR)  — the bar pills' GTK4 layer-shell bindings
 # python-pywal / wallust               — wallpaper-driven theming
 # google-chrome / discord / lmstudio-bin / orca-slicer-bin — Sean's own apps, not ours
+
+# --- the Prime layer (layer/): what it needs beyond the above ------------------------
+# Mirrors os/arch/packages.txt (the install-script path), so an ISO install and a
+# CachyOS + install-script machine end up with the same desktop. tests/check-static.sh
+# fails if the two drift apart.
+adw-gtk-theme
+base-devel
+blueman
+breeze-cursors
+brightnessctl
+cliphist
+cmake
+cpio
+fd
+flatpak
+gnome-software
+gnome-text-editor
+gtk-layer-shell
+gtk3
+hyprpm
+hyprpolkitagent
+imagemagick
+inter-font
+jq
+libnotify
+meson
+nwg-displays
+pciutils
+pkgconf
+plocate
+python-gobject
+satty
+uwsm
+wl-clip-persist
+xdg-utils

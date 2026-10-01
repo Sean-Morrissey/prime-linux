@@ -10,7 +10,30 @@
 #
 #   prime-updates-count            status (cached)
 #   prime-updates-count --refresh  force a re-count
+#   prime-updates-count --list     what's waiting, one "@row" per update (Prime window)
 set -u
+
+if [ "${1:-}" = "--list" ]; then
+    BIN="$(dirname "$(readlink -f "$0")")"
+    if [ -z "${PRIME_PANEL:-}${PRIME_NO_PANEL:-}" ] && [ ! -t 1 ] && [ -n "${WAYLAND_DISPLAY:-}${DISPLAY:-}" ]; then
+        exec "$BIN/prime-panel" --title "What's waiting to update" \
+            --subtitle "Nothing changes until you choose Update everything." -- "$0" --list
+    fi
+    echo "@step Checking for updates"
+    n=0
+    while read -r name old _ new; do
+        [ -n "$name" ] || continue
+        printf '@row %s\t%s → %s\n' "$name" "$old" "$new"; n=$((n+1))
+    done < <(timeout 60 checkupdates 2>/dev/null)
+    apps="$(flatpak remote-ls --updates --columns=name 2>/dev/null | sed '/^$/d')"
+    while read -r a; do [ -n "$a" ] && { printf '@row %s\t%s\n' "$a" "App Store app"; n=$((n+1)); }; done <<<"$apps"
+    if [ $n = 0 ]; then echo "@summary Everything is up to date."
+    else
+        echo "@summary $n update(s) waiting."
+        printf '@action %s\t%s\n' "Update everything" "$BIN/prime-update"
+    fi
+    exit 0
+fi
 
 CACHE="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/waybar-updates.json"
 CACHE_TTL=900          # seconds; bar polls every 15 min
@@ -69,11 +92,11 @@ fi
 
 when=$(date +%H:%M)
 if [ "$stale" -eq 1 ]; then
-    tip="pacman is busy — showing the last count\nchecked $when"
+    tip="Updates: an update is running right now — showing the last count\nchecked $when"
 elif [ "$total" -eq 0 ]; then
-    tip="System up to date ($official official · $aur AUR)\nchecked $when · right-click for package manager"
+    tip="Updates: everything is up to date\nchecked $when · right-click for more"
 else
-    tip="$official official · $aur AUR\nclick to update · right-click for package manager\nchecked $when"
+    tip="Updates: $total waiting\nclick to update everything · right-click to see the list\nchecked $when"
 fi
 
 line=$(printf '{"text":"%s","class":"%s","tooltip":"%s"}\n' "$total" "$cls" "${tip//$'\n'/\\n}")

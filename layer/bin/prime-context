@@ -69,10 +69,10 @@ notify() { notify-send -a Prime -t "${3:-5000}" "$1" "$2" >/dev/null 2>&1 || tru
 launch_bg() { setsid nohup "$@" >/dev/null 2>>"$LOG" & disown 2>/dev/null || true; }
 
 [ -n "$ELEMENT" ] || { echo "usage: prime-context.sh <element-id> [--list|--run <id>]" >&2; exit 2; }
-command -v jq >/dev/null 2>&1 || { notify "Prime" "jq is missing — the right-click menu needs it"; exit 1; }
+command -v jq >/dev/null 2>&1 || { notify "Prime" "This menu is missing a part it needs — Super+H checks and repairs the desktop"; exit 1; }
 
 if [ ! -f "$REGISTRY" ]; then
-    notify "Prime" "Element registry missing: $REGISTRY"
+    notify "Prime" "This menu couldn't load its list — Super+H checks and repairs the desktop"
     exit 1
 fi
 
@@ -85,7 +85,7 @@ if [ -z "$entry" ] || [ "$entry" = "null" ]; then
     log "unknown element — using the fallback contract"
     entry="$(jq -c '.fallback' "$REGISTRY" 2>/dev/null)"
 fi
-[ -n "$entry" ] || { notify "Prime" "Registry unreadable: $REGISTRY"; exit 1; }
+[ -n "$entry" ] || { notify "Prime" "This menu couldn't load its list — Super+H checks and repairs the desktop"; exit 1; }
 
 LABEL="$(jq -r '.label // "Bar element"' <<<"$entry")"
 STATE_CMD="$(jq -r '.state // ""' <<<"$entry")"
@@ -223,7 +223,7 @@ run_item() {
             local typed
             typed="$("$BIN/prime-rofi" -dmenu -i -theme bar -p "󰚩 about $LABEL" \
                         -theme-str 'listview { lines: 0; }' \
-                        -theme-str "entry { placeholder: \"What do you want to know about the $LABEL element?\"; }" \
+                        -theme-str "entry { placeholder: \"What do you want to know about $LABEL?\"; }" \
                         </dev/null)" || return 0
             [ -n "${typed//[[:space:]]/}" ] || return 0
             submit_ask "$typed
@@ -262,7 +262,7 @@ if [ "$MODE" = "run" ]; then
 fi
 
 # ── the menu ─────────────────────────────────────────────────────────────────
-command -v rofi >/dev/null 2>&1 || { notify "Prime" "rofi is not installed"; exit 1; }
+command -v rofi >/dev/null 2>&1 || { notify "Prime" "This menu is missing a part it needs — Super+H checks and repairs the desktop"; exit 1; }
 
 mapfile -t RAW < <(menu_items)
 LABELS=(); IDS=()

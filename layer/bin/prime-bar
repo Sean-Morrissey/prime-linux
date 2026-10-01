@@ -3,6 +3,9 @@
 
   prime-bar top | side     build the config + style, then exec waybar
   prime-bar restart        restart both bars (Super+W)
+  prime-bar --keys         every bar item in a list, for the keyboard (Super+Alt+B):
+                           pick one to get its menu — the same as right-clicking it
+  prime-bar --keys --list  the rows that list shows (tests)
   prime-bar --print top    print the merged config (tests)
 
 The shipped defaults stay untouched. At start-up this merges, in order:
@@ -76,8 +79,58 @@ def build(which):
     return cfg, cfg_out, css_out
 
 
+def element_id(module):
+    """The right-click menu (prime-context element) behind a bar module."""
+    if module.startswith("custom/media"):
+        return "bar.media"
+    name = module.split("/")[-1].split("#")[-1]
+    return "bar." + {"logo": "logo"}.get(name, name)
+
+
+def keyboard_rows():
+    """[(element id, label)] in bar order, top bar then side bar, each element once."""
+    labels = {}
+    for frag in [os.path.join(LAYER, "default/elements.json")] + \
+            [os.path.join(a, "elements.json") for a in addons()]:
+        try:
+            for k, v in json.load(open(frag)).get("elements", {}).items():
+                labels.setdefault(k, v.get("label", k))
+        except (OSError, ValueError):
+            pass
+    labels["bar.logo"] = "Prime menu"
+    rows, seen = [], set()
+    for which in ("top", "side"):
+        cfg = build(which)[0]
+        for side in ("modules-left", "modules-center", "modules-right"):
+            for m in cfg.get(side, []):
+                eid = element_id(m)
+                if eid in seen or eid not in labels:
+                    continue
+                seen.add(eid)
+                rows.append((eid, labels[eid]))
+    return rows
+
+
+def keys(list_only):
+    rows = keyboard_rows()
+    if list_only:
+        for eid, label in rows:
+            print(f"{eid}\t{label}")
+        return 0
+    env = dict(os.environ, ROFI_HINT="↑↓ move  ·  Enter opens that item's menu  ·  Esc closes  ·  type to filter")
+    r = subprocess.run([os.path.join(LAYER, "bin/prime-rofi"), "-dmenu", "-i", "-no-custom", "-format", "i",
+                        "-p", "Bar", "-theme", "spotlight"], input="\n".join(l for _, l in rows),
+                       capture_output=True, text=True, env=env)
+    if r.returncode != 0 or not r.stdout.strip().isdigit():
+        return 0
+    os.execv(os.path.join(LAYER, "bin/prime-context"),
+             ["prime-context", rows[int(r.stdout.strip())][0]])
+
+
 def main():
     arg = sys.argv[1] if len(sys.argv) > 1 else "top"
+    if arg == "--keys":
+        return keys("--list" in sys.argv)
     if arg == "restart":
         os.execvp("systemctl", ["systemctl", "--user", "restart", "prime-bar@top", "prime-bar@side"])
     if arg == "--print":

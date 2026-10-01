@@ -30,6 +30,8 @@ FLATHUB="https://dl.flathub.org/repo/flathub.flatpakrepo"
 mkdir -p "$(dirname "$LIST")" "$HOME/.config/hypr"
 [ -f "$LIST" ] || echo "# enabled add-ons, one per line — manage with: prime-addon" > "$LIST"
 enabled() { grep -qx "$1" "$LIST"; }
+# in a Prime window (prime-panel), pack.sh speaks its "@kind text" lines and sudo asks in a Prime box
+[ -n "${PRIME_PANEL:-}" ] && export PRIME_ASKPASS_REASON="Prime needs your password to install what this add-on uses."
 
 load() {   # load <dir> — read addon.conf into fresh variables
     DESCRIPTION=""; KIND="addon"; TITLE=""; ICON=""; PACKAGES=""; PACKAGES_IF_AVAILABLE=""
@@ -302,7 +304,8 @@ cmd_toggle() {
     local n="${1:-}" d; need "$n"; d="$D"
     if enabled "$n"; then
         load "$d"
-        ask "$TITLE is on. Switch it off? (apps stay installed)" n && cmd_disable "$n"
+        # picked in the Prime window already: that pick is the answer
+        { [ -n "${PRIME_PANEL:-}" ] || ask "$TITLE is on. Switch it off? (apps stay installed)" n; } && cmd_disable "$n"
     else
         cmd_enable "$n"
     fi
@@ -315,7 +318,7 @@ cmd_pick() {
         choice="$(cut -f2 <<<"$rows" | ROFI_HINT="Enter: switch on/off  ·  Esc: close" \
             "$LAYER/bin/prime-rofi" -dmenu -i -no-custom -p "Packs & add-ons" -theme menu)" || exit 0
         n="$(awk -F'\t' -v c="$choice" '$2 == c {print $1; exit}' <<<"$rows")"
-        [ -n "$n" ] && exec "$LAYER/bin/prime-float" "$SELF" toggle "$n"
+        [ -n "$n" ] && exec "$LAYER/bin/prime-panel" --title "Packs & add-ons" -- "$SELF" toggle "$n"
         exit 0
     fi
     list_all; echo
@@ -334,7 +337,7 @@ cmd_open() {   # open "app|flatpak.id" [args…]
         elif have "$c"; then exec "$c" "$@"; fi
     done
     notify "${cands[0]} isn't installed yet — opening the installer."
-    if [ -n "${WAYLAND_DISPLAY:-}" ] && have kitty; then exec "$LAYER/bin/prime-float" "$SELF" get "${cands[-1]}"; fi
+    if [ -n "${WAYLAND_DISPLAY:-}" ]; then exec "$LAYER/bin/prime-panel" --title "Get ${cands[0]}" -- "$SELF" get "${cands[-1]}"; fi
     echo "${cands[0]} isn't installed. Install it with: prime-addon get ${cands[-1]}"; exit 1
 }
 
@@ -362,7 +365,7 @@ case "${1:-}" in
     info)      cmd_info "${2:-}" ;;
     check)     cmd_check "${2:-}" ;;
     toggle)    cmd_toggle "${2:-}" ;;
-    pick)      cmd_pick ;;
+    pick|--choose) cmd_pick ;;
     open)      shift; cmd_open "$@" ;;
     get)       shift; cmd_get "$@" ;;
     --relink)  relink ;;

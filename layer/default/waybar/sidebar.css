@@ -18,7 +18,7 @@
     border: none;
     border-radius: 0;
     font-family: "Inter", "SF Pro Text", "Helvetica Neue", "JetBrainsMono Nerd Font", sans-serif;
-    font-size: 12px;
+    font-size: 0.9rem;
     font-weight: 500;
     min-height: 0;
     transition: background 160ms ease, color 160ms ease, opacity 160ms ease;
@@ -54,7 +54,7 @@ window#waybar {
     border-radius: 9px;
     background: transparent;
     color: @fg_faint;
-    font-size: 11px;
+    font-size: 0.825rem;
     box-shadow: none;
     text-shadow: none;
 }
@@ -123,5 +123,5 @@ tooltip {
 tooltip label {
     color: @fg;
     padding: 8px 12px;
-    font-size: 11px;
+    font-size: 0.825rem;
 }

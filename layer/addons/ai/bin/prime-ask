@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""prime-ask — ask the assistant; the answer streams into a small floating window.
+"""prime-ask — ask the assistant; the answer streams into a Prime window.
 
   prime-ask "question"              ask (continues the current conversation)
   prime-ask "question" --new        start a fresh conversation
@@ -37,6 +37,7 @@ ADDON = os.path.realpath(os.path.join(HERE, ".."))
 LAYER = os.path.realpath(os.path.join(HERE, "../../.."))
 SETTINGS = os.path.join(LAYER, "bin/prime-settings")
 TOOLS_FILE = os.path.join(LAYER, "default/prime-tools.json")
+PANEL = bool(os.environ.get("PRIME_PANEL"))   # running inside the Prime window (prime-panel)
 KEEP_TURNS = 12
 MAX_ROUNDS = 6
 ACTION_RE = re.compile(r"```prime-action\s*(\{.*?\})\s*```", re.S)
@@ -189,8 +190,38 @@ def call_tool(name, args, untrusted):
         return {"ok": False, "status": "failed", "message": f"the toolbox didn't answer: {e}"}
 
 
+_pending = [""]
+
+
+def out_write(piece):
+    """Answer text: straight to the terminal, or a line at a time as @text for the Prime window."""
+    if not PANEL:
+        sys.stdout.write(piece)
+        sys.stdout.flush()
+        return
+    _pending[0] += piece
+    while "\n" in _pending[0]:
+        line, _pending[0] = _pending[0].split("\n", 1)
+        print("@text " + line, flush=True)
+
+
+def out_flush():
+    if PANEL and _pending[0]:
+        print("@text " + _pending[0], flush=True)
+    _pending[0] = ""
+
+
 def show_result(name, res):
     msg = res.get("message") or ""
+    if PANEL:
+        out_flush()
+        if res.get("ok") and msg:
+            print("@fix " + msg.split(" (It can be undone")[0], flush=True)
+        elif res.get("ok"):
+            print("@note Looked at: " + name.replace("_", " "), flush=True)
+        else:
+            print("@note " + msg, flush=True)
+        return
     if res.get("ok") and msg:
         print(f"{GREEN}✓{OFF} {msg.split(' (It can be undone')[0]}")
     elif res.get("ok"):
@@ -239,8 +270,7 @@ def stream_turn(c, msgs, tools_param, hide_actions):
                         break
             out = visible[shown:len(visible) - hold]
             if out:
-                sys.stdout.write(out)
-                sys.stdout.flush()
+                out_write(out)
                 shown += len(out)
     tool_calls = [{"id": v["id"] or f"call_{i}", "name": v["name"], "arguments": v["arguments"]}
                   for i, v in sorted(calls.items()) if v["name"]]
@@ -274,7 +304,11 @@ def answer(text, image=None, new=False, tutor=False, source=""):
     """Runs inside the floating window: stream the reply, run any tool calls."""
     c = conf()
     if not c["BASE_URL"]:
-        print("The assistant isn't set up yet.\n\nRun:  prime-addon enable ai   (or Prime menu → Set up my computer again)")
+        if PANEL:
+            print("@bad The assistant isn't set up yet")
+            print(f"@action Set it up\t{os.path.join(HERE, 'prime-ai-setup')}")
+        else:
+            print("The assistant isn't set up yet — Prime menu → Ask Prime → Change the model.")
         return 1
     tools = load_tools()
     mode = tool_mode(c, tutor)
@@ -282,8 +316,11 @@ def answer(text, image=None, new=False, tutor=False, source=""):
     untrusted = source or hist.get("untrusted", "")
     if image and not untrusted:
         untrusted = "a picture of the screen"
-    print(f"{DIM}{'Prime Tutor · ' if tutor else ''}{c['MODEL'] or 'assistant'} · {c['BASE_URL']}{OFF}\n")
-    print(f"{BOLD}{text}{OFF}\n" if text else "", end="")
+    if PANEL:
+        print(f"@note {'Prime Tutor · ' if tutor else ''}Answered by {c['MODEL'] or 'the assistant'}", flush=True)
+    else:
+        print(f"{DIM}{'Prime Tutor · ' if tutor else ''}{c['MODEL'] or 'assistant'} · {c['BASE_URL']}{OFF}\n")
+        print(f"{BOLD}{text}{OFF}\n" if text else "", end="")
 
     turn = [user_message(text, image)]
     reply = ""
@@ -332,9 +369,15 @@ def answer(text, image=None, new=False, tutor=False, source=""):
             if any(spec.get(cl["name"], {}).get("external") for cl in calls) and not untrusted:
                 untrusted = "names of files and apps on this computer"
             print()
+        out_flush()
     except Exception as e:  # network, auth, model errors — say it plainly
-        print(f"\n{RED}Couldn't reach the assistant:{OFF} {e}\n"
-              "Check it with:  prime-ask --test   ·   change it with: prime-addon enable ai")
+        out_flush()
+        if PANEL:
+            print(f"@bad Couldn't reach the assistant ({e})")
+            print(f"@action Change the model\t{os.path.join(HERE, 'prime-ai-setup')}")
+        else:
+            print(f"\n{RED}Couldn't reach the assistant:{OFF} {e}\n"
+                  "Change it in the Prime menu → Ask Prime → Change the model.")
         return 1
     reply = ACTION_RE.sub("", reply).strip()
     os.makedirs(CACHE, exist_ok=True)
@@ -349,10 +392,11 @@ def answer(text, image=None, new=False, tutor=False, source=""):
 
 
 def window(args, tutor=False):
-    """Open the floating answer window running this script with --answer."""
-    subprocess.Popen(["kitty", "--class", "prime-float", "--title", "Prime Tutor" if tutor else "Prime",
-                      "-e", "bash", "-c", '"$@"; printf "\\n\\e[2mPress any key to close\\e[0m"; read -rsn1',
-                      "_", sys.executable, os.path.realpath(__file__), "--answer", *args],
+    """Open the Prime answer window running this script with --answer."""
+    question = next((a for a in args if not a.startswith("--")), "")
+    subprocess.Popen([os.path.join(LAYER, "bin/prime-panel"), "--title", "Prime Tutor" if tutor else "Ask Prime",
+                      "--subtitle", question[:200], "--",
+                      sys.executable, os.path.realpath(__file__), "--answer", *args],
                      start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
@@ -390,9 +434,8 @@ def main(argv):
     if argv[0] == "--last":
         if not os.path.exists(LAST):
             subprocess.run(["notify-send", "-a", "Prime", "No answer yet"]); return 0
-        subprocess.Popen(["kitty", "--class", "prime-float", "--title", "Prime", "-e",
-                          "bash", "-c", 'cat "$1"; printf "\\n\\e[2mPress any key to close\\e[0m"; read -rsn1', "_", LAST],
-                         start_new_session=True)
+        subprocess.Popen([os.path.join(LAYER, "bin/prime-panel"), "--title", "Last answer", "--",
+                          "sed", "s/^/@text /", LAST], start_new_session=True)
         return 0
     if argv[0] == "--answer":
         rest = argv[1:]

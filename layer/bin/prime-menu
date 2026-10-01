@@ -10,8 +10,9 @@
 # The rows are declarative JSON (see REGISTRY below); nothing in this script
 # knows what an item does. Row kinds:
 #
-#   run   launch the command detached (GUI apps, scripts that open their own box)
-#   term  run it in a floating terminal that stays open (reports)
+#   run    launch the command detached (GUI apps, scripts that open their own box)
+#   panel  run it in a Prime window that shows its progress and report in words
+#          (prime-panel); "term", the old name, means the same — never a terminal
 set -u
 
 MODE="menu"; SECTION=""; RUN_ID=""
@@ -78,8 +79,8 @@ notify() { notify-send -a Prime -t "${2:-5000}" "Prime" "$1" >/dev/null 2>&1 || 
 launch_bg() { setsid nohup "$@" >/dev/null 2>>"$LOG" & disown 2>/dev/null || true; }
 strip_markup() { printf '%s' "$1" | sed 's/<[^>]*>//g'; }
 
-[ -f "$REGISTRY" ] || { echo "missing registry: $REGISTRY" >&2; notify "Menu registry missing: $REGISTRY"; exit 1; }
-command -v jq >/dev/null 2>&1 || { notify "jq is missing — the menu needs it"; exit 1; }
+[ -f "$REGISTRY" ] || { echo "the menu list is missing: $REGISTRY" >&2; notify "The Prime menu couldn't load its list — Update everything (or Super+H) repairs it"; exit 1; }
+command -v jq >/dev/null 2>&1 || { notify "The Prime menu is missing a part it needs — Super+H checks and repairs the desktop"; exit 1; }
 
 # ── rows ─────────────────────────────────────────────────────────────────────
 section_rows() {          # id<TAB>"icon label"<TAB>"N things"
@@ -268,10 +269,11 @@ run_item() {
             [ -n "$cmd" ] || { log "no cmd for $id"; return 1; }
             if [ "${PRIME_MENU_DRY:-0}" = "1" ]; then echo "RUN: $cmd"; return 0; fi
             launch_bg bash -c "$cmd"; log "ran: $cmd" ;;
-        term)
+        panel|term)
             [ -n "$cmd" ] || { log "no cmd for $id"; return 1; }
-            if [ "${PRIME_MENU_DRY:-0}" = "1" ]; then echo "TERM: $cmd"; return 0; fi
-            launch_bg "$BIN/prime-float" bash -lc "$cmd"; log "ran in terminal: $cmd" ;;
+            if [ "${PRIME_MENU_DRY:-0}" = "1" ]; then echo "PANEL: $cmd"; return 0; fi
+            launch_bg "$BIN/prime-panel" --title "$(strip_markup "$(item_field "$id" label)")" -- bash -lc "$cmd"
+            log "ran in a Prime window: $cmd" ;;
         *)  log "unknown kind '$kind' for item $id"; return 1 ;;
     esac
 }
@@ -288,7 +290,7 @@ if [ "$MODE" = "check" ]; then
     printf 'ok   %-22s %s of %s rows have a real icon file\n' "(app icons)" "$n_icons" "$n_apps"
     while IFS=$'\t' read -r id label kind cmd hint; do
         case "$kind" in
-            run|term)
+            run|panel|term)
                 toks=(); read -r -a toks <<<"$cmd" || true
                 [ "${toks[0]:-}" = "exec" ] && toks=("${toks[@]:1}")
                 case "${toks[0]:-}" in
@@ -335,7 +337,7 @@ if [ "$MODE" = "run" ]; then
 fi
 
 # ── the menu ─────────────────────────────────────────────────────────────────
-command -v rofi >/dev/null 2>&1 || { notify "rofi is not installed"; exit 1; }
+command -v rofi >/dev/null 2>&1 || { notify "The Prime menu is missing a part it needs — Super+H checks and repairs the desktop"; exit 1; }
 
 LABELS=(); IDS=(); ICONS=(); COMMENTS=()
 SHOW_ICONS=0
@@ -414,7 +416,7 @@ SEARCH_STR=(
     -theme-str 'mainbox { children: [ inputbar, message, listview ]; }'
     -theme-str 'inputbar { background-color: rgba(255,255,255,0.05); border-radius: 9px; padding: 9px 12px; margin: 5px 5px 3px 5px; }'
     -theme-str 'prompt { padding: 0px 10px 0px 0px; }'
-    -theme-str 'entry { placeholder: "type to filter…"; font: "Inter 13"; }'
+    -theme-str 'entry { placeholder: "type to filter…"; font: @prime-font-body; }'
 )
 LAYOUT_STR=("${SEARCH_STR[@]}" -theme-str 'listview { lines: 12; }')
 if [ "$SHOW_ICONS" = 1 ]; then

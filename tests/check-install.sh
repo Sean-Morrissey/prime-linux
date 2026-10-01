@@ -11,6 +11,7 @@ ck "hyprland.conf seeded and sources Prime" "grep -q prime-linux ~/.config/hypr/
 ck "hardware/monitors/addons/keyboard files exist" "[ -f ~/.config/hypr/hardware.conf ] && [ -f ~/.config/hypr/monitors.conf ] && [ -f ~/.config/hypr/addons.conf ] && [ -f ~/.config/hypr/keyboard.conf ]"
 ck "keyboard.conf has a layout"             "grep -qE 'kb_layout = [a-z]+' ~/.config/hypr/keyboard.conf"
 ck "theme files generated"                  "[ -f ~/.config/prime/theme/colors.css ] && [ -f ~/.config/prime/theme/hyprland.conf ] && [ -f ~/.config/prime/theme/hyprpaper.conf ]"
+ck "text sizes generated from one setting"  "grep -q prime-font-body ~/.config/prime/theme/fonts.rasi && grep -q prime_font_clock ~/.config/prime/theme/hyprlock.conf"
 ck "emblem generated in the accent"         "grep -q f87171 ~/.config/prime/theme/mark.svg && [ -s ~/.config/prime/theme/mark.png ]"
 ck "app-list entries installed, paths filled" "[ -f ~/.local/share/applications/prime-menu.desktop ] && ! grep -q @LAYER@ ~/.local/share/applications/prime-*.desktop"
 ck "install log written"                    "ls $S/logs/install-*.log"
@@ -69,5 +70,9 @@ ck "right-click gets Ask rows with add-on"  "$L/bin/prime-context bar.cpu --list
 ck "menu rows still resolve with the AI add-on"  "$L/bin/prime-menu --check | tail -1 | grep -q 'every row resolves'"
 ck "welcome app loads (GTK 4 + libadwaita)"     "python3 -c 'import gi; gi.require_version(\"Gtk\",\"4.0\"); gi.require_version(\"Adw\",\"1\"); from gi.repository import Adw' && python3 -c 'import ast,sys; ast.parse(open(sys.argv[1]).read())' $L/bin/prime-welcome"
 ck "assistant: toolbox, permissions, mock model, welcome" "bash $L/addons/ai/tests/run.sh"
+ck "Prime window self-test (headless part)"  "python3 $L/bin/prime-panel --selftest"
+ck "health check reports in the window's words" "PRIME_PANEL=1 $L/bin/prime-doctor | grep -q '^@summary '"
+ck "every bar item reachable by keyboard"    "[ \$($L/bin/prime-bar --keys --list | wc -l) -ge 15 ]"
+ck "static suite on the installed copy"     "python3 $P/tests/check-static.py"
 ck "no trace of the author's machine"      "! grep -rIl -e /home/sean -e '\\bsean\\b' $L ~/.config/hypr ~/.config/kitty ~/.config/prime"
 echo; [ $fail = 0 ] && echo "ALL PASSED" || echo "$fail FAILED"; exit $fail

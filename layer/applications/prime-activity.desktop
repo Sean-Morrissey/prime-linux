@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Activity
+Comment=What is using the computer right now — quit a stuck app
+Exec=@LAYER@/bin/prime-activity
+Icon=utilities-system-monitor
+Categories=System;Monitor;
+Keywords=task;manager;process;slow;cpu;memory;quit;frozen;

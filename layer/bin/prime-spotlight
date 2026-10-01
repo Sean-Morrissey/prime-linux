@@ -107,7 +107,7 @@ window, .background { background: transparent; }
 #searchicon { color: rgba(255, 255, 255, 0.55); }
 #search, #search:focus {
     background: transparent; border: none; box-shadow: none; outline: none;
-    font-size: 22px; font-weight: 400; color: #f4f4f6;
+    font-size: 1.65rem; font-weight: 400; color: #f4f4f6;
     caret-color: @ACCENT@; padding: 2px 0; min-height: 34px;
 }
 #search selection { background-color: alpha(@ACCENT@, 0.35); }
@@ -115,7 +115,7 @@ window, .background { background: transparent; }
 #results { padding: 6px 0 8px 0; }
 list, list row { background: transparent; }
 .section {
-    font-size: 11px; font-weight: 600; color: rgba(255, 255, 255, 0.42);
+    font-size: 0.825rem; font-weight: 600; color: rgba(255, 255, 255, 0.42);
     padding: 10px 22px 4px 22px; letter-spacing: 0.04em;
 }
 row.hit {
@@ -127,18 +127,18 @@ row.hit:selected, row.hit:selected:hover {
     background-color: alpha(@ACCENT@, 0.20);
     border-color: alpha(@ACCENT@, 0.45);
 }
-.title { font-size: 14px; font-weight: 500; color: #f4f4f6; }
-.subtitle { font-size: 12px; color: rgba(255, 255, 255, 0.48); }
-row.top .title { font-size: 16px; font-weight: 600; }
-.answer { font-family: "JetBrainsMono Nerd Font", monospace; font-size: 22px;
+.title { font-size: 1.05rem; font-weight: 500; color: #f4f4f6; }
+.subtitle { font-size: 0.9rem; color: rgba(255, 255, 255, 0.48); }
+row.top .title { font-size: 1.2rem; font-weight: 600; }
+.answer { font-family: "JetBrainsMono Nerd Font", monospace; font-size: 1.65rem;
           font-weight: 600; color: @ACCENT@; }
 .keycap {
-    font-size: 11px; font-weight: 600; color: rgba(255, 255, 255, 0.72);
+    font-size: 0.825rem; font-weight: 600; color: rgba(255, 255, 255, 0.72);
     background-color: rgba(255, 255, 255, 0.09); border-radius: 6px; padding: 2px 8px;
 }
 .hintrow .title { color: rgba(255, 255, 255, 0.62); font-weight: 400; }
 #footer {
-    padding: 9px 22px 11px 22px; font-size: 11.5px; color: rgba(255, 255, 255, 0.40);
+    padding: 9px 22px 11px 22px; font-size: 0.862rem; color: rgba(255, 255, 255, 0.40);
     border-top: 1px solid rgba(255, 255, 255, 0.06);
 }
 #footer .key { color: rgba(255, 255, 255, 0.70); font-weight: 600; }
@@ -497,6 +497,7 @@ class Spotlight(Gtk.Window):
         self.entry.set_name("search")
         self.entry.set_has_frame(False)
         self.entry.set_placeholder_text("Search apps, files, or ask…")
+        named(self.entry, "Spotlight search")
         self.entry.connect("changed", self.on_changed)
         self.entry.connect("activate", lambda *_: self.run_selected())
         self.entry.connect("key-press-event", self.on_key)
@@ -513,6 +514,7 @@ class Spotlight(Gtk.Window):
         self.listbox.set_activate_on_single_click(True)
         self.listbox.set_can_focus(False)
         self.listbox.set_header_func(self._header)
+        named(self.listbox, "Results")
         self.listbox.connect("row-activated", lambda _l, row: self.run_row(row.idx))
         self.listbox.add_events(Gdk.EventMask.POINTER_MOTION_MASK)
         self.listbox.connect("motion-notify-event", self.on_motion)
@@ -661,6 +663,8 @@ class Spotlight(Gtk.Window):
             row.keycap = cap
             box.pack_end(cap, False, False, 0)
         row.add(box)
+        # what a screen reader says: the group, the name, the detail, and what Enter does
+        named(row, ", ".join(x for x in (section, main, detail if kind != "math" else "", verb and f"Enter to {verb.lower()}") if x))
         row.connect("state-flags-changed", self._sync_keycap)
         return row
 
@@ -733,6 +737,14 @@ class Spotlight(Gtk.Window):
             detached([ASKER, payload])
         elif action == "web":
             detached(["xdg-open", WEB_SEARCH.format(urllib.parse.quote_plus(payload))])
+
+
+def named(widget, name: str):
+    """The accessible name a screen reader announces for a widget."""
+    acc = widget.get_accessible()
+    if acc is not None:
+        acc.set_name(name)
+    return widget
 
 
 def detached(cmd: list):
@@ -865,6 +877,9 @@ def selftest() -> int:
               and win.entry.get_placeholder_text().startswith("Search apps")
               and win.listbox.get_selected_row() is not None
               and win.listbox.get_selected_row().section == "Top Hit")
+        names = [r.get_accessible().get_name() for r in win.listbox.get_children()]
+        check("search field and every result have an accessible name",
+              win.entry.get_accessible().get_name() == "Spotlight search" and all(names), str(names[:3]))
         check("nothing was mapped (no window on screen)",
               not win.get_mapped() and not win.get_visible(), "built but never shown, then destroyed")
         win.destroy()

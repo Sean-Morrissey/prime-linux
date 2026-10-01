@@ -1,8 +1,8 @@
 [Desktop Entry]
 Type=Application
 Name=Update Everything
-Comment=System, apps and Prime Linux — snapshot first
-Exec=@LAYER@/bin/prime-float @LAYER@/bin/prime-update
+Comment=The system, apps and Prime — a snapshot is taken first
+Exec=@LAYER@/bin/prime-update
 Icon=system-software-update
 Categories=System;
 Keywords=upgrade;update;

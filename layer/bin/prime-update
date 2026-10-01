@@ -11,6 +11,9 @@
 # The system part runs in Prime's updater (prime-system-update): downloads
 # finish before anything installs, shutdown is blocked while it installs, and
 # closing this window can't stop it half-way.
+#
+# Opened from the bar, the menu or the app list it runs in a Prime window
+# (prime-panel), and the password is asked for in a Prime box (prime-askpass).
 set -u
 LAYER="$(readlink -f "$(dirname "$(readlink -f "$0")")/..")"
 REPO="$(readlink -f "$LAYER/..")"
@@ -20,11 +23,41 @@ ENGINE=/usr/local/lib/prime-linux/prime-system-update
 STATE=/var/lib/prime-linux/updates
 A=$'\e[38;2;248;113;113m'; B=$'\e[1m'; D=$'\e[2m'; G=$'\e[32m'; Y=$'\e[33m'; R=$'\e[0m'
 TOTAL=5; n=0
-step() { n=$((n+1)); printf '\n%s[%d/%d]%s %s%s%s\n' "$A" "$n" "$TOTAL" "$R" "$B" "$*" "$R"; }
-ok()   { printf '    %s✓%s %s\n' "$G" "$R" "$*"; }
-note() { printf '    %s\n' "$*"; }
-warn() { printf '    %s!%s %s\n' "$Y" "$R" "$*"; }
-stop() { printf '\n%s%s%s\n' "$B" "$1" "$R"; shift; for l in "$@"; do printf '  %s\n' "$l"; done; echo; exit 1; }
+if [ -z "${PRIME_PANEL:-}${PRIME_NO_PANEL:-}" ] && [ ! -t 1 ] && [ -n "${WAYLAND_DISPLAY:-}${DISPLAY:-}" ]; then
+    case "${1:-}" in
+        --undo)  exec "$BIN/prime-panel" --title "Undo an update" -- "$0" "$@" ;;
+        --check) exec "$BIN/prime-panel" --title "What's waiting to update" -- "$0" "$@" ;;
+        *)       exec "$BIN/prime-panel" --title "Update everything" \
+                     --subtitle "Prime, the system and your apps. A snapshot is taken first, so this can be undone." -- "$0" "$@" ;;
+    esac
+fi
+if [ -n "${PRIME_PANEL:-}" ]; then
+    # "@kind text" rows for the Prime window; the password in a Prime box
+    A=""; B=""; D=""; G=""; Y=""; R=""
+    step() { n=$((n+1)); echo "@step $*"; }
+    ok()   { echo "@ok $*"; }
+    note() { echo "@note $*"; }
+    warn() { echo "@bad $*"; }
+    stop() { echo "@bad $1"; shift; for l in "$@"; do echo "@note $l"; done; echo "@summary Stopped — $(sed 's/[.]$//' <<<"${1:-see above}")."; exit 1; }
+    sudo() { command sudo -A "$@"; }
+    export PRIME_ASKPASS_REASON="Prime needs your password to install the system updates."
+else
+    step() { n=$((n+1)); printf '\n%s[%d/%d]%s %s%s%s\n' "$A" "$n" "$TOTAL" "$R" "$B" "$*" "$R"; }
+    ok()   { printf '    %s✓%s %s\n' "$G" "$R" "$*"; }
+    note() { printf '    %s\n' "$*"; }
+    warn() { printf '    %s!%s %s\n' "$Y" "$R" "$*"; }
+    stop() { printf '\n%s%s%s\n' "$B" "$1" "$R"; shift; for l in "$@"; do printf '  %s\n' "$l"; done; echo; exit 1; }
+fi
+confirm() {   # confirm <question> <default y|n> — a Prime picker in the window, a prompt in a terminal
+    local a
+    if [ -n "${PRIME_PANEL:-}" ]; then
+        a="$(printf 'Yes\nNo\n' | "$BIN/prime-rofi" -dmenu -i -no-custom -p "$1" -theme spotlight 2>/dev/null)" || a=""
+        [ -n "$a" ] || { [ "$2" = y ] && a=Yes || a=No; }
+        [ "$a" = Yes ]; return
+    fi
+    read -rp "    $1 [$([ "$2" = y ] && echo Y/n || echo y/N)] " a
+    a="${a:-$2}"; [[ "${a,,}" =~ ^y ]]
+}
 trap 'printf "\n  Stopped. The system part (if it had started) finishes by itself — nothing is left half-installed.\n"; exit 130' INT
 
 case "${1:-}" in
@@ -32,8 +65,7 @@ case "${1:-}" in
   --undo)
     "$ENGINE" undo
     if findmnt -no OPTIONS / 2>/dev/null | grep -q 'subvol=[^,]*\.snapshots/[0-9]' && command -v limine-snapper-restore >/dev/null; then
-      read -rp "  Make this snapshot the permanent system now? [y/N] " a
-      [ "${a,,}" = y ] && exec sudo limine-snapper-restore
+      confirm "Make this snapshot the permanent system now?" n && { sudo limine-snapper-restore; exit $?; }
     fi
     exit 0 ;;
   --prime) ONLY_PRIME=1 ;;
@@ -43,7 +75,7 @@ case "${1:-}" in
 esac
 [ "$ONLY_PRIME" = 1 ] && TOTAL=2
 
-printf '\n  %sUpdating your computer%s %s— this usually takes a few minutes. You can keep working.%s\n' "$B" "$R" "$D" "$R"
+[ -n "${PRIME_PANEL:-}" ] || printf '\n  %sUpdating your computer%s %s— this usually takes a few minutes. You can keep working.%s\n' "$B" "$R" "$D" "$R"
 
 # ── 1. Prime Linux itself ────────────────────────────────────────────────────
 step "Prime Linux"
@@ -110,13 +142,19 @@ if [ "$ONLY_PRIME" = 0 ]; then
     *)         stop "The updater stopped unexpectedly." "Nothing should have changed. Details: sudo journalctl -n 50" ;;
   esac
 
+  # the login screen offers "Prime" (the install script leaves it saying Hyprland)
+  sess="$LAYER/system/wayland-sessions/prime.desktop"
+  if [ -f "$sess" ] && ! cmp -s "$sess" /usr/share/wayland-sessions/prime.desktop; then
+    sudo install -Dm644 "$sess" /usr/share/wayland-sessions/prime.desktop \
+      && ok "the login screen now offers Prime" || warn "couldn't add Prime to the login screen — the next update tries again"
+  fi
+
   # ── 4. AUR (never unattended) ──────────────────────────────────────────────
   step "Apps from the AUR"
   if command -v paru >/dev/null && aur="$(paru -Qua 2>/dev/null)" && [ -n "$aur" ]; then
     printf '%s\n' "$aur" | sed 's/^/      · /'
     note "These come from the AUR: made by volunteers and not checked by CachyOS."
-    read -rp "    Update them too? [Y/n] " a
-    if [ "${a,,}" != n ]; then
+    if confirm "Update them too?" y; then
       paru -Sua --skipreview || warn "some AUR apps didn't update — they keep working as they are"
     else note "skipped — they keep working as they are"; fi
   else ok "nothing to update"; fi
@@ -129,7 +167,7 @@ if [ "$ONLY_PRIME" = 0 ]; then
 fi
 
 # ── refresh the desktop ──────────────────────────────────────────────────────
-printf '\n%sRefreshing the desktop%s\n' "$B" "$R"
+if [ -n "${PRIME_PANEL:-}" ]; then echo "@step Refreshing the desktop"; else printf '\n%sRefreshing the desktop%s\n' "$B" "$R"; fi
 for u in "$LAYER"/systemd/*; do ln -sfn "$u" "$HOME/.config/systemd/user/$(basename "$u")"; done
 systemctl --user daemon-reload 2>/dev/null
 "$BIN/prime-migrate" || warn "some one-time upgrade steps will retry at the next update"
@@ -147,10 +185,15 @@ rm -f "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/waybar-updates.json"
 mkdir -p "${XDG_STATE_HOME:-$HOME/.local/state}/prime"
 jq -r '.seq // empty' "$STATE/last-run.json" 2>/dev/null > "${XDG_STATE_HOME:-$HOME/.local/state}/prime/updates-seen"
 
-printf '\n%sDone.%s ' "$B" "$R"
 case "$(jq -r '.restart // "no"' "$STATE/last-run.json" 2>/dev/null)" in
-  yes)  echo "Restart the computer when convenient — a new system core is installed." ;;
-  soon) echo "Restarting when convenient makes every part use the new versions." ;;
-  *)    echo "Nothing else to do." ;;
+  yes)  after="Restart the computer when convenient — a new system core is installed." ;;
+  soon) after="Restarting when convenient makes every part use the new versions." ;;
+  *)    after="Nothing else to do." ;;
 esac
-echo "If anything looks wrong: Super+H checks and repairs the desktop; prime-update --undo goes back."
+if [ -n "${PRIME_PANEL:-}" ]; then
+    echo "@summary All done. $after"
+    printf '@action %s\t%s\n' "Check the desktop" "$BIN/prime-doctor"
+else
+    printf '\n%sDone.%s %s\n' "$B" "$R" "$after"
+    echo "If anything looks wrong: Super+H checks and repairs the desktop; prime-update --undo goes back."
+fi

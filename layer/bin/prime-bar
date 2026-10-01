@@ -49,6 +49,10 @@ def build(which):
             cfg.update(f.get("modules", {}))
         if os.path.exists(os.path.join(a, "waybar.css")):
             css.append(os.path.join(a, "waybar.css"))
+    # waybar doesn't expand ~ in image paths
+    for k, v in cfg.items():
+        if isinstance(v, dict) and isinstance(v.get("path"), str):
+            v["path"] = os.path.expanduser(v["path"])
     css.append(os.path.join(HOME, ".config/waybar/user.css"))
     os.makedirs(RUN, exist_ok=True)
     cfg_out, css_out = os.path.join(RUN, f"{which}.json"), os.path.join(RUN, f"{which}.css")

@@ -65,14 +65,14 @@ tooltip label {
 }
 
 /* ─── Logo (opens the Prime menu) ──────────────────────────────────────────── */
-#custom-logo {
+#image.logo {
     font-size: 15px;
     color: @accent;
     padding: 0 10px 0 6px;
     margin: 2px 0;
     opacity: 0.95;
 }
-#custom-logo:hover {
+#image.logo:hover {
     color: @teal;
     opacity: 1.0;
 }

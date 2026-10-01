@@ -42,10 +42,13 @@ case "${1:-}" in
         if [ -n "$PACKAGES" ]; then sudo pacman -S --needed --noconfirm $PACKAGES || exit 1; fi
         if [ -n "$SETUP" ]; then "$d/$SETUP" || { echo "setup didn't finish — '$n' left off"; exit 1; }; fi
         enabled "$n" || echo "$n" >> "$LIST"
+        for f in "$d"/*.desktop; do [ -f "$f" ] && sed "s|@LAYER@|$LAYER|g" "$f" > "$HOME/.local/share/applications/$(basename "$f")"; done
         reload; echo "'$n' is on." ;;
     disable)
         n="${2:?which add-on?}"
-        sed -i "/^$n\$/d" "$LIST"; reload; echo "'$n' is off." ;;
+        sed -i "/^$n\$/d" "$LIST"
+        for f in "$LAYER/addons/$n"/*.desktop; do [ -f "$f" ] && rm -f "$HOME/.local/share/applications/$(basename "$f")"; done
+        reload; echo "'$n' is off." ;;
     --relink) relink ;;
     *) sed -n '2,12p' "$0"; exit 2 ;;
 esac

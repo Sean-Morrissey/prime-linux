@@ -46,6 +46,24 @@ def render(name, w, h, seed):
     return Image.fromarray(np.clip(img, 0, 255).astype(np.uint8))
 
 
+def emblem(w, h, out):
+    """prime-emblem: the shield emblem, large and quiet, over a deep red bloom."""
+    import subprocess, tempfile
+    base = render("prime-ember", w, h, 7)
+    mark = os.path.join(os.path.dirname(__file__), "..", "layer", "branding", "mark.svg")
+    size = int(h * 0.42)
+    with tempfile.NamedTemporaryFile(suffix=".png") as t:
+        subprocess.run(["magick", "-background", "none", "-density", "600", mark,
+                        "-resize", f"{size}x{size}", t.name], check=True)
+        m = Image.open(t.name).convert("RGBA")
+        alpha = m.getchannel("A").point(lambda v: int(v * 0.55))
+        m.putalpha(alpha)
+        img = base.convert("RGBA")
+        img.alpha_composite(m, ((w - size) // 2, (h - size) // 2))
+        img.convert("RGB").save(out, quality=92, subsampling=0, optimize=True)
+    print(out, os.path.getsize(out) // 1024, "KiB")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default=os.path.join(os.path.dirname(__file__), "..", "layer", "wallpapers"))
@@ -57,6 +75,7 @@ def main():
         p = os.path.join(a.out, f"{name}.jpg")
         render(name, w, h, 1000 + i).save(p, quality=92, subsampling=0, optimize=True)
         print(p, os.path.getsize(p) // 1024, "KiB")
+    emblem(w, h, os.path.join(a.out, "prime-emblem.jpg"))
 
 
 if __name__ == "__main__":

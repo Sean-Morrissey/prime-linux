@@ -23,7 +23,7 @@ STATE="$HOME/.config/prime/theme.conf"
 OUT="$HOME/.config/prime/theme"
 WALLDIRS=("$LAYER/wallpapers" "$HOME/Pictures/Wallpapers")
 
-WALL="$LAYER/wallpapers/prime-ember.jpg"; ACCENT="f87171"
+WALL="$LAYER/wallpapers/prime-emblem.jpg"; ACCENT="f87171"
 [ -f "$STATE" ] && . "$STATE"
 [ -f "$WALL" ] || WALL="$(ls "$LAYER"/wallpapers/*.jpg 2>/dev/null | head -1)"
 
@@ -77,6 +77,13 @@ active_tab_background #$a
 active_tab_foreground #0a0a0e
 active_border_color  #$a
 EOF
+  # the emblem in the accent colour: bar logo, lock screen, notifications, app icon
+  sed "s/#f87171/#$a/g" "$LAYER/branding/mark.svg" > "$OUT/mark.svg"
+  magick -background none -density 384 "$OUT/mark.svg" -resize 256x256 "$OUT/mark.png" 2>/dev/null || true
+  local icons="$HOME/.local/share/icons/hicolor/scalable/apps"
+  mkdir -p "$icons" && cp "$OUT/mark.svg" "$icons/prime-linux.svg"
+  gtk-update-icon-cache -q -t "$HOME/.local/share/icons/hicolor" 2>/dev/null || true
+
   cat > "$OUT/swaync.css" <<EOF
 @import url("file://$OUT/colors.css");
 @import url("file://$LAYER/default/swaync/style.css");

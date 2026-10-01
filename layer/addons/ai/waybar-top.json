@@ -1,5 +1,5 @@
 {
-  "insert": {"modules-left": {"after": "custom/logo", "modules": ["custom/ask"]}},
+  "insert": {"modules-left": {"after": "image#logo", "modules": ["custom/ask"]}},
   "modules": {
     "custom/ask": {
       "format": "󰚩  Ask",

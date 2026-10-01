@@ -14,7 +14,7 @@
   "gtk-layer-shell": true,
   "spacing": 0,
   "modules-left": [
-    "custom/logo",
+    "image#logo",
     "custom/mediaPrev",
     "custom/mediaPlay",
     "custom/mediaNext",
@@ -36,12 +36,6 @@
     "custom/notification",
     "custom/power"
   ],
-  "custom/logo": {
-    "format": "<span size='x-large'>󰣇</span>",
-    "on-click": "~/.local/share/prime-linux/layer/bin/prime-menu",
-    "on-click-right": "~/.local/share/prime-linux/layer/bin/prime-context bar.logo",
-    "tooltip-format": "Prime Linux\nMenu · Super+Alt+Space   Search · Super+Space   Shortcuts · Super+/"
-  },
   "tray": {
     "icon-size": 16,
     "spacing": 6
@@ -204,5 +198,13 @@
     "on-click": "~/.local/share/prime-linux/layer/bin/prime-power-menu",
     "tooltip": false,
     "on-click-right": "~/.local/share/prime-linux/layer/bin/prime-context bar.power"
+  },
+  "image#logo": {
+    "path": "~/.config/prime/theme/mark.svg",
+    "size": 20,
+    "tooltip": true,
+    "tooltip-format": "Prime Linux\nMenu · Super+Alt+Space   Search · Super+Space   Shortcuts · Super+/",
+    "on-click": "~/.local/share/prime-linux/layer/bin/prime-menu",
+    "on-click-right": "~/.local/share/prime-linux/layer/bin/prime-context bar.logo"
   }
 }

@@ -133,6 +133,11 @@ for c in prime-update prime-uninstall prime-addon prime-theme prime-doctor prime
     run ln -sfn "$LAYER/bin/$c" "$HOME/.local/bin/$c"
 done
 info "Commands in ~/.local/bin: prime-update, prime-addon, prime-doctor, prime-theme, prime-about, prime-uninstall"
+# Prime's tools in the app list (Spotlight, App menu) with their icons
+run mkdir -p "$HOME/.local/share/applications"
+for d in "$LAYER"/applications/*.desktop; do
+    run bash -c "sed 's|@LAYER@|$LAYER|g' '$d' > '$HOME/.local/share/applications/$(basename "$d")'"
+done
 run xdg-user-dirs-update
 run mkdir -p "$HOME/Pictures/Screenshots" "$HOME/Pictures/Wallpapers"
 run xdg-mime default nemo.desktop inode/directory

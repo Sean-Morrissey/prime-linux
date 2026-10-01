@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <!-- Prime Linux emblem: a faceted shield with a P cut through it.
+       Original artwork (CC0). The theme switcher recolours #f87171 to the accent. -->
+  <defs>
+    <clipPath id="shield"><path d="M36 34 H220 V146 L128 238 L36 146 Z"/></clipPath>
+    <mask id="p">
+      <rect width="256" height="256" fill="#fff"/>
+      <!-- the P: stem + bowl, with its counter left solid -->
+      <path fill="#000" d="M84 70 H164 L188 94 V126 L164 150 H116 V200 H84 Z M116 98 V122 H152 L158 116 V104 L152 98 Z"/>
+    </mask>
+  </defs>
+  <g clip-path="url(#shield)" mask="url(#p)">
+    <rect width="256" height="256" fill="#f87171"/>
+    <!-- facets: light upper-left, shadow lower-right, like a machined plate -->
+    <path d="M36 34 H220 L128 120 Z" fill="#ffffff" fill-opacity="0.28"/>
+    <path d="M128 120 L220 34 V146 L128 238 Z" fill="#000000" fill-opacity="0.22"/>
+    <path d="M36 146 L128 120 L128 238 Z" fill="#000000" fill-opacity="0.08"/>
+  </g>
+  <path d="M36 34 H220 V146 L128 238 L36 146 Z" fill="none" stroke="#ffffff" stroke-opacity="0.35" stroke-width="3"/>
+</svg>

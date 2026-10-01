@@ -42,12 +42,14 @@ VERSION=1
 
 # Sandbox tests run this file for real, so every command that could change the
 # machine must be a fake from the test's PATH. Refuse otherwise.
-if [ "$TESTING" = 1 ]; then
-  for _c in pacman snapper flatpak systemctl systemd-run runuser mkinitcpio limine-mkinitcpio dracut cachyos-rate-mirrors reflector paru; do
-    _p="$(command -v "$_c" 2>/dev/null || true)"
-    case "$_p" in /usr/*|/bin/*|/sbin/*) echo "test mode: $_c resolves to the real $_p — refusing" >&2; exit 99 ;; esac
+test_guard() {
+  [ "$TESTING" = 1 ] || return 0
+  local c p
+  for c in pacman snapper flatpak systemctl systemd-run systemd-inhibit runuser mkinitcpio limine-mkinitcpio dracut cachyos-rate-mirrors reflector paru; do
+    p="$(command -v "$c" 2>/dev/null || true)"
+    case "$p" in /usr/*|/bin/*|/sbin/*) echo "test mode: $c resolves to the real $p — refusing" >&2; exit 99 ;; esac
   done
-fi
+}
 
 # ── settings: defaults, then the config file (parsed, never sourced) ─────────
 POLICY=auto            # auto | ask | security | off
@@ -125,6 +127,7 @@ fact_override() { # fact_override <key> -> prints value and returns 0 if the tes
   [ "$TESTING" = 1 ] && [ -n "$FACTS_FILE" ] && [ -r "$FACTS_FILE" ] || return 1
   local v; v="$(sed -n "s/^$1=//p" "$FACTS_FILE" | tail -1)"
   [ -n "$v" ] || return 1
+  [ "$v" = - ] && v=""          # "-" = "nothing" (an empty value would mean "not set")
   printf '%s\n' "$v"
 }
 
@@ -666,7 +669,7 @@ due_reason() { # prints why a run is due now, or returns 1
 }
 
 cmd_cycle() {
-  need_root; real_guard; ensure_state
+  need_root; real_guard; test_guard; ensure_state
   [ "$POLICY" = off ] && { say "automatic updates are off"; return 0; }
   if [ -e "$STATE/PAUSED" ]; then
     local until; until="$(sget PAUSED)"
@@ -724,7 +727,7 @@ cmd_cycle() {
 }
 
 cmd_apply() {
-  need_root; real_guard
+  need_root; real_guard; test_guard
   local mode=nightly ensure="" extra=()
   while [ $# -gt 0 ]; do
     case "$1" in
@@ -745,7 +748,9 @@ cmd_apply() {
     bad "the battery is at ${pw#battery }% — plug in the charger first (an update must not be cut off)"; return 2
   fi
   [ "${pw%% *}" = battery ] && warn "on battery (${pw#battery }%) — keep it plugged in if you can"
-  trap '' HUP          # a closed terminal must not stop an update half-way
+  # A closed terminal (HUP) or Ctrl+C (INT) must not stop an update half-way: the
+  # ignore is inherited by tee/sed, so pacman's output pipe never breaks under it.
+  trap '' HUP INT PIPE
   apply_update "$mode" "${extra[@]+"${extra[@]}"}"; local rc=$?
   write_lastrun "$mode"
   case "$R_STATUS" in
@@ -777,7 +782,13 @@ cmd_set() {
   chmod 644 "$tmp"; mv -f "$tmp" "$CONF"
   hist "settings changed: $*"
   ok "saved: $*"
-  [ "$POLICY" = off ] || rm -f "$STATE/failcount"
+  [ "$POLICY" = off ] || rm -f "$STATE/failcount" 2>/dev/null
+  # the nightly service follows the policy: off means really off
+  if [ "$TESTING" != 1 ] && [ -d /run/systemd/system ] && [ -e /etc/systemd/system/prime-system-update.timer ]; then
+    if [ "$POLICY" = off ]; then systemctl disable --now prime-system-update.timer >/dev/null 2>&1
+    else systemctl enable --now prime-system-update.timer >/dev/null 2>&1; fi
+  fi
+  return 0
 }
 
 # ── read-only views ──────────────────────────────────────────────────────────

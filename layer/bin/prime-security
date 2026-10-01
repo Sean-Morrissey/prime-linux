@@ -247,7 +247,7 @@ status() {
 apply() {
   need_root apply
   echo "${Bo}Prime Linux safety defaults${N}"
-  firewall_apply
+  if [ -n "$ROOT" ]; then echo "  firewall: not touched (installing into $ROOT, not this system)"; else firewall_apply; fi
   if [ -r "$SYSCTL_SRC" ]; then
     install -Dm644 "$SYSCTL_SRC" "$ROOT/etc/sysctl.d/90-prime-security.conf"
     if [ -z "$ROOT" ]; then sysctl -q -p /etc/sysctl.d/90-prime-security.conf >/dev/null 2>&1 \

@@ -1,346 +1,163 @@
 /* ══════════════════════════════════════════════════════════════
- * Prime Linux top bar — obsidian glass, one accent colour.
- * @accent is defined by the theme switcher (~/.config/prime/theme/colors.css),
- * which is imported ahead of this file. Status colours (sapphire, amber,
- * rose…) are fixed so a warning always looks like a warning.
- * Your own tweaks: ~/.config/waybar/user.css (loaded last).
+ * Prime Linux top bar — one calm, full-width strip of frosted glass.
+ *
+ * Rules this file keeps to, so it stays clean as things are added:
+ *   · one icon family (Material Design from the Nerd Font), one icon size
+ *   · every item is the same height and has the same hit area (a soft pill
+ *     on hover); spacing comes from padding, never from stray margins
+ *   · numbers are tabular and dim — status should be glanceable, not loud
+ *   · colour means something: accent = "on / yours", amber = "needs a look",
+ *     rose = "problem". Nothing else is coloured.
+ *
+ * @accent comes from the theme switcher (~/.config/prime/theme/colors.css),
+ * imported ahead of this file. Your own tweaks: ~/.config/waybar/user.css.
  * ══════════════════════════════════════════════════════════════ */
 
-@define-color bg          rgba(10, 10, 14, 0.72);
-@define-color bg_solid    #0a0a0e;
-@define-color fg          #e4e4e7;
-@define-color fg_dim      rgba(228, 228, 231, 0.60);
-@define-color fg_faint    rgba(228, 228, 231, 0.30);
-@define-color hairline    rgba(255, 255, 255, 0.10);
-@define-color highlight   rgba(255, 255, 255, 0.08);
-@define-color sapphire    #60a5fa;          /* System Blue */
-@define-color amethyst    #c084fc;          /* GPU Purple */
-@define-color amber       #fbbf24;          /* Warnings / Notifications */
-@define-color rose        #f87171;          /* Critical / Power */
-@define-color teal        #2dd4bf;          /* Teal accent */
+@define-color bg          rgba(12, 12, 16, 0.70);
+@define-color bg_solid    #0c0c10;
+@define-color fg          #ececef;
+@define-color fg_dim      rgba(236, 236, 239, 0.62);
+@define-color fg_faint    rgba(236, 236, 239, 0.32);
+@define-color hairline    rgba(255, 255, 255, 0.08);
+@define-color highlight   rgba(255, 255, 255, 0.10);
+@define-color sapphire    #60a5fa;
+@define-color amethyst    #c084fc;
+@define-color amber       #fbbf24;
+@define-color rose        #f87171;
+@define-color teal        #2dd4bf;
 
 * {
     border: none;
     border-radius: 0;
-    font-family: "Inter", "SF Pro Text", "Helvetica Neue", "JetBrainsMono Nerd Font", sans-serif;
-    font-size: 0.9rem;
+    font-family: "Inter", "JetBrainsMono Nerd Font Propo", sans-serif;
+    font-size: 0.8125rem;
     font-weight: 500;
     min-height: 0;
-    transition: background 160ms ease, color 160ms ease, opacity 160ms ease;
+    box-shadow: none;
+    text-shadow: none;
 }
 
 window#waybar {
-    background: transparent;
-    color: @fg;
-}
-
-/* ─── Glass Islands ─────────────────────────────────────────── */
-.modules-left,
-.modules-center,
-.modules-right {
     background: @bg;
-    border: 1px solid @hairline;
-    border-radius: 14px;
-    margin: 0 4px;
-    padding: 0 8px;
-    box-shadow:
-        inset 0 1px 0 0 rgba(255, 255, 255, 0.06),
-        0 2px 0 0 rgba(0, 0, 0, 0.5),
-        0 12px 36px rgba(0, 0, 0, 0.50);
-}
-
-/* ─── Tooltips ──────────────────────────────────────────────── */
-tooltip {
-    background: @bg_solid;
-    border: 1px solid @hairline;
-    border-radius: 10px;
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
-}
-tooltip label {
+    border-bottom: 1px solid @hairline;
     color: @fg;
-    padding: 8px 12px;
-    font-size: 0.825rem;
-    font-weight: 500;
-    letter-spacing: 0.2px;
 }
 
-/* ─── Logo (opens the Prime menu) ──────────────────────────────────────────── */
-#image.logo {
-    font-size: 1.125rem;
-    color: @accent;
-    padding: 0 10px 0 6px;
-    margin: 2px 0;
-    opacity: 0.95;
-}
-#image.logo:hover {
-    color: @teal;
-    opacity: 1.0;
-}
-
-/* ─── Workspaces ────────────────────────────────────────────── */
-#workspaces {
-    padding: 0 4px;
-    margin: 0 2px;
-    background: transparent;
-}
-#workspaces button {
-    padding: 0 6px;
-    margin: 2px 1px;
-    color: @fg_faint;
-    border-radius: 8px;
-    font-size: 0.675rem;
-    letter-spacing: 1px;
-    min-width: 0;
-    background: transparent;
-}
-#workspaces button:hover {
-    color: @fg_dim;
-    background: @highlight;
-}
-#workspaces button.active {
-    color: @accent;
-    font-size: 0.825rem;
-    text-shadow: 0 0 8px alpha(@accent, 0.5);
-}
-#workspaces button.occupied { color: @fg_dim; }
-#workspaces button.urgent {
-    color: @rose;
-    font-weight: 700;
-}
-
-/* ─── Taskbar (Running Apps) ────────────────────────────────── */
-#taskbar {
-    background: transparent;
-    padding: 0 2px;
-}
-#taskbar button {
-    padding: 0 5px;
+/* every item: same height, same pill on hover */
+#image, #clock, #tray, #network, #bluetooth, #battery, #cpu, #memory,
+#custom-audio, #custom-gpu, #custom-updates, #custom-notification,
+#custom-power, #custom-recording, #custom-toggles, #custom-keyboard,
+#custom-media, #custom-mediaPrev, #custom-mediaPlay, #custom-mediaNext {
+    padding: 0 9px;
     margin: 4px 1px;
     border-radius: 8px;
-    background: transparent;
-    min-width: 24px;
-    opacity: 0.55;
+    color: @fg;
 }
-#taskbar button:hover {
+#image:hover, #clock:hover, #network:hover, #bluetooth:hover, #battery:hover,
+#cpu:hover, #memory:hover, #custom-audio:hover, #custom-gpu:hover,
+#custom-updates:hover, #custom-notification:hover, #custom-power:hover,
+#custom-toggles:hover, #custom-keyboard:hover, #custom-media:hover,
+#custom-mediaPrev:hover, #custom-mediaPlay:hover, #custom-mediaNext:hover {
     background: @highlight;
-    opacity: 0.95;
 }
-#taskbar button.active {
-    background: alpha(@accent, 0.15);
-    box-shadow: inset 0 0 0 1px alpha(@accent, 0.30);
-    opacity: 1.0;
-}
-#taskbar button.minimized { opacity: 0.25; }
 
-/* ─── System Tray ───────────────────────────────────────────── */
-#tray {
-    padding: 0 6px 0 10px;
-    margin-left: 6px;
-    background: transparent;
-    box-shadow: inset 1px 0 0 0 @hairline;
+/* icon-only items: one size for every icon */
+#network, #bluetooth, #custom-audio, #custom-notification, #custom-power,
+#custom-toggles, #custom-mediaPrev, #custom-mediaPlay, #custom-mediaNext {
+    font-size: 0.9375rem;
+    padding: 0 8px;
 }
+
+/* ─── left: logo + now playing ─────────────────────────────── */
+#image.logo { padding: 0 12px 0 14px; }
+#custom-mediaPrev { margin-left: 10px; }
+#custom-media {
+    color: @fg_dim;
+    font-size: 0.75rem;
+    padding-left: 4px;
+}
+#custom-media.playing { color: @fg; }
+#custom-mediaPlay.playing { color: @accent; }
+#custom-mediaPlay.paused, #custom-mediaPlay.stopped,
+#custom-mediaPrev, #custom-mediaNext { color: @fg_dim; }
+
+/* ─── centre: the clock ─────────────────────────────────────── */
+#clock {
+    font-weight: 600;
+    letter-spacing: 0.2px;
+    padding: 0 12px;
+}
+
+/* ─── right ─────────────────────────────────────────────────── */
+#tray { padding: 0 10px; }
+#tray > .passive { -gtk-icon-effect: dim; }
+#tray > .needs-attention { -gtk-icon-effect: highlight; }
 #tray menu {
     background: @bg_solid;
-    color: @fg;
-    border-radius: 10px;
-}
-#tray > .passive { -gtk-icon-effect: dim; }
-#tray > .active  { background: transparent; }
-#tray > widget {
-    padding: 0 3px;
-    border-radius: 6px;
-}
-#tray > widget:hover { background: @highlight; }
-
-/* ─── Clock ─────────────────────────────────────────────────── */
-#clock {
-    font-family: "Inter", "SF Pro Display", sans-serif;
-    font-size: 0.975rem;
-    font-weight: 600;
-    color: @fg;
-    padding: 2px 16px;
-    letter-spacing: 0.3px;
-}
-#clock:hover {
-    background: @highlight;
+    border: 1px solid @hairline;
     border-radius: 8px;
+    padding: 4px 0;
 }
 
-/* ═══ Right cluster — one clean system strip ══════════════════
-   Icon + value pairs, monochrome by default; colour is reserved for STATE
-   (warning / critical / muted). Logical groups are separated by hairline
-   dividers rather than colour blocks, so the strip reads as one instrument
-   panel instead of a row of different widgets. */
-#custom-audio, #network, #bluetooth, #cpu, #memory, #custom-gpu,
-#custom-updates, #custom-notification, #custom-wallpaper, #custom-power,
-#idle_inhibitor {
-    padding: 2px 9px;
-    margin: 3px 0;
-    border-radius: 0;              /* square: no rounded badges in this strip */
-    color: @fg_dim;
-    font-weight: 500;
-}
-#custom-audio:hover, #network:hover, #bluetooth:hover, #cpu:hover,
-#memory:hover, #custom-gpu:hover, #custom-updates:hover,
-#custom-notification:hover, #custom-wallpaper:hover, #custom-power:hover,
-#idle_inhibitor:hover {
-    background: @highlight;
-    color: @fg;
-}
+/* status: network · bluetooth · sound · battery — one quiet cluster */
+#status { margin: 0 4px; }
+#network.disconnected, #network.disabled { color: @fg_faint; }
+#bluetooth.off, #bluetooth.disabled { color: @fg_faint; }
+#bluetooth.connected { color: @accent; }
+#custom-audio.muted { color: @fg_faint; }
+#battery { font-size: 0.75rem; }
+#battery.charging, #battery.plugged { color: @accent; }
+#battery.warning:not(.charging)  { color: @amber; }
+#battery.critical:not(.charging) { color: @rose; }
 
-/* Dividers: audio | connectivity | resources | updates | alerts.
-   A real 1px left border, not an inset box-shadow: box-shadow follows the
-   module's box and bends at the corners, so the rules looked curved. Square
-   corners + a border keeps every separator dead straight and full height. */
-#network, #cpu, #custom-updates, #custom-notification {
-    margin-left: 7px;
-    padding-left: 17px;
+/* stats: small, dim, tabular — glanceable, never loud */
+#stats {
+    margin: 0 4px;
+    padding: 0 4px;
     border-left: 1px solid @hairline;
+    border-right: 1px solid @hairline;
 }
-
-/* State colour — the only colour allowed in the strip */
-#network.disconnected { color: @rose; }
-#custom-audio.muted    { color: @rose; }
-#bluetooth.disabled,
-#bluetooth.off         { opacity: 0.40; }
-
-/* ─── Updates counter (colour by severity from JSON class) ───── */
-#custom-updates.green  { color: @accent; }
-#custom-updates.yellow { color: @amber; }
-#custom-updates.red    { color: @rose; }
-
-/* ─── Mpris ─────────────────────────────────────────────────── */
-#mpris {
+#cpu, #memory, #custom-gpu {
     color: @fg_dim;
-    font-size: 0.825rem;
-    font-weight: 400;
-    padding: 2px 12px;
-    letter-spacing: 0.1px;
-}
-#mpris.playing { color: @fg; }
-#mpris.paused  { color: @fg_faint; }
-
-/* ─── Audio ─────────────────────────────────────────────────── */
-#custom-audio {
-    padding: 2px 8px;
-    margin: 3px 1px;
-    border-radius: 8px;
-    color: @fg_dim;
-}
-#custom-audio:hover {
-    background: @highlight;
-    color: @fg;
-}
-#pulseaudio.muted { opacity: 0.45; }
-
-/* ─── Bluetooth ─────────────────────────────────────────────── */
-#bluetooth.disabled { opacity: 0.40; }
-
-/* ─── System Stats — mono numerals (audio % joins the strip) ── */
-#custom-audio, #cpu, #memory, #custom-gpu {
-    font-family: "JetBrainsMono Nerd Font", "Geist Mono", "SF Mono", monospace;
-    font-size: 0.825rem;
-    font-weight: 600;
-    letter-spacing: 0.4px;
-    color: @fg_dim;
+    font-size: 0.75rem;
+    font-feature-settings: "tnum";
+    padding: 0 7px;
 }
 #cpu.warning, #memory.warning, #custom-gpu.warning   { color: @amber; }
 #cpu.critical, #memory.critical, #custom-gpu.critical { color: @rose; }
 
-/* ─── Wallpaper ─────────────────────────────────────────────── */
-#custom-wallpaper {
-    font-size: 0.975rem;
-}
+/* updates: only shown when something is waiting */
+#custom-updates { color: @accent; font-size: 0.75rem; }
+#custom-updates.yellow { color: @amber; }
+#custom-updates.red    { color: @rose; }
 
-/* ─── Notification ──────────────────────────────────────────── */
-#custom-notification { font-size: 0.975rem; }
+#custom-notification.notification,
+#custom-notification.dnd-notification,
+#custom-notification.inhibited-notification { color: @accent; }
+#custom-notification.none, #custom-notification.inhibited-none { color: @fg_dim; }
+#custom-notification.dnd-none, #custom-notification.dnd-inhibited-none { color: @fg_faint; }
 
-/* ─── Power ─────────────────────────────────────────────────── */
-#custom-power {
-    font-size: 0.975rem;
-    color: @fg_faint;
-    padding: 2px 10px 2px 8px;
-}
-#custom-power:hover {
-    color: @rose;
-    background: alpha(@rose, 0.12);
-}
+#custom-power { color: @fg_dim; margin-right: 8px; }
+#custom-power:hover { color: @rose; background: alpha(@rose, 0.14); }
 
-/* ─── Media control group ─────────────────────────────────────
-   [prev][play/pause][next] | Track — Artist
-   One inset tray, one hairline divider, then the now-playing text. Sits left
-   of the clock; hidden when nothing is playing. */
-#custom-mediaPrev,
-#custom-mediaPlay,
-#custom-mediaNext,
-#custom-media {
-    margin: 6px 0;                 /* inset inside the bar pill */
-    background: rgba(255, 255, 255, 0.06);
-    border-radius: 0;
-    color: @fg_dim;
-}
-
-#custom-mediaPrev,
-#custom-mediaPlay,
-#custom-mediaNext {
-    padding: 0 7px;
-    font-size: 0.9rem;
-}
-#custom-mediaPrev {
-    margin-left: 12px;
-    padding-left: 9px;
-    border-radius: 8px 0 0 8px;
-}
-#custom-mediaNext { padding-right: 9px; }
-
-#custom-media {
-    padding: 0 12px 0 11px;
-    border-radius: 0 8px 8px 0;
-    box-shadow: inset 1px 0 0 0 @hairline;   /* divider: transport | title */
-    font-size: 0.825rem;
-    font-weight: 500;
-    letter-spacing: 0.1px;
-}
-#custom-media.playing { color: @fg; }
-#custom-media.paused  { color: @fg_dim; }
-#custom-media.stopped { color: @fg_faint; }
-#custom-media:hover {
-    background: rgba(255, 255, 255, 0.12);
-    color: @fg;
-}
-
-#custom-mediaPrev:hover,
-#custom-mediaPlay:hover,
-#custom-mediaNext:hover {
-    background: alpha(@accent, 0.16);
-    color: @accent;
-}
-
-/* The play button mirrors the player: pause glyph while playing. */
-#custom-mediaPlay.playing { color: @accent; }
-#custom-mediaPlay.paused  { color: @fg_dim; }
-#custom-mediaPlay.stopped { color: @fg_faint; }
-
-/* ─── Recording · quick switches · keyboard layout · battery ─────
-   Recording is red on purpose (always means "you are being recorded"),
-   quick switches use the accent, battery follows the status colours. */
+/* only while something is happening */
 #custom-recording {
     color: @rose;
     font-weight: 700;
-    padding: 0 10px;
-    margin: 4px 2px;
-    border-radius: 10px;
+    font-feature-settings: "tnum";
     background: alpha(@rose, 0.14);
 }
-#custom-toggles,
-#custom-keyboard {
-    color: @fg_dim;
-    padding: 0 8px;
+#custom-toggles { color: @accent; }
+#custom-keyboard { font-size: 0.75rem; font-weight: 600; color: @fg_dim; }
+
+/* ─── tooltips ──────────────────────────────────────────────── */
+tooltip {
+    background: @bg_solid;
+    border: 1px solid @hairline;
+    border-radius: 10px;
 }
-#custom-toggles.on,
-#custom-toggles:hover,
-#custom-keyboard:hover { color: @accent; }
-#battery { color: @fg_dim; padding: 0 8px; }
-#battery.charging, #battery.plugged { color: @accent; }
-#battery.warning:not(.charging)  { color: @amber; }
-#battery.critical:not(.charging) { color: @rose; font-weight: 700; }
+tooltip label {
+    color: @fg;
+    padding: 6px 10px;
+    font-size: 0.75rem;
+}

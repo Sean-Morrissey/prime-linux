@@ -8,14 +8,14 @@
   "layer": "top",
   "position": "top",
   "mod": "dock",
-  "height": 38,
-  "margin-top": 6,
-  "margin-left": 10,
-  "margin-right": 10,
+  "height": 34,
+  "margin-top": 0,
+  "margin-left": 0,
+  "margin-right": 0,
   "exclusive": true,
   "passthrough": false,
   "gtk-layer-shell": true,
-  "spacing": 0,
+  "spacing": 4,
   "modules-left": [
     "image#logo",
     "custom/mediaPrev",
@@ -27,25 +27,19 @@
     "clock"
   ],
   "modules-right": [
-    "tray",
     "custom/recording",
     "custom/toggles",
     "custom/keyboard",
-    "custom/audio",
-    "network",
-    "bluetooth",
-    "battery",
-    "cpu",
-    "memory",
-    "custom/gpu",
+    "tray",
+    "group/status",
+    "group/stats",
     "custom/updates",
-    "custom/theme",
     "custom/notification",
     "custom/power"
   ],
   "tray": {
     "icon-size": 16,
-    "spacing": 6
+    "spacing": 10
   },
   "custom/recording": {
     "exec": "~/.local/share/prime-linux/layer/bin/prime-record status",
@@ -73,7 +67,7 @@
     "on-click-right": "~/.local/share/prime-linux/layer/bin/prime-context bar.keyboard"
   },
   "clock": {
-    "format": "{:%a %b %d   %I:%M %p}",
+    "format": "{:%a %b %e   %I:%M %p}",
     "tooltip": true,
     "format-alt": "{:%A, %B %d, %Y  (%R)}",
     "interval": 1,
@@ -144,7 +138,7 @@
     "on-click-middle": "pavucontrol"
   },
   "network": {
-    "format-wifi": "󰤨",
+    "format-wifi": "{icon}",
     "format-ethernet": "󰈀",
     "format-disconnected": "󰤮",
     "tooltip-format-wifi": "Wi-Fi: connected to {essid} ({signalStrength}% signal)\nclick to change network",
@@ -152,17 +146,26 @@
     "tooltip-format-disconnected": "Network: not connected\nclick to join a Wi-Fi network",
     "tooltip-format-disabled": "Wi-Fi: off\nclick to turn it on",
     "on-click": "~/.local/share/prime-linux/layer/bin/prime-wifi",
-    "on-click-right": "~/.local/share/prime-linux/layer/bin/prime-context bar.network"
+    "on-click-right": "~/.local/share/prime-linux/layer/bin/prime-context bar.network",
+    "format-icons": [
+      "󰤟",
+      "󰤢",
+      "󰤥",
+      "󰤨"
+    ],
+    "format-linked": "󰈂"
   },
   "bluetooth": {
     "format": "󰂯",
-    "format-disabled": "󰂲",
-    "format-connected": "󰂱  {device_alias}",
+    "format-disabled": "",
+    "format-connected": "󰂱",
     "tooltip-format": "Bluetooth: {status}\nclick to connect a device",
     "tooltip-format-connected": "Bluetooth: connected to {device_alias}\nclick to connect a device",
     "tooltip-format-disabled": "Bluetooth: off\nclick to turn it on",
     "on-click": "~/.local/share/prime-linux/layer/bin/prime-bluetooth",
-    "on-click-right": "~/.local/share/prime-linux/layer/bin/prime-context bar.bluetooth"
+    "on-click-right": "~/.local/share/prime-linux/layer/bin/prime-context bar.bluetooth",
+    "format-off": "󰂲",
+    "format-connected-battery": "󰂱"
   },
   "battery": {
     "interval": 30,
@@ -172,8 +175,8 @@
     },
     "format": "{icon}  {capacity}%",
     "format-charging": "󰂄  {capacity}%",
-    "format-plugged": "󰚥  {capacity}%",
-    "format-full": "󰁹  {capacity}%",
+    "format-plugged": "󰚥",
+    "format-full": "󰁹",
     "format-icons": [
       "󰁺",
       "󰁼",
@@ -186,7 +189,7 @@
     "on-click-right": "~/.local/share/prime-linux/layer/bin/prime-context bar.battery"
   },
   "cpu": {
-    "format": "󰻠  {usage}%",
+    "format": "󰍛 {usage}%",
     "interval": 3,
     "states": {
       "warning": 70,
@@ -197,7 +200,7 @@
     "on-click-right": "~/.local/share/prime-linux/layer/bin/prime-context bar.cpu"
   },
   "memory": {
-    "format": "󰍛  {percentage}%",
+    "format": "󰘚 {percentage}%",
     "interval": 3,
     "states": {
       "warning": 75,
@@ -211,7 +214,7 @@
     "exec": "~/.local/share/prime-linux/layer/bin/prime-gpu-monitor",
     "return-type": "json",
     "interval": 2,
-    "format": "󰢮  {}",
+    "format": "󰢮 {}",
     "on-click": "~/.local/share/prime-linux/layer/bin/prime-activity",
     "on-click-right": "~/.local/share/prime-linux/layer/bin/prime-context bar.gpu",
     "exec-if": "~/.local/share/prime-linux/layer/bin/prime-gpu-monitor | grep -q ."
@@ -222,28 +225,22 @@
     "interval": 60,
     "escape": true,
     "tooltip": true,
-    "format": "󰚰  {}",
+    "format": "󰚰 {}",
     "on-click": "~/.local/share/prime-linux/layer/bin/prime-update",
     "on-click-right": "~/.local/share/prime-linux/layer/bin/prime-context bar.updates"
-  },
-  "custom/theme": {
-    "format": "<span color='#a1a1a6'>󰸉</span>",
-    "on-click": "~/.local/share/prime-linux/layer/bin/prime-theme",
-    "tooltip-format": "Theme: wallpaper, accent colour, text size (Super+Shift+W)",
-    "on-click-right": "~/.local/share/prime-linux/layer/bin/prime-context bar.theme"
   },
   "custom/notification": {
     "tooltip": true,
     "format": "{icon}",
     "format-icons": {
-      "notification": "<span foreground='#fbbf24'>󰂚</span>",
-      "none": "<span foreground='#a1a1aa'>󰂜</span>",
-      "dnd-notification": "<span foreground='#fbbf24'>󰂛</span>",
-      "dnd-none": "<span foreground='#a1a1aa'>󰂛</span>",
-      "inhibited-notification": "<span foreground='#fbbf24'>󰂚</span>",
-      "inhibited-none": "<span foreground='#a1a1aa'>󰂜</span>",
-      "dnd-inhibited-notification": "<span foreground='#fbbf24'>󰂛</span>",
-      "dnd-inhibited-none": "<span foreground='#a1a1aa'>󰂛</span>"
+      "notification": "󰂚",
+      "none": "󰂜",
+      "dnd-notification": "󰂛",
+      "dnd-none": "󰂛",
+      "inhibited-notification": "󰂚",
+      "inhibited-none": "󰂜",
+      "dnd-inhibited-notification": "󰂛",
+      "dnd-inhibited-none": "󰂛"
     },
     "return-type": "json",
     "exec-if": "which swaync-client",
@@ -253,7 +250,7 @@
     "escape": true
   },
   "custom/power": {
-    "format": "⏻",
+    "format": "󰐥",
     "on-click": "~/.local/share/prime-linux/layer/bin/prime-power-menu",
     "tooltip": true,
     "tooltip-format": "Power: lock, sleep, restart, shut down, log out",
@@ -261,11 +258,28 @@
   },
   "image#logo": {
     "path": "~/.config/prime/theme/mark.svg",
-    "size": 20,
+    "size": 18,
     "tooltip": true,
     "tooltip-format": "Prime menu (Super+Alt+Space)\nSearch · Super+Space   Bar by keys · Super+Alt+B   Shortcuts · Super+/",
     "on-click": "~/.local/share/prime-linux/layer/bin/prime-menu",
     "on-click-right": "~/.local/share/prime-linux/layer/bin/prime-context bar.logo",
     "interval": 3600
+  },
+  "group/status": {
+    "orientation": "horizontal",
+    "modules": [
+      "network",
+      "bluetooth",
+      "custom/audio",
+      "battery"
+    ]
+  },
+  "group/stats": {
+    "orientation": "horizontal",
+    "modules": [
+      "cpu",
+      "memory",
+      "custom/gpu"
+    ]
   }
 }

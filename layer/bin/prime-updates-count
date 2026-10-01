@@ -99,7 +99,8 @@ else
     tip="Updates: $total waiting\nclick to update everything · right-click to see the list\nchecked $when"
 fi
 
-line=$(printf '{"text":"%s","class":"%s","tooltip":"%s"}\n' "$total" "$cls" "${tip//$'\n'/\\n}")
+shown="$total"; [ "$total" -eq 0 ] && [ "$stale" -eq 0 ] && shown=""   # nothing waiting: hide the item
+line=$(printf '{"text":"%s","class":"%s","tooltip":"%s"}\n' "$shown" "$cls" "${tip//$'\n'/\\n}")
 
 # Only overwrite the cache with a real measurement.
 if [ "$stale" -eq 0 ]; then

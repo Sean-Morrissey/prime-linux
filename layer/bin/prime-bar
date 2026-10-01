@@ -70,10 +70,20 @@ def build(which):
         frag = os.path.join(a, f"waybar-{which}.json")
         if os.path.exists(frag):
             f = json.load(open(frag))
-            for side, spec in f.get("insert", {}).items():
-                mods = cfg.setdefault(side, [])
-                at = mods.index(spec["after"]) + 1 if spec.get("after") in mods else len(mods)
-                mods[at:at] = [m for m in spec["modules"] if m not in mods]
+            for side, specs in f.get("insert", {}).items():
+              for spec in (specs if isinstance(specs, list) else [specs]):
+                  # "after" may name an item inside a group (e.g. custom/gpu in
+                  # group/stats): then the new items join that group
+                  mods = cfg.setdefault(side, [])
+                  after = spec.get("after")
+                  if after and after not in mods:
+                      for g in [m for m in mods if m.startswith("group/")]:
+                          inner = cfg.get(g, {}).get("modules", [])
+                          if after in inner:
+                              mods = inner
+                              break
+                  at = mods.index(after) + 1 if after in mods else len(mods)
+                  mods[at:at] = [m for m in spec["modules"] if m not in mods]
             cfg.update(f.get("modules", {}))
         if os.path.exists(os.path.join(a, "waybar.css")):
             css.append(os.path.join(a, "waybar.css"))
@@ -115,7 +125,10 @@ def keyboard_rows():
     for which in ("top", "side"):
         cfg = build(which)[0]
         for side in ("modules-left", "modules-center", "modules-right"):
-            for m in cfg.get(side, []):
+            items = []
+            for m in cfg.get(side, []):   # a group lists its members in place
+                items += cfg.get(m, {}).get("modules", []) if m.startswith("group/") else [m]
+            for m in items:
                 eid = element_id(m)
                 if eid in seen or eid not in labels:
                     continue

@@ -30,5 +30,7 @@ tip="Sound: ${desc:-speakers} · ${vol}%"
 tip="${tip}\nclick for sound settings · scroll to change the volume"
 text="${vol}%"; (( muted )) && text="Muted"
 
-printf '{"text":"%s  %s","class":"%s","tooltip":"%s"}\n' \
-    "$glyph" "$text" "$cls" "$tip"
+# the bar shows just the speaker; the level is in the tooltip (and in the
+# on-screen popup when it changes), so the bar stays calm
+printf '{"text":"%s","class":"%s","tooltip":"%s"}\n' \
+    "$glyph" "$cls" "$tip"

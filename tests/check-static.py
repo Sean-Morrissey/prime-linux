@@ -230,7 +230,10 @@ ck(f"no jargon in what people read ({len(seen)} strings: menus, bar, keys, app l
 
 # ── the bar: named in words, reachable from the keyboard ───────────────────────
 top = jsonc(BARS[0])
-mods = top["modules-left"] + top["modules-center"] + top["modules-right"]
+mods = []
+for _m in top["modules-left"] + top["modules-center"] + top["modules-right"]:
+    # a group is a container: its members are the bar items
+    mods += top.get(_m, {}).get("modules", []) if _m.startswith("group/") else [_m]
 no_tip = [m for m in mods if isinstance(top.get(m), dict) and top[m].get("tooltip") is False]
 ck("every top-bar item has a tooltip", no_tip)
 elements = json.load(open(ELEMENTS[0]))["elements"]

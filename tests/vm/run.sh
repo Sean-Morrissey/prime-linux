@@ -29,11 +29,12 @@ say()  { printf '\e[1m==>\e[0m %s\n' "$*"; }
 die()  { printf '\e[31m✗\e[0m %s\n' "$*" >&2; exit 1; }
 accel() { [ -w /dev/kvm ] && echo kvm || echo tcg; }
 ovmf() {
-    for c in /usr/share/edk2/x64/OVMF_CODE.4m.fd /usr/share/edk2-ovmf/x64/OVMF_CODE.fd /usr/share/OVMF/OVMF_CODE.fd; do
+    for c in /usr/share/edk2/x64/OVMF_CODE.4m.fd /usr/share/edk2-ovmf/x64/OVMF_CODE.fd /usr/share/OVMF/OVMF_CODE.fd \
+             /usr/share/OVMF/OVMF_CODE_4M.fd; do   # Arch, Fedora, older Debian/Ubuntu, Ubuntu 24.04+
         [ -r "$c" ] && { echo "$c"; return; }
     done; die "no OVMF firmware (install edk2-ovmf)"
 }
-ovmf_vars() { local v; v="$(dirname "$(ovmf)")/OVMF_VARS$( [[ "$(ovmf)" == *4m* ]] && echo .4m).fd"; [ -r "$v" ] || die "no OVMF vars"; echo "$v"; }
+ovmf_vars() { local c v; c="$(ovmf)"; v="$(dirname "$c")/$(basename "$c" | sed 's/CODE/VARS/')"; [ -r "$v" ] || die "no OVMF vars ($v)"; echo "$v"; }
 iso() { ls -1 "$WORK"/cachyos-desktop-linux-*.iso 2>/dev/null | sort | tail -1; }
 ssh_vm() { ssh -q -i "$KEY" -p "$PORT" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 alex@127.0.0.1 "$@"; }
 scp_vm() { scp -q -i "$KEY" -P "$PORT" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$@"; }
@@ -65,7 +66,7 @@ cmd_fetch() {
     say "downloading (~3 GB)…"
     curl -fL --progress-bar -C - -o "$WORK/$name" "$MIRROR/$latest/$name" || die "download failed"
     (cd "$WORK" && sha256sum -c "$name.sha256") || { rm -f "$WORK/$name"; die "checksum mismatch — deleted the download"; }
-    ls "$WORK"/cachyos-desktop-linux-*.iso | grep -v "$name" | xargs -r rm -f
+    ls "$WORK"/cachyos-desktop-linux-*.iso | grep -v "$name" | xargs -r rm -f || true   # nothing older: fine
 }
 
 cmd_base() {
@@ -177,7 +178,7 @@ cmd_prime() {
         grim /tmp/desktop.png" | tee "$WORK/session-checks.log"
     scp_vm alex@127.0.0.1:/tmp/desktop.png "$WORK/desktop.png" && say "screenshot: $WORK/desktop.png"
     # an empty desktop is one flat colour in the middle; a wallpaper is thousands
-    local colours; colours="$(magick "$WORK/desktop.png" -gravity center -crop 40%x40%+0+0 -format %k info: 2>/dev/null || echo 0)"
+    local colours; colours="$("$(command -v magick || echo convert)" "$WORK/desktop.png" -gravity center -crop 40%x40%+0+0 -format %k info: 2>/dev/null || echo 0)"
     if [ "${colours:-0}" -gt 200 ]; then echo "    ✓ wallpaper visible ($colours colours mid-screen)" | tee -a "$WORK/session-checks.log"
     else echo "    ✗ no wallpaper on screen ($colours colours mid-screen)" | tee -a "$WORK/session-checks.log"; fi
     say "uninstall in the VM, then check the account is back"

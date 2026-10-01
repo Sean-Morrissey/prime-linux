@@ -1,0 +1,139 @@
+#!/usr/bin/env bash
+# prime-webapp — turn a website into an app: its own window, icon and entry in
+# the app list (WhatsApp, YouTube, Gmail, ChatGPT…).
+#
+#   prime-webapp                      pick a popular site or type your own
+#   prime-webapp install <name> <url> make one without asking
+#   prime-webapp remove [name]        remove one (asks which when no name)
+#   prime-webapp list                 the web apps you have
+#   prime-webapp open <url>           what the app's launcher runs
+#
+# The window comes from the browser's "app mode" (Chromium, Chrome, Brave, Edge,
+# Vivaldi). Firefox has no app mode, so with only Firefox the site opens in a
+# new Firefox window instead.
+set -u
+BIN="$(dirname "$(readlink -f "$0")")"
+APPS="$HOME/.local/share/applications"
+ICONS="$HOME/.local/share/icons/prime-webapps"
+PREFIX="prime-webapp-"
+
+note() { notify-send -a Prime -t "${3:-4000}" "$1" "${2:-}" >/dev/null 2>&1 || true; }
+ask()  { ROFI_HINT="Type, then Enter  ·  Esc cancel" "$BIN/prime-rofi" -dmenu -theme bar -p "$1" -l 0 </dev/null; }
+slug() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]\+/-/g; s/^-//; s/-$//'; }
+
+# an app-mode capable browser: the default one if it can, else any installed
+app_browser() {
+    local b=""
+    case "$(xdg-settings get default-web-browser 2>/dev/null)" in
+        chromium*)       b=chromium ;;
+        google-chrome*)  b=google-chrome-stable ;;
+        brave*)          b=brave ;;
+        microsoft-edge*) b=microsoft-edge-stable ;;
+        vivaldi*)        b=vivaldi-stable ;;
+    esac
+    [ -n "$b" ] && command -v "$b" >/dev/null && { echo "$b"; return; }
+    for b in chromium google-chrome-stable brave microsoft-edge-stable vivaldi-stable; do
+        command -v "$b" >/dev/null && { echo "$b"; return; }
+    done
+}
+
+clean_url() {   # adds https:// when missing; refuses anything that isn't a web address
+    local u="$1"
+    case "$u" in http://*|https://*) ;; *://*|javascript:*|data:*|file:*) return 1 ;; *) u="https://$u" ;; esac
+    printf '%s' "$u" | grep -qE '^https?://[A-Za-z0-9.-]+\.[A-Za-z]{2,}(:[0-9]+)?(/.*)?$' || return 1
+    printf '%s' "$u"
+}
+
+install_app() {   # install_app <name> <url>
+    local name="$1" url id host icon
+    case "$name" in ""|*/*) echo "the name can't be empty or contain /" >&2; return 1 ;; esac
+    url="$(clean_url "$2")" || { echo "not a web address: $2" >&2; note "That isn't a web address" "$2"; return 1; }
+    id="$PREFIX$(slug "$name")"; host="$(printf '%s' "$url" | sed -E 's#^https?://([^/:]+).*#\1#')"
+    mkdir -p "$APPS" "$ICONS"
+    icon="web-browser"
+    # the site's own icon (DuckDuckGo's icon service: no account, no cookies)
+    if curl -fsSL --max-time 8 -o "$ICONS/$id.ico" "https://icons.duckduckgo.com/ip3/$host.ico" 2>/dev/null \
+       && magick "$ICONS/$id.ico[-1]" -resize 128x128 "$ICONS/$id.png" 2>/dev/null; then icon="$ICONS/$id.png"; fi
+    rm -f "$ICONS/$id.ico"
+    cat > "$APPS/$id.desktop" <<DESKTOP
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=$name
+Comment=$host as an app (Prime web app)
+Exec=$BIN/prime-webapp open $url
+Icon=$icon
+Terminal=false
+Categories=Network;WebBrowser;
+X-Prime-WebApp=$url
+DESKTOP
+    update-desktop-database "$APPS" >/dev/null 2>&1 || true
+    echo "installed: $name ($url)"
+    note "$name is now an app" "Find it with Super+Space or in the app list"
+}
+
+list_apps() {
+    local f
+    for f in "$APPS/$PREFIX"*.desktop; do
+        [ -f "$f" ] || continue
+        printf '%s\t%s\n' "$(sed -n 's/^Name=//p' "$f" | head -1)" "$(sed -n 's/^X-Prime-WebApp=//p' "$f")"
+    done
+}
+
+remove_app() {
+    local name="${1:-}" f
+    if [ -z "$name" ]; then
+        name="$(list_apps | cut -f1 | ROFI_HINT="Enter removes it  ·  Esc cancel" "$BIN/prime-rofi" -dmenu -i -no-custom -theme bar -p "Remove which web app?")" || return 0
+    fi
+    [ -n "$name" ] || return 0
+    f="$APPS/$PREFIX$(slug "$name").desktop"
+    [ -f "$f" ] || { echo "no web app called '$name'" >&2; return 1; }
+    rm -f "$f" "$ICONS/$PREFIX$(slug "$name").png"
+    update-desktop-database "$APPS" >/dev/null 2>&1 || true
+    echo "removed: $name"; note "Removed $name"
+}
+
+POPULAR="WhatsApp|https://web.whatsapp.com
+YouTube|https://www.youtube.com
+Gmail|https://mail.google.com
+Google Docs|https://docs.google.com
+Google Calendar|https://calendar.google.com
+Outlook|https://outlook.live.com
+Microsoft Teams|https://teams.microsoft.com
+ChatGPT|https://chatgpt.com
+Claude|https://claude.ai
+Discord|https://discord.com/app
+Spotify|https://open.spotify.com
+Netflix|https://www.netflix.com
+Notion|https://www.notion.so
+Canva|https://www.canva.com"
+
+pick_and_install() {
+    local choice name url
+    choice="$( { echo "󰏫  Any other website…"; printf '%s\n' "$POPULAR" | cut -d'|' -f1; } \
+        | ROFI_HINT="Pick a site, or choose “Any other website”  ·  Esc cancel" "$BIN/prime-rofi" -dmenu -i -no-custom -theme bar -p "󰖟 Install a web app")" || return 0
+    if [ "$choice" = "󰏫  Any other website…" ]; then
+        url="$(ask "Web address (e.g. web.whatsapp.com)")" || return 0
+        [ -n "$url" ] || return 0
+        clean_url "$url" >/dev/null || { note "That isn't a web address" "$url"; return 1; }
+        name="$(ask "Name it")" || return 0
+        [ -n "$name" ] || name="$(printf '%s' "$url" | sed -E 's#^(https?://)?(www\.)?([^./]+).*#\3#')"
+    else
+        name="$choice"; url="$(printf '%s\n' "$POPULAR" | grep "^$choice|" | cut -d'|' -f2)"
+    fi
+    install_app "$name" "$url"
+}
+
+case "${1:-}" in
+    "")       pick_and_install ;;
+    install)  install_app "${2:?name}" "${3:?url}" ;;
+    remove)   remove_app "${2:-}" ;;
+    list)     list_apps ;;
+    open)
+        url="$(clean_url "${2:?url}")" || exit 1
+        b="$(app_browser)"
+        if [ -n "$b" ]; then exec "$b" --app="$url"
+        elif command -v firefox >/dev/null; then exec firefox --new-window "$url"
+        else exec xdg-open "$url"; fi ;;
+    *) sed -n '2,14p' "$0"; exit 2 ;;
+esac

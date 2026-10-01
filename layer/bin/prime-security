@@ -1,0 +1,338 @@
+#!/usr/bin/env bash
+# prime-security — safe defaults, and a plain-language report on them.
+#
+#   prime-security                  the report (same as: status)
+#   prime-security status [--tsv]   firewall, remote login, updates, AUR, permissions…
+#   prime-security fix-permissions  make Prime's private files private (your account)
+#   prime-security aur              list apps that came from the AUR, and why that matters
+#   prime-security apply            turn the defaults on (administrator; the installer runs it)
+#   prime-security ssh off|on       remote login (SSH): off, or on for your home network only
+#
+# Firewall choice: ufw. CachyOS already ships it switched on, it has ready-made
+# profiles for the apps people use, and a single firewall avoids two tools
+# fighting over the same rules. If firewalld is in charge instead, Prime leaves
+# it alone and just reports on it.
+set -u
+ROOT="${PRIME_SEC_ROOT:-}"                  # tests: write system files under this prefix
+TESTING="${PRIME_TEST_ALLOW_NONROOT:-0}"
+LAYER="$(readlink -f "$(dirname "$(readlink -f "$0")")/..")"
+SYSCTL_SRC="$LAYER/system/security/90-prime-security.conf"
+[ -r "$SYSCTL_SRC" ] || SYSCTL_SRC="$(dirname "$(readlink -f "$0")")/90-prime-security.conf"   # the installed copy
+UFW_DIR="${PRIME_UFW_DIR:-/etc/ufw}"
+LAN4=(10.0.0.0/8 172.16.0.0/12 192.168.0.0/16)
+LAN6=(fe80::/10 fd00::/8)
+
+if [ -t 1 ]; then G=$'\e[32m'; Y=$'\e[33m'; Rd=$'\e[31m'; D=$'\e[2m'; Bo=$'\e[1m'; N=$'\e[0m'
+else G=; Y=; Rd=; D=; Bo=; N=; fi
+TSV=0; problems=0; warnings=0
+row() { # row <ok|warn|bad|info> <text> [fix]
+  if [ $TSV = 1 ]; then printf '%s\t%s\t%s\n' "$1" "$2" "${3:-}"; return; fi
+  case "$1" in
+    ok)   printf '  %s✓%s %s\n' "$G" "$N" "$2" ;;
+    warn) printf '  %s!%s %s\n' "$Y" "$N" "$2"; warnings=$((warnings+1)) ;;
+    bad)  printf '  %s✗%s %s\n' "$Rd" "$N" "$2"; problems=$((problems+1)) ;;
+    info) printf '  %s·%s %s\n' "$D" "$N" "$2" ;;
+  esac
+  [ -n "${3:-}" ] && printf '      %s%s%s\n' "$D" "$3" "$N"
+  return 0
+}
+say() { [ $TSV = 1 ] || printf '%s\n' "$*"; }
+need_root() { [ "$(id -u)" = 0 ] || [ "$TESTING" = 1 ] || { echo "This part needs administrator rights: sudo $0 $*" >&2; exit 4; }; }
+
+# ── the firewall ─────────────────────────────────────────────────────────────
+ufw_enabled() { grep -q '^ENABLED=yes' "$UFW_DIR/ufw.conf" 2>/dev/null && systemctl is-enabled ufw.service >/dev/null 2>&1; }
+ufw_rules() { # "<port> <proto> <source>" for every allow rule (user.rules is readable without root)
+  cat "$UFW_DIR/user.rules" "$UFW_DIR/user6.rules" 2>/dev/null \
+    | awk '/^### tuple ### allow / { for (i = 10; i <= NF; i++) if ($i == "in" || $i ~ /^in_/) { print $6, $5, $9; break } }'   # port proto source (app rules: "… OpenSSH - in")
+}
+is_lan() { case "$1" in 10.*|172.1[6-9].*|172.2[0-9].*|172.3[01].*|192.168.*|fe80:*|fd*|127.*|::1*) return 0 ;; esac; return 1; }
+
+firewall_status() {
+  if systemctl is-active --quiet firewalld.service 2>/dev/null; then
+    row ok "Firewall is on (firewalld)"; return
+  fi
+  if ! command -v ufw >/dev/null 2>&1 && [ ! -e "$UFW_DIR/ufw.conf" ]; then
+    row bad "No firewall is installed" "sudo prime-security apply"; return
+  fi
+  if ! ufw_enabled; then row bad "The firewall is off — other computers on the network can reach any service you run" "sudo prime-security apply"; return; fi
+  local pol; pol="$(sed -n 's/^DEFAULT_INPUT_POLICY="\{0,1\}\([A-Z]*\).*/\1/p' /etc/default/ufw 2>/dev/null)"
+  if [ "${pol:-DROP}" = ACCEPT ]; then row bad "The firewall is on but lets everything in" "sudo prime-security apply"; return; fi
+  row ok "Firewall is on — nothing can connect in unless you allow it"
+  local port proto src open=() lan=0
+  while read -r port proto src; do
+    [ -n "$port" ] || continue
+    if is_lan "$src"; then lan=$((lan+1)); else open+=("$port/$proto"); fi
+  done < <(ufw_rules)
+  [ "$lan" -gt 0 ] && row info "$lan rule(s) let devices on your home network in (printers, casting, Steam…)"
+  if [ ${#open[@]} -gt 0 ]; then
+    row warn "Open to every network, not just yours: $(printf '%s\n' "${open[@]}" | sort -u | tr '\n' ' ')" \
+      "if you don't know why, remove them: sudo ufw status numbered, then: sudo ufw delete <number>"
+  fi
+}
+
+firewall_apply() {
+  if systemctl is-active --quiet firewalld.service 2>/dev/null; then
+    echo "  firewalld is in charge here — leaving it as it is"; return 0
+  fi
+  if ! command -v ufw >/dev/null 2>&1; then
+    echo "  installing the firewall (ufw)…"
+    pacman -S --needed --noconfirm ufw >/dev/null || { echo "  couldn't install ufw"; return 1; }
+  fi
+  ufw default deny incoming >/dev/null && ufw default allow outgoing >/dev/null || return 1
+  local rules=("5353 udp Prime: find printers, speakers and screens on your network")
+  pacman -Qq steam >/dev/null 2>&1 && rules+=("27031:27036 udp Prime: Steam Remote Play on your network"
+                                               "27036:27037 tcp Prime: Steam Remote Play on your network"
+                                               "27040 tcp Prime: Steam game copies between your PCs")
+  { pacman -Qq kdeconnect >/dev/null 2>&1 || pacman -Qq gnome-shell-extension-gsconnect >/dev/null 2>&1; } \
+    && rules+=("1714:1764 udp Prime: KDE Connect (your phone)" "1714:1764 tcp Prime: KDE Connect (your phone)")
+  { pacman -Qq localsend >/dev/null 2>&1 || pacman -Qq localsend-bin >/dev/null 2>&1; } \
+    && rules+=("53317 udp Prime: LocalSend (share files nearby)" "53317 tcp Prime: LocalSend (share files nearby)")
+  local r port proto comment net
+  for r in "${rules[@]}"; do
+    port="${r%% *}"; r="${r#* }"; proto="${r%% *}"; comment="${r#* }"
+    for net in "${LAN4[@]}" "${LAN6[@]}"; do
+      ufw allow from "$net" to any port "$port" proto "$proto" comment "$comment" >/dev/null 2>&1 || true
+    done
+  done
+  # SSH that's already in use must keep working: the firewall would otherwise cut
+  # off whoever administers this computer remotely (or is installing over SSH).
+  # But only from your own network: a rule letting the whole internet try
+  # passwords on port 22 is removed (same as `prime-security ssh on`).
+  if ssh_on; then
+    if [ -n "$(ssh_open_rules)" ]; then ssh_limit_to_lan; echo "  remote login (SSH): was open to every network — now your home network only"
+    else ssh_limit_to_lan; fi
+  fi
+  if ufw --force enable >/dev/null 2>&1; then
+    systemctl enable ufw.service >/dev/null 2>&1 || true
+    echo "  firewall on: nothing gets in, except discovery from your own network (${#rules[@]} rule(s))"
+  else
+    echo "  couldn't switch the firewall on here (no network control in this environment) — rules are saved"
+    systemctl enable ufw.service >/dev/null 2>&1 || true
+  fi
+}
+
+# ── remote login ─────────────────────────────────────────────────────────────
+SSHD_CONFIG="${PRIME_SSHD_CONFIG:-/etc/ssh/sshd_config}"
+ssh_on() { systemctl is-enabled sshd.service >/dev/null 2>&1 || systemctl is-active --quiet sshd.service 2>/dev/null \
+           || systemctl is-enabled sshd.socket >/dev/null 2>&1 || systemctl is-active --quiet sshd.socket 2>/dev/null; }
+# sshd takes the FIRST value it reads for a setting, following Include lines in
+# order (Arch's sshd_config includes sshd_config.d/*.conf at the very top). A
+# Match block only applies to some logins, so reading stops there. No value: yes.
+ssh_passwords() { # → yes|no
+  local pw="" kbd=""
+  _sshd_walk() {
+    local f="$1" key val inc
+    [ -r "$f" ] || return 0
+    while read -r key val _; do
+      case "${key,,}" in
+        ''|\#*) ;;
+        include) for inc in $val; do [[ "$inc" = /* ]] || inc="$(dirname "$SSHD_CONFIG")/$inc"
+                   for g in $inc; do _sshd_walk "$g" || return 1; done; done ;;
+        match) return 1 ;;
+        passwordauthentication) [ -n "$pw" ] || pw="${val,,}" ;;
+        kbdinteractiveauthentication|challengeresponseauthentication) [ -n "$kbd" ] || kbd="${val,,}" ;;
+      esac
+    done < "$f"
+    return 0
+  }
+  _sshd_walk "$SSHD_CONFIG"
+  # keyboard-interactive through PAM asks for the same password
+  if [ "${pw:-yes}" = yes ] || [ "$kbd" = yes ]; then echo yes; else echo no; fi
+}
+# is port 22 reachable from outside your own network? (no firewall, or a rule for anyone)
+ssh_everyone() {
+  systemctl is-active --quiet firewalld.service 2>/dev/null && return 1     # firewalld: its zones decide; not ours to judge
+  ufw_enabled || return 0
+  local port proto src
+  while read -r port proto src; do
+    [ "$port" = 22 ] || [ "$port" = ssh ] || continue
+    is_lan "$src" || return 0
+  done < <(ufw_rules)
+  return 1
+}
+ssh_status() {
+  if ! ssh_on; then row ok "Remote login (SSH) is off"; return; fi
+  local everyone=0 pw; ssh_everyone && everyone=1; pw="$(ssh_passwords)"
+  if [ $everyone = 1 ] && [ "$pw" = yes ]; then
+    row bad "Remote login (SSH) is on, open to every network, and accepts passwords" "turn it off: sudo prime-security ssh off   (or limit it to your network: sudo prime-security ssh on)"
+  elif [ $everyone = 1 ]; then
+    row warn "Remote login (SSH) is on and open to every network (keys only)" "limit it to your home network: sudo prime-security ssh on"
+  elif [ "$pw" = yes ]; then
+    row warn "Remote login (SSH) is on and accepts passwords (your home network only)" "if you don't use it: sudo prime-security ssh off"
+  else
+    row warn "Remote login (SSH) is on (your home network only, keys only)" "if you don't use it: sudo prime-security ssh off"
+  fi
+}
+# ufw rules that let anyone reach port 22, as "ufw delete" arguments
+ssh_open_rules() {
+  local port proto src
+  while read -r port proto src; do
+    { [ "$port" = 22 ] || [ "$port" = ssh ]; } && ! is_lan "$src" && echo "$proto"
+  done < <(ufw_rules) | sort -u
+}
+ssh_limit_to_lan() { # remove "SSH from anywhere" rules, keep it working from your own network
+  local proto net
+  for net in "${LAN4[@]}" "${LAN6[@]}"; do
+    ufw allow from "$net" to any port 22 proto tcp comment "Prime: remote login from your network" >/dev/null 2>&1 || true
+  done
+  for proto in $(ssh_open_rules); do
+    case "$proto" in any) ufw --force delete allow 22 >/dev/null 2>&1 || true; ufw --force delete allow ssh >/dev/null 2>&1 || true ;;
+                     *)   ufw --force delete allow "22/$proto" >/dev/null 2>&1 || true ;; esac
+  done
+  ufw --force delete allow OpenSSH >/dev/null 2>&1 || true
+}
+ssh_set() {
+  need_root ssh "$1"
+  case "$1" in
+    off) systemctl disable --now sshd.service sshd.socket >/dev/null 2>&1 || true
+         echo "Remote login (SSH) is off." ;;
+    on)  pacman -Qq openssh >/dev/null 2>&1 || pacman -S --needed --noconfirm openssh >/dev/null
+         ssh_limit_to_lan
+         systemctl enable --now sshd.service >/dev/null 2>&1
+         echo "Remote login (SSH) is on, reachable from your home network only."
+         echo "Safer still: log in with a key instead of a password (ssh-copy-id from the other computer)." ;;
+    *)   echo "usage: prime-security ssh off|on" >&2; return 2 ;;
+  esac
+}
+
+# ── everything else in the report ────────────────────────────────────────────
+updates_status() {
+  local eng=/usr/local/lib/prime-linux/prime-system-update j
+  [ -x "$eng" ] || eng="$LAYER/system/updates/prime-system-update"
+  local pol last days timer=1
+  systemctl is-enabled prime-system-update.timer >/dev/null 2>&1 || timer=0
+  j="$("$eng" status --json 2>/dev/null)" || j='{}'
+  pol="$(jq -r '.policy // ""' <<<"$j" 2>/dev/null)"; last="$(jq -r '.last_success // 0' <<<"$j" 2>/dev/null)"
+  [ $timer = 1 ] || pol=none
+  case "$pol" in
+    none)          row warn "Automatic updates are not set up — security fixes wait until you update by hand" "Prime menu → Update → Update settings" ;;
+    auto|security) row ok "Security fixes install automatically ($pol)" ;;
+    ask)           row info "Updates wait for you to click Install (\"Ask me first\")" ;;
+    off)           row warn "Automatic updates are off" "Prime menu → Update → Update settings → Automatic" ;;
+  esac
+  if [ -n "$last" ] && [ "$last" != 0 ] && [ "$last" != null ]; then
+    days=$(( ( $(date +%s) - last ) / 86400 ))
+    if [ "$days" -ge 30 ]; then row bad "Last update was $days days ago" "Prime menu → Update → Update everything"
+    elif [ "$days" -ge 10 ]; then row warn "Last update was $days days ago" "Prime menu → Update → Update everything"
+    else row ok "Last update: $([ "$days" = 0 ] && echo today || echo "$days day(s) ago")"; fi
+  fi
+  if command -v arch-audit >/dev/null; then
+    local n; n="$(timeout 30 arch-audit -u -q 2>/dev/null | grep -c . || true)"
+    [ "${n:-0}" -gt 0 ] && row warn "$n installed package(s) have a security fix waiting" "Prime menu → Update → Update everything"
+  fi
+}
+
+aur_list() { pacman -Qmq 2>/dev/null | grep -vE -- '-debug$' || true; }
+aur_status() {
+  local n; n="$(aur_list | grep -c . || true)"
+  if [ "${n:-0}" = 0 ]; then row ok "Every app comes from the checked CachyOS/Arch repositories or Flathub"
+  else row warn "$n app(s) came from the AUR — written by volunteers, not checked by anyone" "see which: prime-security aur"; fi
+}
+
+kernel_status() {
+  local weak=() k want v
+  for k in "kernel.kptr_restrict 1" "kernel.dmesg_restrict 1" "kernel.yama.ptrace_scope 1" "fs.protected_symlinks 1" \
+           "fs.protected_hardlinks 1" "fs.protected_regular 1" "net.ipv4.tcp_syncookies 1" \
+           "net.ipv4.conf.all.accept_redirects 0" "net.ipv4.conf.all.send_redirects 0"; do
+    want="${k#* }"; k="${k% *}"
+    v="$(sysctl -n "$k" 2>/dev/null)" || continue
+    if [ "$want" = 0 ]; then [ "$v" = 0 ] || weak+=("$k"); else [ "${v:-0}" -ge "$want" ] 2>/dev/null || weak+=("$k"); fi
+  done
+  v="$(sysctl -n dev.tty.legacy_tiocsti 2>/dev/null)"; [ "${v:-0}" = 1 ] && weak+=(dev.tty.legacy_tiocsti)
+  if [ ${#weak[@]} -eq 0 ]; then row ok "System protections are on (kernel and network settings)"
+  else row warn "Weaker than Prime's defaults: ${weak[*]}" "sudo prime-security apply"; fi
+}
+
+lock_status() {
+  if pgrep -u "$(id -u)" -x hypridle >/dev/null 2>&1; then row ok "Screen locks itself when you step away"
+  elif [ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]; then row warn "The screen doesn't lock itself (hypridle isn't running)" "log out and back in, or: prime-doctor"
+  fi
+}
+
+perm_status() {
+  local bad_=() f m
+  m="$(stat -c %a "$HOME" 2>/dev/null)"; [ -n "$m" ] && [ "${m: -1}" != 0 ] && bad_+=("your home folder ($m)")
+  for f in "$HOME/.config/prime/ai.key"; do
+    [ -e "$f" ] || continue; m="$(stat -c %a "$f")"; [ "$m" = 600 ] || [ "$m" = 400 ] || bad_+=("$(basename "$f") ($m)")
+  done
+  for f in "$HOME/.config/prime" "$HOME/.config-backups"; do
+    [ -d "$f" ] && [ ! -L "$f" ] || continue; m="$(stat -c %a "$f")"; [ "${m: -1}" = 0 ] || bad_+=("${f/#$HOME/\~} ($m)")
+  done
+  if [ ${#bad_[@]} -eq 0 ]; then row ok "Prime's private files are readable only by you"
+  else row warn "Readable by other accounts on this computer: ${bad_[*]}" "prime-security fix-permissions"; fi
+}
+
+fix_permissions() {
+  local f
+  for f in "$HOME/.config/prime" "$HOME/.config-backups" "$HOME/.cache/prime"; do
+    [ -d "$f" ] && [ ! -L "$f" ] && chmod go-rwx "$f"
+  done
+  f="$HOME/.config/prime/ai.key"; [ -f "$f" ] && [ ! -L "$f" ] && chmod 600 "$f"
+  find "$HOME/.config/prime" "$HOME/.config-backups" -maxdepth 3 -type f ! -perm -g=,o= \
+      \( -name '*.key' -o -name '*.tar.gz' -o -name 'ai.conf' \) -exec chmod go-rwx {} + 2>/dev/null
+  echo "Prime's private files are now readable only by you."
+}
+
+disk_status() {
+  if lsblk -sno TYPE "$(findmnt -no SOURCE / 2>/dev/null | sed 's/\[.*//')" 2>/dev/null | grep -qx crypt; then
+    row ok "The disk is encrypted — a lost or stolen computer doesn't give away your files"
+  else
+    row info "The disk is not encrypted. Fine for a desktop at home; for a laptop, encryption can only be chosen when installing"
+  fi
+}
+
+sig_status() {
+  if grep -Eq '^\s*SigLevel\s*=.*(Never|TrustAll)' /etc/pacman.conf 2>/dev/null; then
+    row bad "Checking that updates really come from CachyOS is switched off (package settings file)" "set SigLevel = Required DatabaseOptional"
+  else row ok "Every package is checked for a valid signature before it is installed"; fi
+}
+
+status() {
+  [ "${1:-}" = --tsv ] && TSV=1
+  say "${Bo}Security check${N}"
+  say
+  firewall_status; ssh_status; updates_status; sig_status; aur_status; kernel_status; lock_status; perm_status; disk_status
+  if [ $TSV = 0 ]; then
+    echo
+    if [ $problems -gt 0 ]; then echo "$problems thing(s) to fix — each one has its fix underneath."
+    elif [ $warnings -gt 0 ]; then echo "Safe. $warnings suggestion(s) above."
+    else echo "Everything looks good."; fi
+  fi
+  return 0
+}
+
+apply() {
+  need_root apply
+  echo "${Bo}Prime Linux safety defaults${N}"
+  if [ -n "$ROOT" ]; then echo "  firewall: not touched (installing into $ROOT, not this system)"; else firewall_apply; fi
+  if [ -r "$SYSCTL_SRC" ]; then
+    install -Dm644 "$SYSCTL_SRC" "$ROOT/etc/sysctl.d/90-prime-security.conf"
+    if [ -z "$ROOT" ]; then sysctl -q -p /etc/sysctl.d/90-prime-security.conf >/dev/null 2>&1 \
+         && echo "  network protections on" || echo "  network protections saved (active from the next start)"
+    else echo "  network protections saved"; fi
+  fi
+  if ! ssh_on; then echo "  remote login (SSH) is off"
+  elif [ "$(ssh_passwords)" = yes ]; then
+    echo "  ! remote login (SSH) is on and accepts passwords. If you don't log in to this computer"
+    echo "    from another one, turn it off: sudo prime-security ssh off"
+  else echo "  remote login (SSH) is on, keys only — left as it is (turn off with: sudo prime-security ssh off)"; fi
+  return 0
+}
+
+case "${1:-status}" in
+  status)          shift 2>/dev/null; status "$@" ;;
+  apply)           apply ;;
+  fix-permissions) fix_permissions ;;
+  ssh)             ssh_set "${2:-}" ;;
+  aur)
+    list="$(aur_list)"
+    if [ -z "$list" ]; then echo "No apps from the AUR on this computer."; exit 0; fi
+    echo "${Bo}Apps from the AUR${N} (the Arch User Repository):"
+    printf '%s\n' "$list" | sed 's/^/  • /'
+    echo
+    echo "These are built from recipes written by volunteers. Nobody reviews them, and"
+    echo "malware has been found there before. Prime never updates them by itself;"
+    echo "\"Update everything\" asks you first. Remove one you don't need with: paru -Rns <name>" ;;
+  -h|--help|help)  sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//' ;;
+  *) echo "unknown command: $1 (try: prime-security help)" >&2; exit 2 ;;
+esac

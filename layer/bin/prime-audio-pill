@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Audio volume for the system cluster: level glyph + percentage.
-# Clean monochrome readout (the CSS colours it); class drives the muted tint.
+# Clean monochrome readout (the CSS colours it); class drives the muted tint,
+# and a muted output also SAYS "Muted" — the tint is never the only signal.
 #
-#   click         pavucontrol
+#   click         the sound settings (pavucontrol)
 #   right-click   mute toggle
 #   scroll        ±5 %
 read -r vol_raw muted < <(wpctl get-volume @DEFAULT_AUDIO_SINK@ 2>/dev/null \
@@ -24,8 +25,12 @@ fi
 desc=$(wpctl inspect @DEFAULT_AUDIO_SINK@ 2>/dev/null \
     | awk -F'"' '/node.description/ {print $2; exit}')
 
-tip="${desc:-Audio} · ${vol}%"
+tip="Sound: ${desc:-speakers} · ${vol}%"
 (( muted )) && tip="${tip} · muted"
+tip="${tip}\nclick for sound settings · scroll to change the volume"
+text="${vol}%"; (( muted )) && text="Muted"
 
-printf '{"text":"%s  %s%%","class":"%s","tooltip":"%s"}\n' \
-    "$glyph" "$vol" "$cls" "$tip"
+# the bar shows just the speaker; the level is in the tooltip (and in the
+# on-screen popup when it changes), so the bar stays calm
+printf '{"text":"%s","class":"%s","tooltip":"%s"}\n' \
+    "$glyph" "$cls" "$tip"

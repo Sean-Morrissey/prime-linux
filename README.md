@@ -2,12 +2,99 @@
 
 A student-first, atomic Linux desktop that ships with a resident AI agent.
 
-Status: **skeleton** — recipe, build pipeline, and first-boot scaffold are in place.
-First milestone is a bootable ISO built from this repo.
+Status (2026-10-01): **Prime Linux installs onto CachyOS with a few copy-paste commands** (below).
+The image/ISO work further down is the longer road and is not needed to try it.
 
-**Install it today on CachyOS:** `bash install.sh` — see
-[`docs/PRIME-LAYER.md`](docs/PRIME-LAYER.md) for the one-line installer, how the
-layer is built, and the roadmap (packs, nightly updates, conversational setup).
+## Install (on CachyOS)
+
+You need a computer with **CachyOS** installed (any edition; KDE Plasma is a good
+pick and stays on the login screen as a second choice) and an internet connection.
+New to Linux? The **[user guide](docs/USER-GUIDE.md)** walks through installing
+CachyOS too.
+
+Open a terminal (press the Windows key, type `terminal`, press Enter), then follow
+**A** or **B**, depending on whether the Prime Linux repository is private or public.
+Copy each grey box, paste it into the terminal with **Ctrl+Shift+V**, and press Enter.
+When it asks for your password, type it (nothing shows while you type) and press Enter.
+
+### A. The repository is private (you were added as a collaborator)
+
+1. Accept the invitation: open the email from GitHub ("…invited you to collaborate
+   on Sean-Morrissey/prime-linux") and click **View invitation → Accept**. You need a
+   free GitHub account for this.
+2. Install GitHub's sign-in tool:
+
+   ```bash
+   sudo pacman -S --needed --noconfirm github-cli git
+   ```
+
+3. Sign in to GitHub from this computer:
+
+   ```bash
+   gh auth login
+   ```
+
+   Answer its questions with the arrow keys and Enter:
+   **GitHub.com** → **HTTPS** → **Yes** (authenticate Git with your GitHub
+   credentials) → **Login with a web browser**. It shows an 8-character code: press
+   Enter, sign in to GitHub in the browser that opens, and type the code there.
+4. Download Prime Linux:
+
+   ```bash
+   gh repo clone Sean-Morrissey/prime-linux ~/prime-linux
+   ```
+
+5. Install it:
+
+   ```bash
+   bash ~/prime-linux/install.sh
+   ```
+
+### B. The repository is public
+
+One line does everything:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/sean-morrissey/prime-linux/main/boot.sh | bash
+```
+
+### Then, either way
+
+- The installer shows numbered steps `[1/8] … [8/8]` and takes 5–15 minutes. It ends
+  with **Prime Linux is installed**.
+- **Log out** (or restart), choose **Prime** in the login screen's session menu, and
+  log in. You get the top bar, the **P** logo (click it for the Start menu), and:
+  **Super+Space** search · **Super+Alt+Space** the Prime menu · **Super+/** every
+  shortcut. (*Super* is the Windows key.)
+- If anything stops half-way, run the install command again (A: step 5, B: the
+  one line): it carries on where it stopped. The log is in `~/.local/state/prime/logs/`.
+- **Updates:** Prime menu → Update → **Update everything**.
+- **Changed your mind?** In a terminal: `prime-uninstall` puts the computer back as it
+  was (from KDE's Konsole: `~/.local/share/prime-linux/layer/bin/prime-uninstall`).
+- The downloaded `~/prime-linux` folder (option A) can be deleted after installing;
+  Prime keeps its own copy in `~/.local/share/prime-linux`.
+
+### For the owner: giving Prime Linux to a friend
+
+- **Private repo:** on GitHub open the repository → **Settings → Collaborators → Add
+  people**, and enter your friend's GitHub username or email. On a personal account a
+  collaborator can also push to the repo, so only invite people you trust with that.
+  Send them this README's option **A**.
+- **Public repo:** nothing to do; send them option **B**. Making the repository public is
+  your call (Settings → General → Danger Zone → Change visibility); nothing in Prime
+  does it for you.
+
+The installer checks the computer first (internet, disk space, which desktop is
+already there), shows numbered progress, logs to `~/.local/state/prime/logs/`,
+picks up where it stopped if interrupted, and `bash install.sh --dry-run` shows
+exactly what it would do. `prime-uninstall` puts everything back.
+
+- New to Linux? **[docs/USER-GUIDE.md](docs/USER-GUIDE.md)** — install to everyday use.
+- How the layer is built: [docs/PRIME-LAYER.md](docs/PRIME-LAYER.md) ·
+  what it does vs Omarchy: [docs/PARITY.md](docs/PARITY.md) ·
+  releases and channels: [docs/RELEASE.md](docs/RELEASE.md)
+- Tests: `tests/install-in-container.sh` (clean Arch container, install +
+  uninstall) and `tests/vm/run.sh all` (real CachyOS VM boot, screenshot).
 
 ---
 

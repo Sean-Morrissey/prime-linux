@@ -8,10 +8,35 @@
 #
 #   prime-keys          show the sheet
 #   prime-keys --list   print the rows (tests)
+#
+# Without a running Hyprland (a test, a TTY) the rows are read from the config
+# files instead: Prime's defaults, every enabled add-on — shipped or personal
+# (~/.config/prime/addons.d) — and your own hyprland.conf.
 set -u
 BIN="$(dirname "$(readlink -f "$0")")"
+LAYER="$(readlink -f "$BIN/..")"
+. "$LAYER/addons/_lib/resolve.sh"
+
+static_rows() {
+  local files=("$LAYER"/default/hypr/*.conf) d
+  while read -r d; do [ -f "$d/hypr.conf" ] && files+=("$d/hypr.conf"); done < <(enabled_addon_dirs)
+  [ -f "$HOME/.config/hypr/hyprland.conf" ] && files+=("$HOME/.config/hypr/hyprland.conf")
+  grep -hE '^[[:space:]]*bind[a-z]*d[a-z]*[[:space:]]*=' "${files[@]}" 2>/dev/null |
+    sed -E 's/^[^=]*=[[:space:]]*//' |
+    awk -F', *' '{
+      n = split($1, m, /[[:space:]_]+/); k = "";
+      for (i = 1; i <= n; i++) { w = toupper(m[i]);
+        if (w == "") continue;
+        if (w == "SUPER" || w == "$MAINMOD" || w == "MOD4") w = "Super"; else if (w == "CTRL" || w == "CONTROL") w = "Ctrl";
+        else if (w == "ALT") w = "Alt"; else if (w == "SHIFT") w = "Shift";
+        k = k w " + " }
+      key = $2; if (length(key) == 1) key = toupper(key)
+      arg = ""; for (i = 5; i <= NF; i++) arg = arg (i > 5 ? ", " : "") $i
+      printf "%-24s  %s\t%s\t%s\tfalse\n", k key, $3, $4, arg }'
+}
 
 rows() {
+  if ! hyprctl binds -j >/dev/null 2>&1; then static_rows; return; fi
   hyprctl binds -j | jq -r '
     def mods: [ (if (.modmask / 64 | floor) % 2 == 1 then "Super" else empty end),
                 (if (.modmask / 4  | floor) % 2 == 1 then "Ctrl"  else empty end),

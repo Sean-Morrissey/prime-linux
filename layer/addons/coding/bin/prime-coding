@@ -1,0 +1,193 @@
+#!/usr/bin/env bash
+# prime-coding — the Coding pack's helper.
+#
+#   prime-coding git            set your name and email for git (asks; safe to repeat)
+#   prime-coding lang [name…]   add a programming language: python node go rust java (via mise)
+#   prime-coding new [name]     start a project in ~/Projects and open it in Code
+#   prime-coding github         sign in to GitHub (gh), so pushing just works
+#   prime-coding docker         use Docker as well as Podman (explains the trade-off first)
+#   prime-coding setup | teardown | check     used by prime-addon
+#
+# PRIME_GIT_NAME / PRIME_GIT_EMAIL fill in git without asking (first-run interview).
+set -u
+. "$(dirname "$(readlink -f "$0")")/../../_lib/pack.sh"
+PACK="$LAYER/addons/coding"
+PROJECTS="$HOME/Projects"
+FISH_HOOK="${XDG_CONFIG_HOME:-$HOME/.config}/fish/conf.d/prime-coding.fish"
+
+# name<TAB>mise spec<TAB>what it is
+LANGS=$'python\tpython@latest\tPython — scripts, data, AI, automation
+node\tnode@lts\tJavaScript / TypeScript with Node.js — websites and web apps
+go\tgo@latest\tGo — servers and command-line tools
+rust\trust@stable\tRust — fast, safe programs
+java\tjava@21\tJava 21 (LTS) — Android, enterprise, university courses'
+
+# ── git ──────────────────────────────────────────────────────────────────────
+git_setup() {
+    local name email def_name
+    name="$(git config --global user.name 2>/dev/null)"; email="$(git config --global user.email 2>/dev/null)"
+    if [ -n "${PRIME_GIT_NAME:-}" ]; then name="$PRIME_GIT_NAME"; git config --global user.name "$name"; fi
+    if [ -n "${PRIME_GIT_EMAIL:-}" ]; then email="$PRIME_GIT_EMAIL"; git config --global user.email "$email"; fi
+    if [ -z "$name" ] || [ -z "$email" ] || [ "${1:-}" = ask ]; then
+        if nonint; then
+            [ -n "$name" ] && [ -n "$email" ] || note "git: name/email not set yet — Prime menu → Coding → Set up git"
+        else
+            echo; say "git labels every change you save with your name and email."
+            say "Use the email you'll use on GitHub/GitLab (it can be a private 'noreply' one)."
+            def_name="${name:-$(getent passwd "$USER" | cut -d: -f5 | cut -d, -f1)}"
+            name="$(ask_text "Your name" "$def_name")" || return 0
+            email="$(ask_text "Your email" "$email")" || return 0
+            [ -n "$name" ]  && git config --global user.name "$name"
+            [ -n "$email" ] && git config --global user.email "$email"
+        fi
+    fi
+    # sensible defaults — only where you haven't chosen already
+    git config --global --get init.defaultBranch >/dev/null || git config --global init.defaultBranch main
+    git config --global --get pull.rebase       >/dev/null || git config --global pull.rebase false
+    git config --global --get push.autoSetupRemote >/dev/null || git config --global push.autoSetupRemote true
+    if have delta && ! git config --global --get core.pager >/dev/null; then
+        git config --global core.pager delta
+        git config --global interactive.diffFilter 'delta --color-only'
+        git config --global delta.navigate true
+    fi
+    [ -n "$name" ] && [ -n "$email" ] && say "git: you're \"$name <$email>\""
+    return 0
+}
+
+# ── languages (mise: per-user, no admin rights, any version per project) ──────
+lang() {
+    local want=() l spec
+    if [ $# -gt 0 ]; then want=("$@")
+    elif nonint; then echo "which language? $(cut -f1 <<<"$LANGS" | paste -sd' ')"; return 2
+    else
+        echo; say "Which languages do you want? (numbers, e.g. 1 2)"
+        local i=1; while IFS=$'\t' read -r l spec desc; do say "$i) $desc"; i=$((i+1)); done <<<"$LANGS"
+        picks="$(ask_text "Numbers, e.g. 1 2")" || return 0
+        for i in $picks; do l="$(sed -n "${i}p" <<<"$LANGS" | cut -f1)"; [ -n "$l" ] && want+=("$l"); done
+    fi
+    have mise || { warn "mise isn't installed — run: prime-addon enable coding"; return 1; }
+    for l in "${want[@]}"; do
+        spec="$(awk -F'\t' -v l="$l" '$1 == l {print $2}' <<<"$LANGS")"
+        [ -n "$spec" ] || spec="$l@latest"     # anything mise knows: e.g. "deno", "ruby@3"
+        say "Installing $spec (downloads it into your home folder)…"
+        if mise use --global --yes "$spec"; then say "✓ $l is ready — open a new terminal to use it."
+        else warn "$l didn't install — check the internet connection and try again."; fi
+    done
+}
+
+# ── a new project ────────────────────────────────────────────────────────────
+new_project() {
+    local name="${1:-}" slug dir
+    if [ -z "$name" ]; then nonint && { echo "usage: prime-coding new <name>"; return 2; }
+        name="$(ask_text "Project name")" || return 0; fi
+    slug="$(tr '[:upper:] ' '[:lower:]-' <<<"$name" | tr -cd 'a-z0-9._-')"
+    [ -n "$slug" ] || { warn "That name has no letters or numbers in it."; return 1; }
+    dir="$PROJECTS/$slug"
+    if [ -e "$dir" ]; then say "$dir already exists — opening it."
+    else
+        mkdir -p "$dir" && printf '# %s\n' "$name" > "$dir/README.md"
+        git -C "$dir" init -q && say "Created $dir (with git)"
+    fi
+    if have code && [ -n "${WAYLAND_DISPLAY:-}" ]; then setsid -f code "$dir" >/dev/null 2>&1; fi
+}
+
+github() {
+    have gh || { warn "GitHub CLI isn't installed — run: prime-addon enable coding"; return 1; }
+    if gh auth status >/dev/null 2>&1; then say "Already signed in to GitHub."
+    else say "Your browser opens to sign in; copy the code shown here into it."; gh auth login --web --git-protocol https || return 1; fi
+    gh auth setup-git && say "✓ git uses your GitHub sign-in for pushing."
+}
+
+# ── containers ───────────────────────────────────────────────────────────────
+subids() {   # rootless Podman needs a range of sub-IDs for your account
+    grep -q "^$USER:" /etc/subuid 2>/dev/null && grep -q "^$USER:" /etc/subgid 2>/dev/null && return 0
+    local start
+    start="$(cat /etc/subuid /etc/subgid 2>/dev/null | awk -F: '{e=$2+$3; if (e>m) m=e} END {print (m>100000 ? m : 100000)}')"
+    say "Giving your account its own container ID range (needed for rootless containers)…"
+    sudo usermod --add-subuids "$start-$((start+65535))" --add-subgids "$start-$((start+65535))" "$USER"
+}
+docker_setup() {
+    echo
+    say "Podman is already set up and runs containers without admin rights — most"
+    say "'docker' instructions work with 'podman' in their place."
+    say "Docker itself is only needed if a tool insists on it (some IDE plugins do)."
+    ask "Install Docker as well?" n || return 0
+    sudo pacman -S --needed --noconfirm docker docker-compose docker-buildx || return 1
+    printf '%s\n' "pacman docker" "pacman docker-compose" "pacman docker-buildx" >> "$PACK_STATE/coding.installed"
+    sudo systemctl enable --now docker.socket >/dev/null 2>&1 && say "Docker starts on demand (docker.socket)."
+    echo
+    say "To run 'docker' without typing sudo, your account joins the 'docker' group."
+    warn "Be aware: that group can control the whole computer (it's admin-equivalent)."
+    if ask "Add yourself to the docker group?" n; then
+        sudo usermod -aG docker "$USER" && say "Done — log out and back in, then 'docker run hello-world' works."
+    else
+        say "Fine — use 'sudo docker …', or Podman. You can run this again later."
+    fi
+}
+
+# ── shell niceties ───────────────────────────────────────────────────────────
+shell_on() {
+    local sh; sh="$(basename "$(getent passwd "$USER" | cut -d: -f7)")"
+    [ -f "$HOME/.bashrc" ] || [ "$sh" != bash ] || touch "$HOME/.bashrc"
+    rc_add "$HOME/.bashrc" coding "[ -f $PACK/shell/coding.bash ] && . $PACK/shell/coding.bash"
+    [ -f "$HOME/.zshrc" ] || [ "$sh" != zsh ] || touch "$HOME/.zshrc"
+    rc_add "$HOME/.zshrc" coding "[ -f $PACK/shell/coding.zsh ] && . $PACK/shell/coding.zsh"
+    if have fish || [ -d "$(dirname "$FISH_HOOK")" ]; then
+        mkdir -p "$(dirname "$FISH_HOOK")"
+        printf '# Prime coding pack (removed by: prime-addon disable coding)\ntest -f %s; and source %s\n' \
+            "$PACK/shell/coding.fish" "$PACK/shell/coding.fish" > "$FISH_HOOK"
+    fi
+}
+shell_off() {
+    rc_remove "$HOME/.bashrc" coding; rc_remove "$HOME/.zshrc" coding
+    [ -f "$FISH_HOOK" ] && grep -q 'Prime coding pack' "$FISH_HOOK" && rm -f "$FISH_HOOK"
+    return 0
+}
+
+setup() {
+    mkdir -p "$PROJECTS"; bookmark_add "$PROJECTS" Projects
+    say "Your code lives in ~/Projects (it's in the file manager's sidebar)."
+    git_setup
+    shell_on; say "Terminal: a git-aware prompt, 'z' to jump to folders, Ctrl+R history search, ll/la/tree."
+    subids || warn "Couldn't give your account its container ID range — Podman may not start containers. Prime menu → Coding → Check my coding setup says what to do $USER"
+    say "Containers: Podman, without admin rights ('podman run …'). Docker on request."
+    note "Add a language any time: Prime menu → Coding → Add a programming language"
+    if [ -n "${PRIME_LANGS:-}" ]; then lang $PRIME_LANGS; fi
+}
+teardown() { shell_off; bookmark_remove "$PROJECTS"; }
+
+check() {
+    have code && ck_ok "Editor: Code - OSS ($(code --version 2>/dev/null | head -1))" || ck_bad "Code - OSS missing — fix: prime-addon enable coding"
+    local n e; n="$(git config --global user.name)"; e="$(git config --global user.email)"
+    if [ -n "$n" ] && [ -n "$e" ]; then ck_ok "git knows you: $n <$e>"
+    else ck_warn "git doesn't know your name/email yet — Prime menu → Coding → Set up git"; fi
+    [ -d "$PROJECTS" ] && ck_ok "~/Projects exists" || ck_warn "~/Projects is missing — fix: prime-addon enable coding"
+    if have mise; then
+        local l; l="$(mise ls --global 2>/dev/null | awk '{print $1"@"$2}' | paste -sd' ')"
+        ck_ok "Languages (mise): ${l:-none yet — Prime menu → Coding → Add a programming language}"
+    else ck_bad "mise missing — fix: prime-addon enable coding"; fi
+    if grep -q "^$USER:" /etc/subuid 2>/dev/null; then ck_ok "Rootless containers allowed (sub-IDs set)"
+    else ck_bad "No container sub-IDs for $USER — fix: prime-addon enable coding"; fi
+    if have podman; then
+        if podman info >/dev/null 2>&1; then ck_ok "Podman works"
+        else ck_warn "Podman installed but 'podman info' failed (try logging out and in)"; fi
+    fi
+    if have docker && pacman -Qq docker >/dev/null 2>&1; then
+        systemctl is-enabled --quiet docker.socket 2>/dev/null && ck_ok "Docker starts on demand" || ck_warn "Docker installed but docker.socket is off"
+        in_group docker && ck_ok "You can run docker without sudo (admin-equivalent)" || ck_ok "Docker needs sudo (safer default)"
+    fi
+    grep -q '# prime:coding$' "$HOME/.bashrc" "$HOME/.zshrc" 2>/dev/null || [ -f "$FISH_HOOK" ] \
+        && ck_ok "Terminal niceties hooked into your shell" || ck_warn "Terminal niceties not hooked in — fix: prime-addon enable coding"
+}
+
+case "${1:-}" in
+    git)      git_setup ask ;;
+    lang)     shift; lang "$@" ;;
+    new)      new_project "${2:-}" ;;
+    github)   github ;;
+    docker)   docker_setup ;;
+    setup)    setup ;;
+    teardown) teardown ;;
+    check)    check ;;
+    *)        sed -n '2,12p' "$0"; exit 2 ;;
+esac

@@ -1,61 +1,122 @@
 #!/usr/bin/env bash
-# prime-ai-setup — connect the assistant to a model (run by `prime-addon enable ai`).
+# prime-ai-setup — connect the assistant to a model (run by `prime-addon enable ai`,
+# and by Prime menu → Ask Prime → Change the model).
 #
 # Works with anything that speaks the OpenAI chat API: llama-server or Ollama on
 # this computer or another one on your network, OpenRouter, OpenAI, Groq… The
 # key (if the service needs one) is stored in ~/.config/prime/ai.key, readable
 # only by you, and is never put in a config file or sent anywhere else.
+#
+# Every question is a Prime picker on the desktop; in a terminal it asks there.
 set -u
 CONF="$HOME/.config/prime/ai.conf"; KEY="$HOME/.config/prime/ai.key"
 HERE="$(dirname "$(readlink -f "$0")")"
+BIN="$(readlink -f "$HERE/../../../bin")"
 mkdir -p "$(dirname "$CONF")"
-B=$'\e[1m'; D=$'\e[2m'; R=$'\e[0m'
 
-echo
-echo "${B}Where should Prime's answers come from?${R}"
-echo "  1) A model on this computer   (llama-server or Ollama — private, free)"
-echo "  2) A model on another computer on my network"
-echo "  3) OpenRouter                 (many models, needs an API key)"
-echo "  4) OpenAI                     (needs an API key)"
-echo "  5) Something else that speaks the OpenAI API"
-read -rp "Pick 1-5: " choice
+# Welcome already connected it (prime-addon enable runs this): keep that, don't ask again.
+if [ "${PRIME_AI_SETUP:-}" = keep ] && grep -q '^BASE_URL=.' "$CONF" 2>/dev/null; then
+    echo "Keeping the assistant settings you already chose ($(sed -n 's/^MODEL=//p' "$CONF"))."
+    exit 0
+fi
+
+# Non-interactive (the Welcome app uses this):
+#   prime-ai-setup --url URL --model NAME [--key-stdin] [--no-test]
+if [ "${1:-}" = --url ]; then
+    url="${2:-}"; model=""; keyin=0; dotest=1; shift 2 || true
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --model) model="${2:-}"; shift 2 ;;
+            --key-stdin) keyin=1; shift ;;
+            --no-test) dotest=0; shift ;;
+            *) echo "unknown option: $1" >&2; exit 2 ;;
+        esac
+    done
+    [[ "$url" =~ ^https?://[^[:space:]]+$ ]] || { echo "That address doesn't look right (it starts with http:// or https://)." >&2; exit 2; }
+    [[ "$model" =~ ^[^[:space:]=]+$ ]] || { echo "Pick a model." >&2; exit 2; }
+    if [ $keyin = 1 ]; then
+        IFS= read -r key || true
+        [ -n "$key" ] || { echo "No key given." >&2; exit 2; }
+        ( umask 077; install -m 600 /dev/null "$KEY"; printf '%s' "$key" > "$KEY" )
+    else
+        rm -f "$KEY"
+    fi
+    printf '# Prime assistant — change with: prime-addon enable ai\nBASE_URL=%s\nMODEL=%s\n' "$url" "$model" > "$CONF"
+    [ $dotest = 1 ] || exit 0
+    "$HERE/prime-ask" --test
+    exit $?
+fi
+
+GUI=0
+[ ! -t 0 ] && [ -n "${WAYLAND_DISPLAY:-}${DISPLAY:-}" ] && GUI=1
+say() { if [ $GUI = 1 ]; then notify-send -a Prime "Ask Prime" "$1" >/dev/null 2>&1 || true; else echo "$1"; fi; }
+pick() {   # pick <question> <row>… → the chosen row
+    local q="$1"; shift
+    if [ $GUI = 1 ]; then
+        printf '%s\n' "$@" | ROFI_HINT="Enter picks  ·  Esc cancels" "$BIN/prime-rofi" -dmenu -i -no-custom -p "$q" -theme spotlight
+    else
+        local i=1 r; echo "$q"; for r in "$@"; do echo "  $i) $r"; i=$((i+1)); done
+        read -rp "Pick 1-$#: " r; [[ "$r" =~ ^[0-9]+$ ]] && [ "$r" -ge 1 ] && [ "$r" -le $# ] && printf '%s\n' "${!r}"
+    fi
+}
+ask() {    # ask <question> [default] → typed text (Enter alone keeps the default)
+    local a
+    if [ $GUI = 1 ]; then
+        a="$(printf '%s\n' "${2:-}" | sed '/^$/d' | ROFI_HINT="type, then Enter  ·  Esc cancels" \
+             "$BIN/prime-rofi" -dmenu -p "$1" -theme spotlight)" || return 1
+    else read -rp "$1${2:+ [$2]}: " a; fi
+    printf '%s' "${a:-${2:-}}"
+}
+secret() { # secret <question> → typed text, hidden
+    local a
+    if [ $GUI = 1 ]; then
+        a="$(ROFI_HINT="hidden while you type  ·  stored only on this computer, readable only by you" \
+             "$BIN/prime-rofi" -dmenu -password -p "$1" -theme spotlight < /dev/null)" || return 1
+    else read -rsp "$1 (hidden while you type): " a; echo; fi
+    printf '%s' "$a"
+}
+
+ON_THIS="A model on this computer — private and free"
+ON_LAN="A model on another computer on my network"
+OPENROUTER="OpenRouter — many models, needs an account key"
+OPENAI="OpenAI — needs an account key"
+OTHER="Another service that speaks the OpenAI API"
+choice="$(pick "Where should Prime's answers come from?" "$ON_THIS" "$ON_LAN" "$OPENROUTER" "$OPENAI" "$OTHER")" \
+    || { say "Cancelled — nothing changed."; exit 1; }
 case "$choice" in
-    1) url="http://localhost:8080/v1"
-       curl -fs -m 2 http://localhost:11434/v1/models >/dev/null 2>&1 && url="http://localhost:11434/v1"
-       read -rp "Address [$url]: " u; url="${u:-$url}"; needkey=0 ;;
-    2) read -rp "Address (e.g. http://192.168.1.50:8080/v1): " url; needkey=0 ;;
-    3) url="https://openrouter.ai/api/v1"; needkey=1 ;;
-    4) url="https://api.openai.com/v1"; needkey=1 ;;
-    5) read -rp "Base URL (ends in /v1): " url; read -rp "Does it need an API key? [y/N] " k; [ "${k,,}" = y ] && needkey=1 || needkey=0 ;;
-    *) echo "Cancelled."; exit 1 ;;
+    "$ON_THIS") url="http://localhost:8080/v1"
+                curl -fs -m 2 http://localhost:11434/v1/models >/dev/null 2>&1 && url="http://localhost:11434/v1"
+                url="$(ask "Address" "$url")" || exit 1; needkey=0 ;;
+    "$ON_LAN")  url="$(ask "Address (like http://192.168.1.50:8080/v1)")" || exit 1; needkey=0 ;;
+    "$OPENROUTER") url="https://openrouter.ai/api/v1"; needkey=1 ;;
+    "$OPENAI")  url="https://api.openai.com/v1"; needkey=1 ;;
+    "$OTHER")   url="$(ask "Web address (ends in /v1)")" || exit 1
+                [ "$(pick "Does it need an account key?" "No" "Yes")" = Yes ] && needkey=1 || needkey=0 ;;
+    *) say "Cancelled — nothing changed."; exit 1 ;;
 esac
-[ -n "$url" ] || { echo "No address given."; exit 1; }
+[ -n "$url" ] || { say "No address given — nothing changed."; exit 1; }
 
 if [ "$needkey" = 1 ]; then
-    read -rsp "API key (hidden while you type): " key; echo
-    [ -n "$key" ] || { echo "No key given."; exit 1; }
-    ( umask 077; printf '%s' "$key" > "$KEY" )
+    key="$(secret "Account key")" || { say "Cancelled — nothing changed."; exit 1; }
+    [ -n "$key" ] || { say "No key given — nothing changed."; exit 1; }
+    ( umask 077; install -m 600 /dev/null "$KEY"; printf '%s' "$key" > "$KEY" )
 else
     rm -f "$KEY"
 fi
 
-# offer the models the endpoint lists
-auth=(); [ -f "$KEY" ] && auth=(-H "Authorization: Bearer $(cat "$KEY")")
-models="$(curl -fs -m 8 "${auth[@]}" "${url%/}/models" 2>/dev/null | jq -r '.data[].id' 2>/dev/null | head -40)"
-if [ -n "$models" ]; then
-    echo; echo "${B}Models available there:${R}"; nl -w3 -s') ' <<<"$models"
-    read -rp "Pick a number, or type a model name: " m
-    if [[ "$m" =~ ^[0-9]+$ ]]; then model="$(sed -n "${m}p" <<<"$models")"; else model="$m"; fi
+# offer the models the service lists
+# the key goes to curl on stdin (-H @-), never in the argument list where `ps` shows it
+hdr=""; [ -f "$KEY" ] && hdr="Authorization: Bearer $(cat "$KEY")"
+mapfile -t models < <(curl -fs -m 8 -H @- "${url%/}/models" <<<"$hdr" 2>/dev/null | jq -r '.data[].id' 2>/dev/null | head -40)
+if [ ${#models[@]} -gt 0 ]; then
+    model="$(pick "Which model?" "${models[@]}")" || { say "Cancelled — nothing changed."; exit 1; }
 else
-    echo "${D}(couldn't list models there — is it running?)${R}"
-    read -rp "Model name: " model
+    model="$(ask "Model name (couldn't list the models there — is it running?)")" || exit 1
 fi
 
-printf '# Prime assistant — change with: prime-addon enable ai\nBASE_URL=%s\nMODEL=%s\n' "$url" "$model" > "$CONF"
-echo; printf 'Testing… '
-if "$HERE/prime-ask" --test; then
-    echo "${B}Ready.${R} Super+Shift+Space asks Prime; Spotlight and right-click menus can ask too."
+printf '# Prime assistant — change it in the Prime menu → Ask Prime → Change the model\nBASE_URL=%s\nMODEL=%s\n' "$url" "$model" > "$CONF"
+if "$HERE/prime-ask" --test >/dev/null 2>&1; then
+    say "Ready. Super+Shift+Space asks Prime; Spotlight and right-click menus can ask too."
 else
-    echo "Saved, but the test failed — make sure the model is running, then try: prime-ask --test"
+    say "Saved, but Prime couldn't reach the model yet — make sure it is running, then try again from the Prime menu."
 fi
-exit 0

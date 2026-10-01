@@ -1,5 +1,5 @@
 [Unit]
-Description=Prime Linux desktop session (bars, clipboard history)
+Description=Prime Linux desktop session (bars, clipboard history, popups, battery warning)
 PartOf=graphical-session.target
 After=graphical-session.target
-Wants=prime-bar@top.service prime-bar@side.service prime-cliphist-text.service prime-cliphist-image.service prime-clip-persist.service
+Wants=prime-bar@top.service prime-bar@side.service prime-cliphist-text.service prime-cliphist-image.service prime-clip-persist.service prime-osd.service prime-battery-alert.service

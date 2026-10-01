@@ -1,0 +1,216 @@
+{
+  "_comment": "Prime's toolbox — the ONLY things the assistant can do to this computer. There is no shell tool. Each tool names the capability it needs (see ~/.config/prime/capabilities.yaml); prime-settings checks it, asks when needed, saves a desktop backup before any change, writes the audit log, and records how to undo. 'kind': read tools change nothing; write tools change something. 'external': the result contains text Prime didn't write (file or app names), so later changes in that turn always ask.",
+  "version": 1,
+  "tools": [
+    {
+      "name": "get_status",
+      "kind": "read",
+      "capability": "system.read",
+      "summary": "look at your current desktop settings",
+      "description": "Current accent colour, wallpaper, look, settings, shortcuts Prime added, enabled packs, update policy and how much Prime may do on its own. Call this first when unsure.",
+      "parameters": {"type": "object", "properties": {}, "additionalProperties": false}
+    },
+    {
+      "name": "set_accent",
+      "kind": "write",
+      "capability": "settings.user",
+      "summary": "switch the accent colour to {color}",
+      "description": "Change the accent colour used across the bar, menus, window borders and terminal. Use a colour name (red, orange, amber, yellow, green, teal, blue, purple, pink, silver, grey) or 6 hex digits like 60a5fa.",
+      "parameters": {"type": "object", "properties": {
+        "color": {"type": "string", "description": "colour name or 6-digit hex"}
+      }, "required": ["color"], "additionalProperties": false}
+    },
+    {
+      "name": "list_wallpapers",
+      "kind": "read",
+      "capability": "system.read",
+      "external": true,
+      "summary": "list the wallpapers you can choose from",
+      "description": "Wallpapers available: Prime's own set plus pictures in ~/Pictures/Wallpapers.",
+      "parameters": {"type": "object", "properties": {}, "additionalProperties": false}
+    },
+    {
+      "name": "set_wallpaper",
+      "kind": "write",
+      "capability": "settings.user",
+      "summary": "change the wallpaper to {name}",
+      "description": "Set the wallpaper. 'name' must be one of the names from list_wallpapers (e.g. prime-aurora.jpg).",
+      "parameters": {"type": "object", "properties": {
+        "name": {"type": "string", "description": "a wallpaper name from list_wallpapers"}
+      }, "required": ["name"], "additionalProperties": false}
+    },
+    {
+      "name": "set_look",
+      "kind": "write",
+      "capability": "settings.user",
+      "summary": "change the window style to '{preset}'",
+      "description": "Window spacing and corner style in one go. standard = Prime's default (soft corners, comfortable gaps); compact = small gaps, more room for content; sharp = square corners, almost no gaps; spacious = big gaps and very round corners.",
+      "parameters": {"type": "object", "properties": {
+        "preset": {"type": "string", "enum": ["standard", "compact", "sharp", "spacious"]}
+      }, "required": ["preset"], "additionalProperties": false}
+    },
+    {
+      "name": "change_setting",
+      "kind": "write",
+      "capability": "settings.user",
+      "summary": "set {setting} to {value}",
+      "description": "Change one common setting. animations: on|off. natural_scroll (touchpad and mouse scroll like a phone): on|off. keyboard_layout: an xkb layout code like us, gb, de, fr, es, or two separated by a comma (us,de). night_light (warmer colours to rest your eyes): off|on|a colour temperature 2500-6000. gaps (space between windows): 0-40. rounding (window corners): 0-30.",
+      "parameters": {"type": "object", "properties": {
+        "setting": {"type": "string", "enum": ["animations", "natural_scroll", "keyboard_layout", "night_light", "gaps", "rounding"]},
+        "value": {"type": "string"}
+      }, "required": ["setting", "value"], "additionalProperties": false}
+    },
+    {
+      "name": "list_shortcuts",
+      "kind": "read",
+      "capability": "system.read",
+      "summary": "list the keyboard shortcuts",
+      "description": "Every keyboard shortcut (Prime's defaults, add-ons, and the ones Prime added for the user). Use it to find a free key before adding one.",
+      "parameters": {"type": "object", "properties": {}, "additionalProperties": false}
+    },
+    {
+      "name": "add_shortcut",
+      "kind": "write",
+      "capability": "settings.user",
+      "summary": "make {keys} {action_text}",
+      "description": "Add or change a keyboard shortcut. keys: modifiers and one key joined with +, e.g. Super+B, Super+Shift+N, Ctrl+Alt+T, Super+F5. action: one of 'app' (open an installed app; target = its name or .desktop id, see list_apps), 'prime' (target = spotlight|menu|shortcuts|theme|screenshot|ask|lock|terminal|files|browser|health|tutor), 'window' (target = close|maximise|fullscreen|float|pin|minimise|workspace-1..10|next-window). Set replace=true only when the user agreed to replace an existing shortcut on those keys.",
+      "parameters": {"type": "object", "properties": {
+        "keys": {"type": "string"},
+        "action": {"type": "string", "enum": ["app", "prime", "window"]},
+        "target": {"type": "string"},
+        "replace": {"type": "boolean"}
+      }, "required": ["keys", "action", "target"], "additionalProperties": false}
+    },
+    {
+      "name": "remove_shortcut",
+      "kind": "write",
+      "capability": "settings.user",
+      "summary": "remove the shortcut on {keys} that Prime added",
+      "description": "Remove a shortcut that Prime added earlier (Prime's built-in shortcuts can't be removed, only replaced with add_shortcut replace=true).",
+      "parameters": {"type": "object", "properties": {
+        "keys": {"type": "string"}
+      }, "required": ["keys"], "additionalProperties": false}
+    },
+    {
+      "name": "list_apps",
+      "kind": "read",
+      "capability": "system.read",
+      "external": true,
+      "summary": "list installed apps",
+      "description": "Installed apps. kind = browser | file_manager | text_editor | any.",
+      "parameters": {"type": "object", "properties": {
+        "kind": {"type": "string", "enum": ["browser", "file_manager", "text_editor", "any"]}
+      }, "required": ["kind"], "additionalProperties": false}
+    },
+    {
+      "name": "set_default_app",
+      "kind": "write",
+      "capability": "settings.user",
+      "summary": "make {app} your default {kind_text}",
+      "description": "Choose which installed app opens web links, folders or text files. app = a name or .desktop id from list_apps.",
+      "parameters": {"type": "object", "properties": {
+        "kind": {"type": "string", "enum": ["browser", "file_manager", "text_editor"]},
+        "app": {"type": "string"}
+      }, "required": ["kind", "app"], "additionalProperties": false}
+    },
+    {
+      "name": "list_packs",
+      "kind": "read",
+      "capability": "system.read",
+      "summary": "list the packs and add-ons",
+      "description": "Packs and add-ons (gaming, coding, creator, student, ai…) with a description and whether each is on.",
+      "parameters": {"type": "object", "properties": {}, "additionalProperties": false}
+    },
+    {
+      "name": "enable_pack",
+      "kind": "write",
+      "capability": "settings.user",
+      "capability_if_packages": "system.packages",
+      "summary": "turn on the {name} pack{packages_text}",
+      "description": "Switch on a pack or add-on by name (from list_packs). Packs that install apps ask for the user's password in a window.",
+      "parameters": {"type": "object", "properties": {
+        "name": {"type": "string"}
+      }, "required": ["name"], "additionalProperties": false}
+    },
+    {
+      "name": "disable_pack",
+      "kind": "write",
+      "capability": "settings.user",
+      "summary": "turn off the {name} pack (its apps stay installed)",
+      "description": "Switch off a pack or add-on. Its apps and files stay; only its shortcuts, menu rows and bar items go.",
+      "parameters": {"type": "object", "properties": {
+        "name": {"type": "string"}
+      }, "required": ["name"], "additionalProperties": false}
+    },
+    {
+      "name": "run_doctor",
+      "kind": "write",
+      "capability": "settings.user",
+      "summary": "check the desktop and repair what it safely can",
+      "description": "Run the desktop health check (Super+H). It restarts stuck bar/clipboard services and regenerates theme files; it never edits the user's own files.",
+      "parameters": {"type": "object", "properties": {}, "additionalProperties": false}
+    },
+    {
+      "name": "start_update",
+      "kind": "write",
+      "capability": "system.update",
+      "summary": "update the whole system now (opens a window; asks for your password)",
+      "description": "Update Prime Linux, system packages and App Store apps, in a window the user can watch. A system snapshot and a desktop backup are taken first.",
+      "parameters": {"type": "object", "properties": {}, "additionalProperties": false}
+    },
+    {
+      "name": "set_update_policy",
+      "kind": "write",
+      "capability": "system.update",
+      "summary": "set updates to '{policy}'",
+      "description": "How updates happen: automatic (recommended: nightly, snapshot first, never reboots on its own), ask (tell me, I'll choose when), off.",
+      "parameters": {"type": "object", "properties": {
+        "policy": {"type": "string", "enum": ["automatic", "ask", "off"]}
+      }, "required": ["policy"], "additionalProperties": false}
+    },
+    {
+      "name": "list_backups",
+      "kind": "read",
+      "capability": "system.read",
+      "summary": "list saved copies of your desktop settings",
+      "description": "Saved copies of the desktop settings (newest first), made before every update and every change Prime makes.",
+      "parameters": {"type": "object", "properties": {}, "additionalProperties": false}
+    },
+    {
+      "name": "save_desktop",
+      "kind": "write",
+      "capability": "settings.user",
+      "summary": "save a copy of your desktop settings",
+      "description": "Save a copy of the desktop settings now (bar, menus, windows, theme, Prime).",
+      "parameters": {"type": "object", "properties": {
+        "label": {"type": "string", "description": "a short word for the copy, e.g. before-experiment"}
+      }, "additionalProperties": false}
+    },
+    {
+      "name": "restore_desktop",
+      "kind": "write",
+      "capability": "destructive.restore",
+      "summary": "put your desktop settings back to the copy from {when}",
+      "description": "Restore a saved copy of the desktop settings (from list_backups, or 'latest'). Everything changed since then in those settings is replaced — a copy of the current state is saved first.",
+      "parameters": {"type": "object", "properties": {
+        "backup": {"type": "string", "description": "a name from list_backups, or 'latest'"}
+      }, "required": ["backup"], "additionalProperties": false}
+    },
+    {
+      "name": "undo_last",
+      "kind": "write",
+      "capability": "settings.user",
+      "summary": "undo the last change: {last}",
+      "description": "Undo the most recent change Prime made (accent, wallpaper, setting, shortcut, pack…).",
+      "parameters": {"type": "object", "properties": {}, "additionalProperties": false}
+    },
+    {
+      "name": "show_shortcuts",
+      "kind": "read",
+      "capability": "system.read",
+      "summary": "open the keyboard shortcut sheet",
+      "description": "Open the searchable keyboard-shortcut sheet (Super+/) on screen, for teaching.",
+      "parameters": {"type": "object", "properties": {}, "additionalProperties": false}
+    }
+  ]
+}

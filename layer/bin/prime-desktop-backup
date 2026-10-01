@@ -18,10 +18,10 @@ PATHS=(.config/hypr .config/waybar .config/prime .config/rofi .config/swaync .co
        .config/gtk-3.0 .config/gtk-4.0 .config/autostart .config/nwg-displays)
 
 save() {
-  mkdir -p "$DIR"
+  umask 077; mkdir -p -m 700 "$DIR"; chmod 700 "$DIR"   # backups are private
   local out="$DIR/$(date +%Y%m%d_%H%M%S)_${1:-manual}.tar.gz" have=()
   for p in "${PATHS[@]}"; do [ -e "$USER_HOME/$p" ] && have+=("$p"); done
-  tar -C "$USER_HOME" --exclude='.config/hypr/wallpapers' -czf "$out" "${have[@]}" 2>/dev/null
+  tar -C "$USER_HOME" --exclude='.config/hypr/wallpapers' --exclude='.config/prime/ai.key' -czf "$out" "${have[@]}" 2>/dev/null
   # rotate: only this tool's own copies, newest $KEEP kept
   ls -1t "$DIR"/*.tar.gz 2>/dev/null | tail -n +$((KEEP + 1)) | xargs -r rm -f
   echo "$out"
@@ -38,7 +38,9 @@ restore() {
   f="$(ls -1t "$DIR"/*.tar.gz | sed -n "$((pick + 1))p")"
   [ -f "$f" ] || exit 0
   save before-restore >/dev/null            # so a restore can itself be undone
-  tar -C "$HOME" -xzf "$f"
+  # never rewind the assistant's permissions, its audit log, or the AI key
+  tar -C "$HOME" -xzf "$f" --exclude=.config/prime/ai.key \
+      --exclude=.config/prime/capabilities.yaml --exclude=.config/prime/audit.jsonl
   hyprctl reload >/dev/null; swaync-client -rs >/dev/null 2>&1
   "$BIN/prime-bar" restart >/dev/null 2>&1 &
   notify-send -a Prime "Settings restored" "$(basename "$f" .tar.gz)"

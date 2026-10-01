@@ -32,10 +32,19 @@ gtk-layer-shell
 fd
 plocate
 
-# screenshots
+# screenshots, screen recording, colour picker, emoji
 grim
 slurp
 satty
+gpu-screen-recorder
+wf-recorder
+hyprpicker
+rofimoji
+wtype
+
+# night light, volume/brightness popups
+hyprsunset
+swayosd
 
 # audio, network, bluetooth, brightness, media keys
 pipewire
@@ -46,11 +55,36 @@ networkmanager
 blueman
 brightnessctl
 playerctl
+nm-connection-editor
+bluez
+bluez-utils
+
+# laptops: battery, power modes (CachyOS's tuned-ppd also counts as this)
+upower
+power-profiles-daemon
+
+# printing
+cups
+cups-filters
+system-config-printer
+
+# phones, USB drives, network shares, trash; saved passwords for apps
+gvfs
+gvfs-mtp
+gvfs-smb
+udisks2
+gnome-keyring
+libsecret
 
 # apps
 kitty
 nemo
 gnome-text-editor
+gnome-calculator
+file-roller
+loupe
+papers
+celluloid
 gnome-software
 flatpak
 nwg-displays
@@ -78,3 +112,14 @@ cmake
 meson
 cpio
 pkgconf
+
+# updates + safety (nightly updates, snapshots before updates, firewall, advisories)
+ufw
+arch-audit
+snapper
+snap-pac
+btrfs-assistant
+
+# welcome app + assistant UI (GTK 4 / libadwaita)
+gtk4
+libadwaita

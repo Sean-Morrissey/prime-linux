@@ -1,0 +1,9 @@
+/* Prime gaming pack — the Performance mode speedometer (only shown while it's on).
+   Amber, Prime's status colour, so it never collides with the theme accent. */
+#custom-perf.on {
+    color: #fbbf24;
+    padding: 0 10px;
+    margin: 4px 2px;
+    border-radius: 10px;
+    background: alpha(#fbbf24, 0.12);
+}

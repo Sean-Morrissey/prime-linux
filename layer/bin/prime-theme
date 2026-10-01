@@ -123,6 +123,13 @@ EOF
   mkdir -p "$icons" && cp "$OUT/mark.svg" "$icons/prime-linux.svg"
   gtk-update-icon-cache -q -t "$HOME/.local/share/icons/hicolor" 2>/dev/null || true
 
+  # the terminal greeting's logo: P.R.I.M.E — Please Relax I'll Manage Everything
+  # (fastfetch reads ~/.config/prime/prime-logo.txt; the .plain copy has no colour)
+  local t
+  for t in prime-logo.txt prime-logo.plain.txt; do
+    cp -f "$LAYER/branding/terminal/$t" "$(dirname "$OUT")/$t" 2>/dev/null || true
+  done
+
   cat > "$OUT/swaync.css" <<EOF
 @import url("file://$OUT/colors.css");
 @import url("file://$LAYER/default/swaync/style.css");

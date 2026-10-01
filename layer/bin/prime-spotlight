@@ -16,6 +16,7 @@ Enter copies the result. Prefixes, for when the guess is wrong:
   prime-spotlight --selftest         every source + the router + the window, map nothing
   prime-spotlight --query "notes"    what the list would show, headless
   prime-spotlight --screenshot F --query Q   render the window to a PNG (needs a display)
+  prime-spotlight --prefill "text"   open with the text already typed (the start menu's hand-off)
 """
 from __future__ import annotations
 
@@ -98,9 +99,8 @@ window, .background { background: transparent; }
 #card {
     background-color: rgba(22, 22, 28, 0.90);
     border: 1px solid rgba(255, 255, 255, 0.10);
-    border-radius: 22px;
-    box-shadow: 0 20px 48px rgba(0, 0, 0, 0.50), inset 0 1px rgba(255, 255, 255, 0.06);
-    margin: 28px;
+    border-radius: 18px;
+    box-shadow: inset 0 1px rgba(255, 255, 255, 0.06);
     font-family: "Inter", "Noto Sans", sans-serif;
 }
 #searchbar { padding: 16px 20px 14px 22px; }
@@ -110,13 +110,15 @@ window, .background { background: transparent; }
     font-size: 1.65rem; font-weight: 400; color: #f4f4f6;
     caret-color: @ACCENT@; padding: 2px 0; min-height: 34px;
 }
-#search selection { background-color: alpha(@ACCENT@, 0.35); }
+/* selected text: a clear system blue, never the (often grey) accent — a grey accent
+   turned a selection into a flat grey block you could not read through */
+#search selection, #search selection:focus { background-color: rgba(10, 132, 255, 0.55); color: #ffffff; }
 #divider { background-color: rgba(255, 255, 255, 0.07); min-height: 1px; }
 #results { padding: 6px 0 8px 0; }
 list, list row { background: transparent; }
 .section {
-    font-size: 0.825rem; font-weight: 600; color: rgba(255, 255, 255, 0.42);
-    padding: 10px 22px 4px 22px; letter-spacing: 0.04em;
+    font-size: 0.72rem; font-weight: 700; color: rgba(255, 255, 255, 0.40);
+    padding: 12px 22px 4px 22px; letter-spacing: 0.09em;
 }
 row.hit {
     margin: 1px 10px; padding: 7px 12px; border-radius: 12px;
@@ -127,9 +129,9 @@ row.hit:selected, row.hit:selected:hover {
     background-color: alpha(@ACCENT@, 0.20);
     border-color: alpha(@ACCENT@, 0.45);
 }
-.title { font-size: 1.05rem; font-weight: 500; color: #f4f4f6; }
-.subtitle { font-size: 0.9rem; color: rgba(255, 255, 255, 0.48); }
-row.top .title { font-size: 1.2rem; font-weight: 600; }
+.title { font-size: 1.02rem; font-weight: 500; color: #f4f4f6; }
+.subtitle { font-size: 0.85rem; color: rgba(255, 255, 255, 0.46); }
+row.top .title { font-size: 1.1rem; font-weight: 600; }
 .answer { font-family: "JetBrainsMono Nerd Font", monospace; font-size: 1.65rem;
           font-weight: 600; color: @ACCENT@; }
 .keycap {
@@ -138,10 +140,15 @@ row.top .title { font-size: 1.2rem; font-weight: 600; }
 }
 .hintrow .title { color: rgba(255, 255, 255, 0.62); font-weight: 400; }
 #footer {
-    padding: 9px 22px 11px 22px; font-size: 0.862rem; color: rgba(255, 255, 255, 0.40);
+    padding: 9px 18px 10px 18px; color: rgba(255, 255, 255, 0.42);
     border-top: 1px solid rgba(255, 255, 255, 0.06);
 }
-#footer .key { color: rgba(255, 255, 255, 0.70); font-weight: 600; }
+#footer label { font-size: 0.8rem; }
+#footer .key {
+    font-size: 0.72rem; font-weight: 700; color: rgba(255, 255, 255, 0.78);
+    background-color: rgba(255, 255, 255, 0.09); border: 1px solid rgba(255, 255, 255, 0.10);
+    border-radius: 5px; padding: 0 6px; min-width: 1.1rem;
+}
 """
 
 
@@ -192,8 +199,19 @@ def load_apps() -> list:
     return out
 
 
+def wanted_recent(path: str) -> bool:
+    """A recent file worth showing: not scratch space (/tmp, /var/tmp) and not inside
+    a hidden folder (~/.cache, ~/.claude/worktrees …) — those are tools' files, not his."""
+    p = os.path.normpath(path)
+    if p == "/tmp" or p.startswith(("/tmp/", "/var/tmp/")) or p == "/var/tmp":
+        return False
+    folders = [c for c in os.path.dirname(p).split(os.sep) if c]
+    return not any(c.startswith(".") for c in folders)
+
+
 def load_recent(limit: int = 12) -> list:
-    """Recently opened files from the GTK bookmark file, newest first."""
+    """Recently opened files from the GTK bookmark file, newest first (tidied by
+    wanted_recent)."""
     xbel = os.path.join(HOME, ".local/share/recently-used.xbel")
     try:
         root = ET.parse(xbel).getroot()
@@ -205,7 +223,7 @@ def load_recent(limit: int = 12) -> list:
         if not href.startswith("file://"):
             continue
         path = urllib.parse.unquote(href[len("file://"):])
-        if not os.path.exists(path):
+        if not wanted_recent(path) or not os.path.exists(path):
             continue
         rows.append((bm.get("visited") or bm.get("modified") or "", path))
     rows.sort(reverse=True)
@@ -522,16 +540,8 @@ class Spotlight(Gtk.Window):
 
         foot = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
         foot.set_name("footer")
-        left = Gtk.Label()
-        left.set_markup("<span weight='600' alpha='70%'>↑↓</span>  move    "
-                        "<span weight='600' alpha='70%'>↵</span>  open    "
-                        "<span weight='600' alpha='70%'>esc</span>  close")
-        right = Gtk.Label()
-        right.set_markup("<span weight='600' alpha='70%'>&gt;</span> apps only    "
-                         "<span weight='600' alpha='70%'>/</span> web    "
-                         "<span weight='600' alpha='70%'>=</span> maths")
-        foot.pack_start(left, False, False, 0)
-        foot.pack_end(right, False, False, 0)
+        foot.pack_start(keycaps([("↑↓", "move"), ("↵", "open"), ("esc", "close")]), False, False, 0)
+        foot.pack_end(keycaps([(">", "apps only"), ("/", "web"), ("=", "maths")]), False, False, 0)
         card.pack_start(foot, False, False, 0)
 
         if not offscreen:
@@ -609,7 +619,7 @@ class Spotlight(Gtk.Window):
         if not row.section:
             row.set_header(None)
             return
-        lab = Gtk.Label(label=row.section)
+        lab = Gtk.Label(label=row.section.upper())       # small, tracked, upper-case
         lab.set_xalign(0.0)
         lab.get_style_context().add_class("section")
         row.set_header(lab)
@@ -630,7 +640,7 @@ class Spotlight(Gtk.Window):
 
         box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
         img = Gtk.Image.new_from_gicon(icon_for(kind, sub), Gtk.IconSize.DND)
-        img.set_pixel_size(40 if top else 28)
+        img.set_pixel_size(32)                       # one icon size for every row
         box.pack_start(img, False, False, 0)
 
         text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1)
@@ -649,7 +659,7 @@ class Spotlight(Gtk.Window):
             st = Gtk.Label()
             st.set_text(detail)
             st.set_xalign(0.0)
-            st.set_ellipsize(Pango.EllipsizeMode.END)
+            st.set_ellipsize(Pango.EllipsizeMode.MIDDLE)   # ~/a/…/file keeps both ends
             st.get_style_context().add_class("subtitle")
             text.pack_start(st, False, False, 0)
         box.pack_start(text, True, True, 0)
@@ -737,6 +747,21 @@ class Spotlight(Gtk.Window):
             detached([ASKER, payload])
         elif action == "web":
             detached(["xdg-open", WEB_SEARCH.format(urllib.parse.quote_plus(payload))])
+
+
+def keycaps(pairs: list) -> Gtk.Box:
+    """A footer group: [key] what-it-does, [key] what-it-does … as real keycap chips."""
+    box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+    for i, (key, what) in enumerate(pairs):
+        cap = Gtk.Label(label=key)
+        cap.get_style_context().add_class("key")
+        cap.set_valign(Gtk.Align.CENTER)
+        box.pack_start(cap, False, False, 0)
+        lab = Gtk.Label(label=what)
+        lab.set_margin_end(10 if i < len(pairs) - 1 else 0)
+        box.pack_start(lab, False, False, 0)
+    named(box, ", ".join(f"{k} {w}" for k, w in pairs))
+    return box
 
 
 def named(widget, name: str):
@@ -866,6 +891,13 @@ def selftest() -> int:
 
     recents = load_recent()
     check("recent files parsed", isinstance(recents, list), f"{len(recents)} entries")
+    check("Recent hides scratch and hidden-folder files",
+          not wanted_recent("/tmp/x.png") and not wanted_recent("/var/tmp/a/b")
+          and not wanted_recent("/home/alex/.claude/worktrees/w/file.py")
+          and not wanted_recent("/home/alex/.cache/thumb.png")
+          and wanted_recent("/home/alex/Documents/Essay.docx") and wanted_recent("/home/alex/.bashrc"))
+    check("selected text is not drawn in the accent", "#search selection" in CSS
+          and "@ACCENT@" not in CSS.split("#search selection", 1)[1].split("}", 1)[0])
 
     if Gtk.init_check(sys.argv)[0]:
         install_css()
@@ -902,6 +934,7 @@ def main() -> int:
     ap.add_argument("--query", help="print the list for a query, headless")
     ap.add_argument("--screenshot", metavar="PNG", help="render the window with --query to a PNG")
     ap.add_argument("--seconds", type=float, default=0, help="auto-close after N seconds")
+    ap.add_argument("--prefill", default="", help="open with this text already typed")
     a = ap.parse_args()
 
     if a.selftest:
@@ -912,7 +945,7 @@ def main() -> int:
         return run_query(a.query)
 
     # one box at a time: pressing the key again replaces the open one
-    for pid in subprocess.run(["pgrep", "-f", "prime-[s]potlight$"], capture_output=True,
+    for pid in subprocess.run(["pgrep", "-f", "prime-[s]potlight( --prefill .*)?$"], capture_output=True,
                               text=True).stdout.split():
         if int(pid) != os.getpid():
             try:
@@ -923,6 +956,9 @@ def main() -> int:
     install_css()
     started = time.monotonic()
     win = Spotlight()
+    if a.prefill:
+        win.entry.set_text(a.prefill)
+        win.entry.set_position(-1)
     if a.seconds:
         GLib.timeout_add(int(a.seconds * 1000), lambda: (win.hide_now(), False)[1])
     Gtk.main()

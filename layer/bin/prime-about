@@ -45,7 +45,7 @@ while read -r d; do
 done < <(enabled_addon_dirs)
 
 row "Version"       "Prime $ver${when:+ · $when}"
-row "Prime means"   "Please Relax, I'll Manage Everything"
+row "Prime means"   "P.R.I.M.E — Please Relax I'll Manage Everything"
 [ -n "$base" ] && row "Built on" "$base"
 row "Search"        "Super+Space — apps, files, sums, the web"
 row "Prime menu"    "Super+Alt+Space — settings, theme, updates, power"

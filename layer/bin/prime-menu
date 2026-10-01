@@ -79,18 +79,31 @@ log()    { printf '%s %s\n' "$(date +%H:%M:%S)" "$*" >>"$LOG" 2>/dev/null || tru
 notify() { notify-send -a Prime -t "${2:-5000}" "Prime" "$1" >/dev/null 2>&1 || true; }
 launch_bg() { setsid nohup "$@" >/dev/null 2>>"$LOG" & disown 2>/dev/null || true; }
 strip_markup() { printf '%s' "$1" | sed 's/<[^>]*>//g'; }
+# Rows go to rofi with -markup-rows, so text from menu.json, add-ons and desktop files
+# must not carry a bare & < > ("Style & repair" rendered as "DDD": Pango gave up on the
+# whole row). Escape the TEXT; the <span>s we add around it stay markup. Quoted
+# replacements, so bash 5.2's patsub_replacement can't turn & back into the match.
+esc() { local s="$1" a='&amp;' l='&lt;' g='&gt;'; s="${s//&/"$a"}"; s="${s//</"$l"}"; s="${s//>/"$g"}"; printf '%s' "$s"; }
+# A fixed-width icon column: Nerd Font glyphs from the Mono family are all one cell
+# wide, so every label starts at the same x, with a real gap after the icon.
+icon_col() { printf '<span font_family="JetBrainsMono Nerd Font Mono" size="large">%s</span>   ' "${1:- }"; }
+dim()      { printf '  <span alpha="50%%" size="small">%s</span>' "$(esc "$1")"; }
 
 [ -f "$REGISTRY" ] || { echo "the menu list is missing: $REGISTRY" >&2; notify "The Prime menu couldn't load its list — Update everything (or Super+H) repairs it"; exit 1; }
 command -v jq >/dev/null 2>&1 || { notify "The Prime menu is missing a part it needs — Super+H checks and repairs the desktop"; exit 1; }
 
 # ── rows ─────────────────────────────────────────────────────────────────────
-section_rows() {          # id<TAB>"icon label"<TAB>"N things"
-    jq -r '.sections[] | "\(.id)\t\(.icon // "") \(.label)\t\(.items | length) things"' "$REGISTRY"
+# Fields are split by US (\x1f), not a tab: `read` treats tab as whitespace and
+# collapses empty fields, so a section without an icon (or a row without a hint)
+# slid its label into the icon slot.
+US=$'\x1f'
+section_rows() {          # id US icon US label US "N things"
+    jq -r '.sections[] | "\(.id)\u001f\(.icon // "")\u001f\(.label)\u001f\(.items | length) \(if (.items | length) == 1 then "thing" else "things" end)"' "$REGISTRY"
 }
-item_rows() {             # id<TAB>label<TAB>kind<TAB>cmd<TAB>hint<TAB>icon
+item_rows() {             # id US label US kind US cmd US hint US icon
     jq -r --arg s "$1" '
         (.sections[] | select(.id == $s)).items[]
-        | "\(.id)\t\(.label)\t\(.kind)\t\(.cmd // "")\t\(.hint // "")\t\(.icon // "")"' "$REGISTRY"
+        | "\(.id)\u001f\(.label)\u001f\(.kind)\u001f\(.cmd // "")\u001f\(.hint // "")\u001f\(.icon // "")"' "$REGISTRY"
 }
 is_section() { jq -e --arg id "$1" '[.sections[].id] | index($id) != null' "$REGISTRY" >/dev/null 2>&1; }
 item_field()    { jq -r --arg id "$1" '[.sections[].items[] | select(.id == $id)][0] | .'"$2"' // ""' "$REGISTRY"; }
@@ -247,7 +260,11 @@ PY
 state_line() {
     local parts=() updates out="" p
     updates="$(jq -r '.text // empty' "$RUNTIME/waybar-updates.json" 2>/dev/null | sed 's/<[^>]*>//g' | tr -d ' ')"
-    if [ -n "$updates" ] && [ "$updates" != "0" ]; then parts+=("$updates updates waiting"); fi
+    case "$updates" in
+        ""|0) ;;
+        1)    parts+=("1 update waiting") ;;
+        *)    parts+=("$updates updates waiting") ;;
+    esac
     for p in "${parts[@]}"; do out="${out}${out:+ · }$p"; done
     printf '%s' "$out"
 }
@@ -323,10 +340,10 @@ if [ "$MODE" = "list" ]; then
     if [ -n "$SECTION" ]; then
         is_section "$SECTION" || { echo "no such section: $SECTION" >&2; exit 2; }
         printf '%s\t%s\n' "$BACK_ID" "$BACK_LABEL"
-        item_rows "$SECTION" | awk -F'\t' '{printf "%s\t%s\n", $1, $2}'
+        item_rows "$SECTION" | awk -F'\x1f' '{printf "%s\t%s\n", $1, $2}'
         section_has "$SECTION" list && apps_rows "$SECTION" | awk -F'\t' '{printf "%s\t%s\n", $1, $2}'
     else
-        section_rows   | awk -F'\t' '{printf "%s\t%s\n", $1, $2}'
+        section_rows   | awk -F'\x1f' '{printf "%s\t%s %s\n", $1, $2, $3}'
     fi
     exit 0
 fi
@@ -343,27 +360,27 @@ command -v rofi >/dev/null 2>&1 || { notify "The Prime menu is missing a part it
 LABELS=(); IDS=(); ICONS=(); COMMENTS=()
 SHOW_ICONS=0
 if [ -z "$SECTION" ]; then
-    PROMPT="󰚩 Prime"
-    while IFS=$'\t' read -r id label count; do
+    PROMPT="Prime"
+    while IFS="$US" read -r id icon label count; do
         if section_has "$id" list; then count="$(apps_rows "$id" | wc -l) apps"; fi
-        LABELS+=("${label}  <span alpha=\"35%\">${count}</span>")
+        LABELS+=("$(icon_col "$icon")$(esc "$label")$(dim "$count")")
         IDS+=("$id")
     done < <(section_rows)
 else
     [ -n "$(section_field "$SECTION" label)" ] || { notify "No such section: $SECTION"; exit 2; }
-    PROMPT="󰚩 Prime › $(section_field "$SECTION" label)"
-    LABELS+=("${BACK_LABEL}"); IDS+=("$BACK_ID"); ICONS+=("go-previous"); COMMENTS+=("")
-    while IFS=$'\t' read -r id label kind cmd hint icon; do
-        if [ -n "$hint" ]; then LABELS+=("${label}  <span alpha=\"35%\">${hint}</span>")
-        else                      LABELS+=("${label}"); fi
+    PROMPT="$(section_field "$SECTION" label)"
+    LABELS+=("$(esc "$BACK_LABEL")"); IDS+=("$BACK_ID"); ICONS+=("go-previous"); COMMENTS+=("")
+    while IFS="$US" read -r id label kind cmd hint icon; do
+        if [ -n "$hint" ]; then LABELS+=("$(esc "$label")$(dim "$hint")")
+        else                      LABELS+=("$(esc "$label")"); fi
         IDS+=("$id"); ICONS+=("$icon"); COMMENTS+=("")
     done < <(item_rows "$SECTION")
     if section_has "$SECTION" list; then
         SHOW_ICONS=1
         RESOLVE_LATER=1
         while IFS=$'\t' read -r id label icon comment; do
-            if [ -n "$comment" ]; then LABELS+=("${label}  <span alpha=\"35%\">${comment}</span>")
-            else                      LABELS+=("${label}"); fi
+            if [ -n "$comment" ]; then LABELS+=("$(esc "$label")$(dim "$comment")")
+            else                      LABELS+=("$(esc "$label")"); fi
             IDS+=("$id"); ICONS+=("$icon"); COMMENTS+=("")
         done < <(apps_rows "$SECTION")
     fi
@@ -371,7 +388,11 @@ fi
 [ "${#LABELS[@]}" -gt 0 ] || { notify "No menu rows in $REGISTRY"; exit 1; }
 
 STATE="$(state_line)"
-MESG="Prime${SECTION:+ › $(section_field "$SECTION" label)}${STATE:+ — $STATE}"
+# -mesg is Pango markup too: escape it like the rows
+# (the prompt already says where you are, so the line under it is news, or a hint)
+if [ -n "$STATE" ]; then MESG="$(esc "$STATE")"
+elif [ -z "$SECTION" ]; then MESG="Settings, style, updates and power — type to find anything"
+else MESG="Enter opens  ·  ‹ Back or Esc returns"; fi
 
 # One menu at a time: a second tap of the same button replaces this menu instead of
 # stacking a duplicate on top of it. The bracketed pattern cannot match this
@@ -415,9 +436,7 @@ ICON_FLAGS=()
 # page scrolled 100 rows and he had to hunt for a name instead of typing three letters.
 SEARCH_STR=(
     -theme-str 'mainbox { children: [ inputbar, message, listview ]; }'
-    -theme-str 'inputbar { background-color: rgba(255,255,255,0.05); border-radius: 9px; padding: 9px 12px; margin: 5px 5px 3px 5px; }'
-    -theme-str 'prompt { padding: 0px 10px 0px 0px; }'
-    -theme-str 'entry { placeholder: "type to filter…"; font: @prime-font-body; }'
+    -theme-str 'entry { placeholder: "Type to filter…"; }'
 )
 LAYOUT_STR=("${SEARCH_STR[@]}" -theme-str 'listview { lines: 12; }')
 if [ "$SHOW_ICONS" = 1 ]; then
@@ -428,27 +447,22 @@ if [ "$SHOW_ICONS" = 1 ]; then
     LAYOUT_STR=("${SEARCH_STR[@]}"
                 -theme-str 'window { width: 780px; background-color: rgba(10,10,14,1.0); }'
                 -theme-str 'listview { lines: 11; }'
-                -theme-str 'element { padding: 9px 16px; spacing: 14px; }'
                 -theme-str 'element-icon { size: 28px; }')
 fi
 
 # -click-to-exit: clicking anywhere outside closes it (Windows-like).
 # -steal-focus:   keyboard focus goes back to the window he was using.
 # -markup-rows:   lets the dim hints render.
-choice="$("$BIN/prime-rofi" -dmenu -i -no-custom \
+# -format i: rofi answers with the row's index, so a label's markup or escaping can
+# never stop the choice matching its row.
+choice="$("$BIN/prime-rofi" -dmenu -i -no-custom -format i \
             -click-to-exit -steal-focus -markup-rows "${ICON_FLAGS[@]}" \
             -theme "$THEME" -p "$PROMPT" -mesg "$MESG" "${LAYOUT_STR[@]}" < "$ROWS_FILE")" || exit 0
-[ -n "${choice//[[:space:]]/}" ] || exit 0
-# rofi hands back the row text; markup rows come back stripped, so compare stripped.
-chosen="$(strip_markup "$choice")"
-for i in "${!LABELS[@]}"; do
-    if [ "$(strip_markup "${LABELS[$i]}")" = "$chosen" ]; then
-        id="${IDS[$i]}"
-        log "chose: $id"
-        if [ "$id" = "$BACK_ID" ]; then exec "$0"
-        elif is_section "$id";   then exec "$0" --section "$id"
-        else run_item "$id"; exit $?
-        fi
-    fi
-done
-log "no row matched: $choice"
+case "$choice" in ''|*[!0-9]*) log "no row chosen: $choice"; exit 0 ;; esac
+id="${IDS[$choice]:-}"
+[ -n "$id" ] || { log "no row at index $choice"; exit 0; }
+log "chose: $id"
+if [ "$id" = "$BACK_ID" ]; then exec "$0"
+elif is_section "$id";   then exec "$0" --section "$id"
+else run_item "$id"; exit $?
+fi

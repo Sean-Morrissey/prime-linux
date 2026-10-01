@@ -147,6 +147,10 @@ item_cmd() {                      # custom/<index> -> the command from the regis
 }
 
 clip_state() { printf '%s' "$1" | cut -c1-160; }
+# Rows and the header go to rofi as Pango markup (-markup-rows, -mesg): a bare & < >
+# in a label or a live value broke the whole row ("DDD"). Escape the text; the
+# separator rows are our own markup and pass through untouched.
+esc() { local s="$1" a='&amp;' l='&lt;' g='&gt;'; s="${s//&/"$a"}"; s="${s//</"$l"}"; s="${s//>/"$g"}"; printf '%s' "$s"; }
 
 # ── the ask variants ─────────────────────────────────────────────────────────
 ask_about_this() {                # $1 = extra instruction (may be empty)
@@ -268,18 +272,21 @@ command -v rofi >/dev/null 2>&1 || { notify "Prime" "This menu is missing a part
 mapfile -t RAW < <(menu_items)
 LABELS=(); IDS=()
 for line in "${RAW[@]}"; do
-    LABELS+=("${line#*$'\t'}")
-    IDS+=("${line%%$'\t'*}")
+    id="${line%%$'\t'*}"; label="${line#*$'\t'}"
+    if [ "$id" = SEP ]; then LABELS+=("$label"); else LABELS+=("$(esc "$label")"); fi
+    IDS+=("$id")
 done
 [ "${#LABELS[@]}" -gt 0 ] || { notify "Prime" "No menu items for $ELEMENT"; exit 1; }
 
 header="$(clip_state "$(read_state)" | cut -c1-96)"
 [ -n "$header" ] && header="$LABEL — $header" || header="$LABEL"
+header="$(esc "$header")"
 
 # -click-to-exit: clicking outside closes the menu (Windows-like).
 # -steal-focus:   hands keyboard focus back to the window you were using.
 # -markup-rows:   lets the separator rows render as dimmed rules.
-choice="$(printf '%s\n' "${LABELS[@]}" | "$BIN/prime-rofi" -dmenu -i -no-custom \
+# -format i: the answer is the row's index, so escaping can't stop it matching
+choice="$(printf '%s\n' "${LABELS[@]}" | "$BIN/prime-rofi" -dmenu -i -no-custom -format i \
             -click-to-exit -steal-focus -markup-rows \
             -theme "$THEME" \
             -p "$LABEL" \
@@ -289,11 +296,8 @@ rc=$?
 [ $rc -ne 0 ] && { log "menu cancelled"; exit 0; }
 [ -n "${choice//[[:space:]]/}" ] || exit 0
 
-for i in "${!LABELS[@]}"; do
-    if [ "${LABELS[$i]}" = "$choice" ]; then
-        log "chose: ${IDS[$i]}"
-        run_item "${IDS[$i]}"
-        exit $?
-    fi
-done
-log "no item matched: $choice"
+case "$choice" in ''|*[!0-9]*) log "no item chosen: $choice"; exit 0 ;; esac
+[ -n "${IDS[$choice]:-}" ] || { log "no item at index $choice"; exit 0; }
+log "chose: ${IDS[$choice]}"
+run_item "${IDS[$choice]}"
+exit $?

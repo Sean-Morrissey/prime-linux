@@ -11,8 +11,8 @@ PACK_STATE="${XDG_STATE_HOME:-$HOME/.local/state}/prime/packs"
 mkdir -p "$PACK_STATE" 2>/dev/null
 USER="${USER:-$(id -un)}"
 
-_A=$'\e[38;2;248;113;113m'; _D=$'\e[2m'; _B=$'\e[1m'; _R=$'\e[0m'
-[ -t 1 ] || { _A=""; _D=""; _B=""; _R=""; }
+_A=$'\e[38;2;248;113;113m'; _D=$'\e[2m'; _B=$'\e[1m'; _R=$'\e[0m'; _G=$'\e[32m'; _Y=$'\e[33m'; _X=$'\e[31m'
+[ -t 1 ] || { _A=""; _D=""; _B=""; _R=""; _G=""; _Y=""; _X=""; }
 say()  { printf '    %s\n' "$*"; }
 note() { printf '    %s%s%s\n' "$_D" "$*" "$_R"; }
 warn() { printf '    %s!%s %s\n' "$_A" "$_R" "$*"; }

@@ -277,9 +277,9 @@ cmd_check() {   # check [name] — exit 1 if anything is broken
         printf '\n  %s%s %s%s%s\n' "$_B" "${ICON:-}" "$TITLE" "$_R" "$(enabled "$n" || echo '  (off)')"
         while IFS=$'\t' read -r lvl msg; do
             case "$lvl" in
-                ok)   printf '    \e[32m✓\e[0m %s\n' "$msg" ;;
-                warn) printf '    \e[33m!\e[0m %s\n' "$msg" ;;
-                bad)  printf '    \e[31m✗\e[0m %s\n' "$msg"; bad=1 ;;
+                ok)   printf '    %s✓%s %s\n' "$_G" "$_R" "$msg" ;;
+                warn) printf '    %s!%s %s\n' "$_Y" "$_R" "$msg" ;;
+                bad)  printf '    %s✗%s %s\n' "$_X" "$_R" "$msg"; bad=1 ;;
                 *)    printf '      %s\n' "$lvl${msg:+ $msg}" ;;
             esac
         done < <(
@@ -294,7 +294,7 @@ cmd_check() {   # check [name] — exit 1 if anything is broken
             [ -n "$CHECK" ] && hook "$d" "$CHECK"
         )
     done
-    echo; [ $bad = 0 ] && echo "  Everything checks out." || echo "  Some things need attention (✗ above)."
+    echo; [ $bad = 0 ] && echo "  Everything works. (! lines are suggestions, not problems.)" || echo "  Some things need attention (✗ above)."
     return $bad
 }
 

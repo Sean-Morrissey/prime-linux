@@ -31,7 +31,7 @@ ck "every bind has a description"           "! grep -hE '^bind[a-z]* =' $L/defau
 ck "no key is bound twice"                  "[ -z \"\$(grep -hE '^bind[a-z]* =' $L/default/hypr/*.conf | cut -d, -f1,2 | sed 's/^[^=]*= *//; s/ *, */,/' | sort | uniq -d)\" ]"
 ck "new binds: record, colour, emoji, switches" "for k in prime-record prime-colour prime-emoji 'prime-toggle nightlight' 'prime-toggle idle' 'prime-toggle dnd' 'prime-keyboard next' 'prime-osd volume up'; do grep -q \"\$k\" $L/default/hypr/bindings.conf || exit 1; done"
 ck "top bar config builds"                  "$L/bin/prime-bar --print top | jq -e '.\"modules-right\" | length > 5'"
-ck "bar has battery, recording, switches, keyboard" "$L/bin/prime-bar --print top | jq -e '.\"modules-right\" | (index(\"battery\") and index(\"custom/recording\") and index(\"custom/toggles\") and index(\"custom/keyboard\"))'"
+ck "bar has battery, recording, switches, keyboard" "$L/bin/prime-bar --print top | jq -e '(.\"group/status\".modules | index(\"battery\")) and (.\"modules-right\" | index(\"custom/recording\") and index(\"custom/toggles\") and index(\"custom/keyboard\"))'"
 ck "bar logo path expanded"                 "$L/bin/prime-bar --print top | jq -e '.\"image#logo\".path | startswith(\"/\")'"
 ck "side bar config builds"                 "$L/bin/prime-bar --print side | jq -e '.\"modules-left\" | length > 0'"
 ck "menu: every row resolves"               "$L/bin/prime-menu --check | tail -1 | grep -q 'every row resolves'"

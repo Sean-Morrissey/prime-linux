@@ -90,10 +90,12 @@ jobs:
           path: tests/vm/.work/cachyos-desktop-linux-*.iso*
           key: cachyos-iso-${{ steps.iso.outputs.latest }}
       - name: fetch + base + prime
-        env:
-          PRIME_VM_MEM: "8192"
-          PRIME_VM_CPUS: "4"
-        run: bash tests/vm/run.sh all
+        # GitHub's runners: 2 CPUs, about 7 GB of memory, and no GPU, so no render
+        # node for virgl; the guest then draws with Mesa's software renderer
+        run: |
+          export PRIME_VM_CPUS="$(nproc)" PRIME_VM_MEM=5120
+          ls /dev/dri/renderD* >/dev/null 2>&1 && export PRIME_VM_GL=1 || export PRIME_VM_GL=0
+          bash tests/vm/run.sh all
       - name: Logs and screenshots
         if: always()
         uses: actions/upload-artifact@v4
@@ -103,3 +105,4 @@ jobs:
             tests/vm/.work/*.log
             tests/vm/.work/*.png
           if-no-files-found: ignore
+          include-hidden-files: true   # tests/vm/.work starts with a dot

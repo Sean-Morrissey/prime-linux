@@ -35,7 +35,7 @@ perf() {
             [ -n "$cur" ] || { notify "Performance mode needs the power-profiles service — run: prime-addon check gaming"; return 1; }
             [ "$cur" = performance ] || echo "$cur" > "$PERF_PREV"
             if ppd_set performance; then
-                notify "Performance mode on — full CPU speed. Uses more power and runs warmer." 4000 "󰓅 Performance mode"
+                notify "Performance mode on — full processor speed. Uses more power and runs warmer." 4000 "󰓅 Performance mode"
             else
                 notify "This computer doesn't offer a performance power profile (common on desktops with older CPUs)." 6000
                 return 1
@@ -99,7 +99,7 @@ setup() {
         if [ "${PRIME_ADDON_PACKAGES:-install}" = install ]; then
             say "Installing the power-profile service for Performance mode…"
             sudo pacman -S --needed --noconfirm power-profiles-daemon && echo "pacman power-profiles-daemon" >> "$PACK_STATE/gaming.installed"
-        else note "(would install power-profiles-daemon)"; fi
+        else note "(would install the power-mode service)"; fi
     fi
     if pacman -Qq power-profiles-daemon >/dev/null 2>&1 && ! systemctl is-enabled --quiet power-profiles-daemon 2>/dev/null; then
         sudo systemctl enable --now power-profiles-daemon >/dev/null 2>&1 || note "(power-profiles service starts after the next reboot)"

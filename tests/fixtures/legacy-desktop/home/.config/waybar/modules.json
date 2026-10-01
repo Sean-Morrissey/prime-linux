@@ -1,0 +1,27 @@
+{
+    "custom/hermes": {
+        "exec": "~/.hermes/scripts/hermes-status.sh",
+        "return-type": "json",
+        "interval": 10,
+        "on-click": "~/.hermes/scripts/hermes-open.sh"
+    },
+    "custom/speak": {
+        "exec": "~/.config/waybar/scripts/prime-speak-status.sh",
+        "return-type": "json",
+        "interval": 2,
+        "on-click": "~/.config/waybar/scripts/prime-speak-toggle.sh"
+    },
+    "custom/gpu": {
+        "exec": "~/.config/waybar/scripts/gpu-monitor.sh",
+        "interval": 3
+    },
+    "custom/weather": {
+        "exec": "curl -s 'https://wttr.in/?format=1&key=sk-FAKEFAKEFAKE0000test0000notarealkey'",
+        "interval": 900
+    },
+    "temperature": {
+        "thermal-zone": 1,
+        "format": "{temperatureC}°C"
+    },
+    "pulseaudio": { "format": "{volume}%" }
+}

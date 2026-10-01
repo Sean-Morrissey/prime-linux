@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Undo an Update
+Comment=Saved states of the system, and how to go back to one
+Exec=@LAYER@/bin/prime-snapshots
+Icon=document-revert
+Categories=System;Settings;
+Keywords=snapshot;rollback;undo;restore;broken;update;

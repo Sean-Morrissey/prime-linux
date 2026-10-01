@@ -1,4 +1,12 @@
 #!/usr/bin/env bash
-# prime-float <command…> — run a terminal program in a centred floating kitty
-# window that waits for a key at the end, so its report stays readable.
-exec kitty --class prime-float -e bash -c '"$@"; printf "\n\e[2mPress any key to close\e[0m"; read -rsn1' _ "$@"
+# prime-float <command…> — kept for add-ons and your own menu rows written before
+# Prime's own windows existed. Nothing in Prime calls it any more: tasks run in a
+# Prime window (prime-panel), and the two terminal apps it used to open have
+# Prime replacements, so this never opens a terminal for them.
+BIN="$(dirname "$(readlink -f "$0")")"
+case "$(basename "${1:-}")" in
+    btop|htop|top) exec "$BIN/prime-activity" ;;
+    nmtui)         exec "$BIN/prime-wifi" ;;
+    "")            exit 2 ;;
+esac
+exec "$BIN/prime-panel" --title "Prime" -- "$@"

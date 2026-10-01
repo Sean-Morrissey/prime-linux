@@ -13,7 +13,10 @@
 #   prime-addon --relink           rebuild ~/.config/hypr/addons.conf (prime-update)
 #
 # An add-on is a folder layer/addons/<name>/ with addon.conf and any of: hypr.conf,
-# waybar-top.json, waybar.css, menu.json, elements.json, bin/, *.desktop.
+# waybar-top.json, waybar-side.json, waybar.css, menu.json, elements.json, bin/,
+# *.desktop, systemd/ (user units; the ones named in UNITS= are switched on).
+# Personal add-ons have the same shape and live in ~/.config/prime/addons.d/<name>/:
+# yours, never shipped, never touched by prime-update (prime-import makes one).
 # A pack is an add-on with KIND=pack. docs/PACKS.md lists every addon.conf field.
 #
 # PRIME_NONINTERACTIVE=1     never ask; take the safe default (installer, tests)
@@ -22,6 +25,7 @@
 set -u
 LAYER="$(readlink -f "$(dirname "$(readlink -f "$0")")/..")"
 . "$LAYER/addons/_lib/pack.sh"
+. "$LAYER/addons/_lib/resolve.sh"
 export LAYER PRIME_NONINTERACTIVE="${PRIME_NONINTERACTIVE:-0}"
 SELF="$LAYER/bin/prime-addon"
 LIST="$HOME/.config/prime/addons"
@@ -30,17 +34,20 @@ FLATHUB="https://dl.flathub.org/repo/flathub.flatpakrepo"
 mkdir -p "$(dirname "$LIST")" "$HOME/.config/hypr"
 [ -f "$LIST" ] || echo "# enabled add-ons, one per line — manage with: prime-addon" > "$LIST"
 enabled() { grep -qx "$1" "$LIST"; }
+live() { [ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ] && [ -z "${PRIME_NO_LIVE:-}" ]; }
+user_bus() { [ -z "${PRIME_NO_LIVE:-}" ] && systemctl --user show-environment >/dev/null 2>&1; }
+# in a Prime window (prime-panel), pack.sh speaks its "@kind text" lines and sudo asks in a Prime box
+[ -n "${PRIME_PANEL:-}" ] && export PRIME_ASKPASS_REASON="Prime needs your password to install what this add-on uses."
 
 load() {   # load <dir> — read addon.conf into fresh variables
     DESCRIPTION=""; KIND="addon"; TITLE=""; ICON=""; PACKAGES=""; PACKAGES_IF_AVAILABLE=""
     PACKAGES_AMD=""; PACKAGES_INTEL=""; PACKAGES_NVIDIA=""; PACKAGES_NOUVEAU=""; PACKAGES_NONE=""
-    FLATPAKS=""; NEEDS_MULTILIB=0; SETUP=""; TEARDOWN=""; CHECK=""
+    FLATPAKS=""; NEEDS_MULTILIB=0; SETUP=""; TEARDOWN=""; CHECK=""; UNITS=""
     . "$1/addon.conf"
     [ -n "$TITLE" ] || TITLE="$(basename "$1")"
 }
-need() {   # need <name> — sets D to the add-on's folder, or explains and exits
-    D="$LAYER/addons/${1:-}"
-    [ -n "${1:-}" ] && [ -f "$D/addon.conf" ] || { echo "No pack or add-on called '${1:-}'. These exist:"; list_all; exit 1; }
+need() {   # need <name> — sets D to the add-on's folder (shipped, else personal), or explains and exits
+    D="$(addon_dir "${1:-}")" || { echo "No pack or add-on called '${1:-}'. These exist:"; list_all; exit 1; }
 }
 hook() {   # hook <dir> "bin/script arg…" — run a setup/teardown/check script
     local parts; read -r -a parts <<<"$2"
@@ -50,15 +57,55 @@ hook() {   # hook <dir> "bin/script arg…" — run a setup/teardown/check scrip
 
 relink() {
     { echo "# Written by prime-addon — the enabled add-ons' window-manager settings."
-      while read -r a; do
-          [ -f "$LAYER/addons/$a/hypr.conf" ] && echo "source = $LAYER/addons/$a/hypr.conf"
-      done < <(grep -v '^#' "$LIST")
+      while read -r d; do
+          [ -f "$d/hypr.conf" ] && echo "source = $d/hypr.conf"
+      done < <(enabled_addon_dirs)
     } > "$HOME/.config/hypr/addons.conf"
 }
 reload() {
     relink
-    [ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ] && { hyprctl reload >/dev/null; "$LAYER/bin/prime-bar" restart; }
+    live && { hyprctl reload >/dev/null; "$LAYER/bin/prime-bar" restart; }
     return 0
+}
+
+# ── an add-on's own background services (systemd/ + UNITS=) ─────────────────
+UNITDIR="$HOME/.config/systemd/user"
+units_link() {   # units_link <dir> — link its unit files into the user's systemd folder
+    local f t; [ -d "$1/systemd" ] || return 0
+    mkdir -p "$UNITDIR"
+    for f in "$1"/systemd/*.service "$1"/systemd/*.timer "$1"/systemd/*.path "$1"/systemd/*.socket; do
+        [ -f "$f" ] || continue
+        t="$UNITDIR/$(basename "$f")"
+        # never replace a file of yours with different contents: say so and leave it
+        if [ -e "$t" ] && [ ! -L "$t" ] && ! cmp -s "$f" "$t"; then
+            warn "$(basename "$f"): you have your own copy in $UNITDIR — kept yours"; continue
+        fi
+        ln -sfn "$f" "$t"
+    done
+    if [ -n "$UNITS" ] && user_bus; then
+        systemctl --user daemon-reload
+        # shellcheck disable=SC2086
+        systemctl --user enable --now $UNITS >/dev/null 2>&1 || warn "some of its services didn't start: $UNITS"
+    fi
+}
+units_unlink() { # units_unlink <dir> — stop its services and remove only the links that point into it
+    local t
+    # shellcheck disable=SC2086
+    [ -n "$UNITS" ] && user_bus && systemctl --user disable --now $UNITS >/dev/null 2>&1
+    for t in "$UNITDIR"/*; do
+        [ -L "$t" ] && [[ "$(readlink "$t")" == "$1/systemd/"* ]] && rm -f "$t"
+    done
+    user_bus && systemctl --user daemon-reload
+    return 0
+}
+desktop_files() { # desktop_files <dir> install|remove — app-list entries
+    local f
+    mkdir -p "$HOME/.local/share/applications"
+    for f in "$1"/*.desktop; do
+        [ -f "$f" ] || continue
+        if [ "$2" = install ]; then sed "s|@LAYER@|$LAYER|g; s|@ADDON@|$1|g" "$f" > "$HOME/.local/share/applications/$(basename "$f")"
+        else rm -f "$HOME/.local/share/applications/$(basename "$f")"; fi
+    done
 }
 
 # ── packages ─────────────────────────────────────────────────────────────────
@@ -87,7 +134,7 @@ enable_multilib() {
     else
         printf '\n[multilib]\nInclude = /etc/pacman.d/mirrorlist\n' | sudo tee -a /etc/pacman.conf >/dev/null
     fi
-    multilib_on || { warn "Couldn't switch multilib on — /etc/pacman.conf looks unusual."; return 1; }
+    multilib_on || { warn "Couldn't switch 32-bit software on — the package settings file looks unusual."; return 1; }
     if [ "$PKG_MODE" = install ]; then
         say "Bringing the system up to date (needed once after this change)…"
         sudo pacman -Syu --noconfirm
@@ -97,7 +144,7 @@ enable_multilib() {
 }
 is_flatpak() { [[ "$1" =~ ^[A-Za-z0-9_-]+\.[A-Za-z0-9_.-]+\.[A-Za-z0-9_-]+$ ]]; }
 flathub_ready() {
-    have flatpak || { warn "Flatpak isn't installed (it comes with Prime: run prime-update)."; return 1; }
+    have flatpak || { warn "The App Store's app format isn't installed (it comes with Prime: Update everything puts it back)."; return 1; }
     flatpak remote-add --user --if-not-exists flathub "$FLATHUB" >/dev/null 2>&1
 }
 record() { local f="$PACK_STATE/$1.installed"; shift; touch "$f"; for x in "$@"; do grep -qx "$x" "$f" || echo "$x" >> "$f"; done; }
@@ -148,7 +195,21 @@ menu_of() { [ -f "$1/menu.json" ] && jq -r '.sections[] | "      \(.icon // "") 
 # ── list / pick ──────────────────────────────────────────────────────────────
 list_all() {
     local d n kinds k shown
-    for k in pack addon; do
+    for k in pack addon personal; do
+        if [ $k = personal ]; then
+            shown=0
+            for d in "$PERSONAL_ADDONS"/*/; do
+                [ -f "$d/addon.conf" ] || continue
+                n="$(basename "$d")"; addon_name_ok "$n" || continue; load "$d"
+                if [ $shown = 0 ]; then printf '\n  %sYour own add-ons%s — in %s, never changed by updates\n' "$_B" "$_R" "${PERSONAL_ADDONS/#$HOME/\~}"; shown=1; fi
+                if [ -f "$LAYER/addons/$n/addon.conf" ]; then
+                    printf '  %-6s %-9s %s (personal — hidden: Prime has an add-on with this name; rename the folder)\n' '[--]' "$n" "$DESCRIPTION"
+                else
+                    printf '  %-6s %-9s %s (personal)\n' "$(enabled "$n" && echo '[on]' || echo '[off]')" "$n" "$DESCRIPTION"
+                fi
+            done
+            continue
+        fi
         shown=0
         for d in "$LAYER"/addons/*/; do
             [ -f "$d/addon.conf" ] || continue
@@ -164,10 +225,13 @@ list_all() {
 }
 rows_for_pick() {   # name<TAB>row text
     local d n
-    for d in "$LAYER"/addons/*/; do
+    for d in "$LAYER"/addons/*/ "$PERSONAL_ADDONS"/*/; do
         [ -f "$d/addon.conf" ] || continue
-        n="$(basename "$d")"; load "$d"
-        printf '%s\t%s %s%s — %s\n' "$n" "${ICON:-󰏗}" "$TITLE" "$(enabled "$n" && echo '  ✓ on' || echo '')" "$DESCRIPTION"
+        n="$(basename "$d")"; addon_name_ok "$n" || continue
+        [ "$(addon_dir "$n")" = "${d%/}" ] || continue      # a personal one hidden by a shipped one
+        load "$d"
+        printf '%s\t%s %s%s%s — %s\n' "$n" "${ICON:-󰏗}" "$TITLE" "$(addon_is_personal "$n" && echo ' (personal)')" \
+            "$(enabled "$n" && echo '  ✓ on' || echo '')" "$DESCRIPTION"
     done
 }
 
@@ -210,8 +274,8 @@ cmd_enable() {
 
     step "Switching it on"
     enabled "$n" || echo "$n" >> "$LIST"
-    mkdir -p "$HOME/.local/share/applications"
-    for f in "$d"/*.desktop; do [ -f "$f" ] && sed "s|@LAYER@|$LAYER|g" "$f" > "$HOME/.local/share/applications/$(basename "$f")"; done
+    desktop_files "$d" install
+    units_link "$d"
     reload
     say "Menu, shortcuts and bar updated."
 
@@ -229,7 +293,8 @@ cmd_disable() {
     enabled "$n" || note "'$n' wasn't on — tidying up anyway."
     [ -n "$TEARDOWN" ] && { hook "$d" "$TEARDOWN" || warn "its clean-up step reported a problem (continuing)"; }
     sed -i "/^$n\$/d" "$LIST"
-    for f in "$d"/*.desktop; do [ -f "$f" ] && rm -f "$HOME/.local/share/applications/$(basename "$f")"; done
+    desktop_files "$d" remove
+    units_unlink "$d"
     reload
     printf '\n  %s%s is off.%s Its menu, shortcuts and bar items are gone.\n' "$_B" "$TITLE" "$_R"
     if [ -f "$PACK_STATE/$n.installed" ]; then
@@ -272,10 +337,15 @@ cmd_check() {   # check [name] — exit 1 if anything is broken
     if [ -n "${1:-}" ]; then need "$1"; names=("$1"); else mapfile -t names < <(grep -v '^#' "$LIST" | grep .); fi
     [ ${#names[@]} -gt 0 ] || { echo "No packs or add-ons are on. See them with: prime-addon"; return 0; }
     for n in "${names[@]}"; do
-        d="$LAYER/addons/$n"; [ -f "$d/addon.conf" ] || continue
+        d="$(addon_dir "$n")" || continue
         load "$d"; plan
         printf '\n  %s%s %s%s%s\n' "$_B" "${ICON:-}" "$TITLE" "$_R" "$(enabled "$n" || echo '  (off)')"
         while IFS=$'\t' read -r lvl msg; do
+            if [ -n "${PRIME_PANEL:-}" ]; then
+                case "$lvl" in ok) echo "@ok $TITLE: $msg" ;; warn) echo "@note $TITLE: $msg" ;;
+                               bad) echo "@bad $TITLE: $msg"; bad=1 ;; *) echo "$lvl${msg:+ $msg}" ;; esac
+                continue
+            fi
             case "$lvl" in
                 ok)   printf '    %s✓%s %s\n' "$_G" "$_R" "$msg" ;;
                 warn) printf '    %s!%s %s\n' "$_Y" "$_R" "$msg" ;;
@@ -294,7 +364,11 @@ cmd_check() {   # check [name] — exit 1 if anything is broken
             [ -n "$CHECK" ] && hook "$d" "$CHECK"
         )
     done
-    echo; [ $bad = 0 ] && echo "  Everything works. (! lines are suggestions, not problems.)" || echo "  Some things need attention (✗ above)."
+    if [ -n "${PRIME_PANEL:-}" ]; then
+        [ $bad = 0 ] && echo "@summary Everything works. (Notes are suggestions, not problems.)" || echo "@summary Some things need attention (marked “Needs you”)."
+    else
+        echo; [ $bad = 0 ] && echo "  Everything works. (! lines are suggestions, not problems.)" || echo "  Some things need attention (✗ above)."
+    fi
     return $bad
 }
 
@@ -302,7 +376,8 @@ cmd_toggle() {
     local n="${1:-}" d; need "$n"; d="$D"
     if enabled "$n"; then
         load "$d"
-        ask "$TITLE is on. Switch it off? (apps stay installed)" n && cmd_disable "$n"
+        # picked in the Prime window already: that pick is the answer
+        { [ -n "${PRIME_PANEL:-}" ] || ask "$TITLE is on. Switch it off? (apps stay installed)" n; } && cmd_disable "$n"
     else
         cmd_enable "$n"
     fi
@@ -315,7 +390,7 @@ cmd_pick() {
         choice="$(cut -f2 <<<"$rows" | ROFI_HINT="Enter: switch on/off  ·  Esc: close" \
             "$LAYER/bin/prime-rofi" -dmenu -i -no-custom -p "Packs & add-ons" -theme menu)" || exit 0
         n="$(awk -F'\t' -v c="$choice" '$2 == c {print $1; exit}' <<<"$rows")"
-        [ -n "$n" ] && exec "$LAYER/bin/prime-float" "$SELF" toggle "$n"
+        [ -n "$n" ] && exec "$LAYER/bin/prime-panel" --title "Packs & add-ons" -- "$SELF" toggle "$n"
         exit 0
     fi
     list_all; echo
@@ -334,7 +409,7 @@ cmd_open() {   # open "app|flatpak.id" [args…]
         elif have "$c"; then exec "$c" "$@"; fi
     done
     notify "${cands[0]} isn't installed yet — opening the installer."
-    if [ -n "${WAYLAND_DISPLAY:-}" ] && have kitty; then exec "$LAYER/bin/prime-float" "$SELF" get "${cands[-1]}"; fi
+    if [ -n "${WAYLAND_DISPLAY:-}" ]; then exec "$LAYER/bin/prime-panel" --title "Get ${cands[0]}" -- "$SELF" get "${cands[-1]}"; fi
     echo "${cands[0]} isn't installed. Install it with: prime-addon get ${cands[-1]}"; exit 1
 }
 
@@ -356,13 +431,14 @@ cmd_get() {   # get <package|flatpak-id>…
 }
 
 case "${1:-}" in
-    ""|list)   list_all; echo; echo "  prime-addon enable <name>  ·  disable <name>  ·  info <name>  ·  check" ;;
+    ""|list)   list_all; echo; echo "  Switch them on or off in the Prime menu → Settings → Add-ons"
+               echo "  (or: prime-addon enable <name>  ·  disable <name>  ·  info <name>  ·  check)" ;;
     enable)    cmd_enable "${2:-}" ;;
     disable)   cmd_disable "${2:-}" ;;
     info)      cmd_info "${2:-}" ;;
     check)     cmd_check "${2:-}" ;;
     toggle)    cmd_toggle "${2:-}" ;;
-    pick)      cmd_pick ;;
+    pick|--choose) cmd_pick ;;
     open)      shift; cmd_open "$@" ;;
     get)       shift; cmd_get "$@" ;;
     --relink)  relink ;;

@@ -35,8 +35,8 @@ git_setup() {
             echo; say "git labels every change you save with your name and email."
             say "Use the email you'll use on GitHub/GitLab (it can be a private 'noreply' one)."
             def_name="${name:-$(getent passwd "$USER" | cut -d: -f5 | cut -d, -f1)}"
-            read -r -p "    Your name [${def_name}]: " name; name="${name:-$def_name}"
-            read -r -p "    Your email${email:+ [$email]}: " e; email="${e:-$email}"
+            name="$(ask_text "Your name" "$def_name")" || return 0
+            email="$(ask_text "Your email" "$email")" || return 0
             [ -n "$name" ]  && git config --global user.name "$name"
             [ -n "$email" ] && git config --global user.email "$email"
         fi
@@ -61,8 +61,8 @@ lang() {
     elif nonint; then echo "which language? $(cut -f1 <<<"$LANGS" | paste -sd' ')"; return 2
     else
         echo; say "Which languages do you want? (numbers, e.g. 1 2)"
-        local i=1; while IFS=$'\t' read -r l spec desc; do printf '      %d) %s\n' $i "$desc"; i=$((i+1)); done <<<"$LANGS"
-        read -r -p "    > " picks
+        local i=1; while IFS=$'\t' read -r l spec desc; do say "$i) $desc"; i=$((i+1)); done <<<"$LANGS"
+        picks="$(ask_text "Numbers, e.g. 1 2")" || return 0
         for i in $picks; do l="$(sed -n "${i}p" <<<"$LANGS" | cut -f1)"; [ -n "$l" ] && want+=("$l"); done
     fi
     have mise || { warn "mise isn't installed — run: prime-addon enable coding"; return 1; }
@@ -79,7 +79,7 @@ lang() {
 new_project() {
     local name="${1:-}" slug dir
     if [ -z "$name" ]; then nonint && { echo "usage: prime-coding new <name>"; return 2; }
-        read -r -p "    Project name: " name; fi
+        name="$(ask_text "Project name")" || return 0; fi
     slug="$(tr '[:upper:] ' '[:lower:]-' <<<"$name" | tr -cd 'a-z0-9._-')"
     [ -n "$slug" ] || { warn "That name has no letters or numbers in it."; return 1; }
     dir="$PROJECTS/$slug"
@@ -149,7 +149,7 @@ setup() {
     say "Your code lives in ~/Projects (it's in the file manager's sidebar)."
     git_setup
     shell_on; say "Terminal: a git-aware prompt, 'z' to jump to folders, Ctrl+R history search, ll/la/tree."
-    subids || warn "Couldn't set container sub-IDs — Podman may need: sudo usermod --add-subuids 100000-165535 --add-subgids 100000-165535 $USER"
+    subids || warn "Couldn't give your account its container ID range — Podman may not start containers. Prime menu → Coding → Check my coding setup says what to do $USER"
     say "Containers: Podman, without admin rights ('podman run …'). Docker on request."
     note "Add a language any time: Prime menu → Coding → Add a programming language"
     if [ -n "${PRIME_LANGS:-}" ]; then lang $PRIME_LANGS; fi

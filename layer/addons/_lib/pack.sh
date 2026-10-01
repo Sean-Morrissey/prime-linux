@@ -16,16 +16,45 @@ _A=$'\e[38;2;248;113;113m'; _D=$'\e[2m'; _B=$'\e[1m'; _R=$'\e[0m'; _G=$'\e[32m';
 say()  { printf '    %s\n' "$*"; }
 note() { printf '    %s%s%s\n' "$_D" "$*" "$_R"; }
 warn() { printf '    %s!%s %s\n' "$_A" "$_R" "$*"; }
+# Inside a Prime window (prime-panel sets PRIME_PANEL): rows in its line protocol,
+# and sudo asks for the password in a Prime box (SUDO_ASKPASS) instead of a terminal.
+if [ -n "${PRIME_PANEL:-}" ]; then
+    say()  { printf '@note %s\n' "$*"; }
+    note() { printf '@note %s\n' "$*"; }
+    warn() { printf '@bad %s\n' "$*"; }
+    sudo() { command sudo -A "$@"; }
+fi
 have() { command -v "$1" >/dev/null 2>&1; }
-nonint() { [ "${PRIME_NONINTERACTIVE:-0}" = 1 ] || ! [ -t 0 ]; }
+# In a Prime window there is no terminal, but a person is there: questions go to
+# Prime pickers (prime-rofi) instead.
+gui_ask() { [ -n "${PRIME_PANEL:-}" ] && [ -n "${WAYLAND_DISPLAY:-}${DISPLAY:-}" ] && [ -x "$LAYER/bin/prime-rofi" ]; }
+nonint() { [ "${PRIME_NONINTERACTIVE:-0}" = 1 ] || { ! [ -t 0 ] && ! gui_ask; }; }
 
 # ask "Question?" [default y|n] — yes/no; non-interactive answers the default
 ask() {
     local q="$1" def="${2:-y}" a
     if nonint; then [ "$def" = y ]; return; fi
+    if gui_ask; then
+        a="$(printf 'Yes\nNo\n' | ROFI_HINT="Enter chooses  ·  Esc = $([ "$def" = y ] && echo Yes || echo No)" \
+             "$LAYER/bin/prime-rofi" -dmenu -i -no-custom -p "$q" -theme spotlight 2>/dev/null)" || a=""
+        a="${a:-$([ "$def" = y ] && echo Yes || echo No)}"; [ "$a" = Yes ]; return
+    fi
     printf '    %s %s ' "$q" "$([ "$def" = y ] && echo '[Y/n]' || echo '[y/N]')"
     read -r a || a=""
     a="${a:-$def}"; [[ "$a" =~ ^[Yy] ]]
+}
+
+# ask_text "Question" [default] — a line of text (a Prime picker in a Prime window)
+ask_text() {
+    local q="$1" def="${2:-}" a=""
+    if nonint; then printf '%s' "$def"; return; fi
+    if gui_ask; then
+        a="$(printf '%s' "$def" | sed '/^$/d' | ROFI_HINT="type, then Enter  ·  Esc cancels" \
+             "$LAYER/bin/prime-rofi" -dmenu -p "$q" -theme spotlight 2>/dev/null)" || return 1
+    else
+        read -r -p "    $q${def:+ [$def]}: " a || return 1
+    fi
+    printf '%s' "${a:-$def}"
 }
 
 notify() { notify-send -a Prime -t "${2:-5000}" "${3:-Prime}" "$1" >/dev/null 2>&1 || true; }

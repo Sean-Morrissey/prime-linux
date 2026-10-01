@@ -90,8 +90,8 @@ menu() {
                     2) as_admin set WINDOW_START=5 WINDOW_END=8 ;; 3) as_admin set WINDOW_START=12 WINDOW_END=14 ;;
                     4) as_admin set WINDOW_START=19 WINDOW_END=22 ;; esac ;;
     5) as_admin pause 7 >/dev/null && notify-send -a Prime "Automatic updates paused" "They start again by themselves in a week." ;;
-    6) exec "$BIN/prime-float" "$BIN/prime-update" ;;
-    7) exec "$BIN/prime-float" "$BIN/prime-update" --undo ;;
+    6) exec "$BIN/prime-update" ;;
+    7) exec "$BIN/prime-update" --undo ;;
     *) exit 0 ;;
   esac
   notify-send -a Prime "Updates" "$("$BIN/prime-update-policy" describe)" 2>/dev/null || true

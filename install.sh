@@ -100,6 +100,8 @@ if [ ${#have_desktops[@]} -gt 0 ]; then
     ok "Desktop already here: $desk_list — it stays; pick it or Hyprland on the login screen"
 elif grep -qE '^hyprland' <<<"$sessions" && [ -f "$HOME/.config/hypr/hyprland.conf" ]; then
     info "Hyprland is already set up (CachyOS Hyprland edition?) — your config is backed up, then replaced"
+    grep -q prime-linux "$HOME/.config/hypr/hyprland.conf" 2>/dev/null \
+        || info "(at the end Prime offers to bring your shortcuts, screens and bar items along — prime-import)"
 else
     info "No desktop yet (CLI install) — Prime brings everything it needs"
 fi
@@ -367,6 +369,32 @@ if [ $DRY = 0 ]; then
     echo complete >> "$PROGRESS"
 fi
 ok "Done"
+
+# ── your old desktop, brought along (optional, undoable) ─────────────────────
+# A hand-built Hyprland setup was here before Prime: its settings file is in this
+# install's backup. prime-import turns its shortcuts, screens, bar items and
+# services into a personal add-on (docs/MIGRATING.md); prime-import --undo reverses it.
+OLD_HYPR="$BACKUP/hypr/hyprland.conf"
+if [ $DRY = 1 ] && [ -f "$HOME/.config/hypr/hyprland.conf" ] && ! grep -q prime-linux "$HOME/.config/hypr/hyprland.conf"; then
+    info "Your own Hyprland setup was found. After installing, Prime would offer to bring it along:"
+    "$SRC/layer/bin/prime-import" --dry-run 2>/dev/null | sed 's/^/      /' | head -60 || true
+elif [ $DRY = 0 ] && [ -f "$OLD_HYPR" ] && ! grep -q prime-linux "$OLD_HYPR" \
+        && [ ! -f "$STATE_DIR/import/last.json" ]; then
+    echo
+    info "You had your own Hyprland setup. Prime can bring it along as your own add-on:"
+    info "your shortcuts, screens, bar items and background services (never your keys or passwords)."
+    if [ $YES = 1 ] || ! { : </dev/tty; } 2>/dev/null; then     # automation, or nobody to ask
+        info "To do it later:  prime-import --from ${BACKUP/#$HOME/\~}   (shows the plan first)"
+    else
+        "$LAYER/bin/prime-import" --dry-run --from "$BACKUP" | sed 's/^/      /' | head -60
+        if ask_yes "Bring it along now? (everything is saved first; prime-import --undo reverses it)"; then
+            "$LAYER/bin/prime-import" --apply --yes --from "$BACKUP" | sed 's/^/    /' \
+                || warn "The import didn't finish — your settings are saved. Try again: prime-import --from ${BACKUP/#$HOME/\~}"
+        else
+            info "Skipped. Any time later:  prime-import --from ${BACKUP/#$HOME/\~}"
+        fi
+    fi
+fi
 
 printf '\n  %s%sPrime Linux is installed.%s\n\n' "$B" "$A" "$R"
 if [ -n "$dm" ]; then info "Log out, pick ${B}Hyprland${R} on the login screen ($dm: the session menu), and log in."

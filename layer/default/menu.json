@@ -6,7 +6,6 @@
       "icon": "󰣇",
       "list": "apps",
       "pins": [
-        "kitty",
         "nemo",
         "org.gnome.Software",
         "firefox",
@@ -41,6 +40,13 @@
           "hint": "the welcome steps: look, packs, updates, assistant",
           "kind": "run",
           "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-welcome"
+        },
+        {
+          "id": "apps.activity",
+          "label": "Activity",
+          "hint": "what's using the computer right now",
+          "kind": "run",
+          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-activity"
         }
       ]
     },
@@ -58,10 +64,17 @@
         },
         {
           "id": "set.theme",
-          "label": "Theme — wallpaper + accent colour",
+          "label": "Theme — wallpaper, accent colour, text size",
           "hint": "Super+Shift+W",
           "kind": "run",
           "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-theme"
+        },
+        {
+          "id": "set.text",
+          "label": "Text size",
+          "hint": "one size for the whole desktop",
+          "kind": "run",
+          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-theme --text"
         },
         {
           "id": "set.displays",
@@ -75,7 +88,7 @@
           "label": "Wi-Fi & network",
           "kind": "run",
           "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-wifi",
-          "hint": "choose a network, enter its password"
+          "hint": "join a network, turn Wi-Fi on or off"
         },
         {
           "id": "set.bluetooth",
@@ -122,7 +135,7 @@
         {
           "id": "set.apps",
           "label": "Default apps",
-          "hint": "browser, file manager, terminal",
+          "hint": "browser and file manager",
           "kind": "run",
           "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-default-apps"
         },
@@ -141,8 +154,8 @@
         },
         {
           "id": "set.hyprconf",
-          "label": "Edit window & keyboard settings",
-          "hint": "~/.config/hypr/hyprland.conf",
+          "label": "Advanced window & keyboard settings",
+          "hint": "your own settings file, opens in Text Editor",
           "kind": "run",
           "cmd": "exec gnome-text-editor ~/.config/hypr/hyprland.conf"
         },
@@ -150,7 +163,7 @@
           "id": "set.autonomy",
           "label": "How much Prime may do on its own",
           "hint": "ask every time · small stuff · just do it",
-          "kind": "term",
+          "kind": "panel",
           "cmd": "~/.local/share/prime-linux/layer/bin/prime-settings autonomy"
         }
       ]
@@ -294,8 +307,8 @@
           "id": "style.doctor",
           "label": "Check and fix the desktop",
           "hint": "Super+H",
-          "kind": "term",
-          "cmd": "~/.local/share/prime-linux/layer/bin/prime-doctor"
+          "kind": "run",
+          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-doctor"
         },
         {
           "id": "style.restore",
@@ -340,9 +353,9 @@
         {
           "id": "upd.all",
           "label": "Update everything",
-          "hint": "system, apps and Prime Linux — a snapshot is taken first",
-          "kind": "term",
-          "cmd": "~/.local/share/prime-linux/layer/bin/prime-update"
+          "hint": "the system, apps and Prime — a snapshot is taken first",
+          "kind": "run",
+          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-update"
         },
         {
           "id": "upd.settings",
@@ -355,27 +368,27 @@
           "id": "upd.undo",
           "label": "Undo last update",
           "hint": "go back to the snapshot taken before it",
-          "kind": "term",
+          "kind": "panel",
           "cmd": "~/.local/share/prime-linux/layer/bin/prime-update --undo"
         },
         {
           "id": "upd.security",
           "label": "Security check",
-          "kind": "term",
+          "kind": "panel",
           "cmd": "~/.local/share/prime-linux/layer/bin/prime-security"
         },
         {
           "id": "upd.check",
           "label": "What's waiting to update",
-          "kind": "term",
-          "cmd": "~/.local/share/prime-linux/layer/bin/prime-update --check"
+          "kind": "run",
+          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-updates-count --list"
         },
         {
           "id": "upd.snapshots",
           "label": "System snapshots",
-          "hint": "roll back from the boot menu if an update breaks things",
-          "kind": "term",
-          "cmd": "/usr/local/lib/prime-linux/prime-system-update snapshots"
+          "hint": "the saved states you can go back to from the start-up menu",
+          "kind": "run",
+          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-snapshots"
         }
       ]
     },
@@ -386,7 +399,7 @@
       "items": [
         {
           "id": "power.menu",
-          "label": "Lock · suspend · restart · shut down",
+          "label": "Lock · sleep · restart · shut down",
           "kind": "run",
           "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-power-menu"
         },
@@ -406,15 +419,22 @@
       "items": [
         {
           "id": "about.prime",
-          "label": "About Prime Linux",
-          "kind": "term",
-          "cmd": "~/.local/share/prime-linux/layer/bin/prime-about"
+          "label": "About Prime",
+          "kind": "run",
+          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-about"
         },
         {
           "id": "about.info",
           "label": "This computer",
-          "kind": "term",
-          "cmd": "fastfetch --logo ~/.config/prime/theme/mark.png --logo-type kitty-direct --logo-width 22 --logo-height 10"
+          "kind": "run",
+          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-about --computer"
+        },
+        {
+          "id": "about.barkeys",
+          "label": "Use the bar from the keyboard",
+          "hint": "Super+Alt+B",
+          "kind": "run",
+          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-bar --keys"
         }
       ]
     }

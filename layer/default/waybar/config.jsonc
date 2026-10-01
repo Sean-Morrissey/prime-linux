@@ -1,4 +1,6 @@
-// Prime Linux — top bar. Don't edit this copy (prime-update replaces it):
+// Prime — top bar. Every item has a tooltip that says what it is and its state
+// in words, and every item is reachable from the keyboard: Super+Alt+B lists
+// them all (prime-bar --keys). Don't edit this copy (prime-update replaces it):
 // put a full replacement at ~/.config/waybar/config.jsonc, or styling tweaks in
 // ~/.config/waybar/user.css. Add-ons insert their own modules at start-up.
 {
@@ -71,6 +73,7 @@
   },
   "clock": {
     "format": "{:%a %b %d   %I:%M %p}",
+    "tooltip": true,
     "format-alt": "{:%A, %B %d, %Y  (%R)}",
     "interval": 1,
     "tooltip-format": "<tt><small>{calendar}</small></tt>",
@@ -89,7 +92,7 @@
     "on-click-right": "~/.local/share/prime-linux/layer/bin/prime-context bar.clock"
   },
   "custom/mediaPrev": {
-    "tooltip": false,
+    "tooltip": true,
     "on-click": "~/.local/share/prime-linux/layer/bin/prime-media prev",
     "on-click-right": "~/.local/share/prime-linux/layer/bin/prime-context bar.media",
     "on-click-middle": "~/.local/share/prime-linux/layer/bin/prime-media toggle",
@@ -109,7 +112,7 @@
     "on-scroll-down": "~/.local/share/prime-linux/layer/bin/prime-media voldown"
   },
   "custom/mediaNext": {
-    "tooltip": false,
+    "tooltip": true,
     "on-click": "~/.local/share/prime-linux/layer/bin/prime-media next",
     "on-click-right": "~/.local/share/prime-linux/layer/bin/prime-context bar.media",
     "on-click-middle": "~/.local/share/prime-linux/layer/bin/prime-media toggle",
@@ -143,7 +146,10 @@
     "format-wifi": "󰤨",
     "format-ethernet": "󰈀",
     "format-disconnected": "󰤮",
-    "tooltip-format": "{essid} · {signalStrength}% · {ipaddr}",
+    "tooltip-format-wifi": "Wi-Fi: connected to {essid} ({signalStrength}% signal)\nclick to change network",
+    "tooltip-format-ethernet": "Network: connected by cable\nclick for Wi-Fi",
+    "tooltip-format-disconnected": "Network: not connected\nclick to join a Wi-Fi network",
+    "tooltip-format-disabled": "Wi-Fi: off\nclick to turn it on",
     "on-click": "~/.local/share/prime-linux/layer/bin/prime-wifi",
     "on-click-right": "~/.local/share/prime-linux/layer/bin/prime-context bar.network"
   },
@@ -151,7 +157,9 @@
     "format": "󰂯",
     "format-disabled": "󰂲",
     "format-connected": "󰂱  {device_alias}",
-    "tooltip-format": "{status} · {device_alias}",
+    "tooltip-format": "Bluetooth: {status}\nclick to connect a device",
+    "tooltip-format-connected": "Bluetooth: connected to {device_alias}\nclick to connect a device",
+    "tooltip-format-disabled": "Bluetooth: off\nclick to turn it on",
     "on-click": "~/.local/share/prime-linux/layer/bin/prime-bluetooth",
     "on-click-right": "~/.local/share/prime-linux/layer/bin/prime-context bar.bluetooth"
   },
@@ -183,8 +191,8 @@
       "warning": 70,
       "critical": 90
     },
-    "tooltip-format": "CPU: {usage}%  Load: {load}",
-    "on-click": "~/.local/share/prime-linux/layer/bin/prime-float btop",
+    "tooltip-format": "Processor: {usage}% busy\nclick to see what's using it",
+    "on-click": "~/.local/share/prime-linux/layer/bin/prime-activity",
     "on-click-right": "~/.local/share/prime-linux/layer/bin/prime-context bar.cpu"
   },
   "memory": {
@@ -194,8 +202,8 @@
       "warning": 75,
       "critical": 90
     },
-    "tooltip-format": "RAM: {used:0.1f}G / {total:0.1f}G  ({percentage}%)",
-    "on-click": "~/.local/share/prime-linux/layer/bin/prime-float btop",
+    "tooltip-format": "Memory: {used:0.1f} of {total:0.1f} GB in use ({percentage}%)\nclick to see what's using it",
+    "on-click": "~/.local/share/prime-linux/layer/bin/prime-activity",
     "on-click-right": "~/.local/share/prime-linux/layer/bin/prime-context bar.memory"
   },
   "custom/gpu": {
@@ -203,7 +211,7 @@
     "return-type": "json",
     "interval": 2,
     "format": "󰢮  {}",
-    "on-click": "~/.local/share/prime-linux/layer/bin/prime-float btop",
+    "on-click": "~/.local/share/prime-linux/layer/bin/prime-activity",
     "on-click-right": "~/.local/share/prime-linux/layer/bin/prime-context bar.gpu",
     "exec-if": "~/.local/share/prime-linux/layer/bin/prime-gpu-monitor | grep -q ."
   },
@@ -214,18 +222,17 @@
     "escape": true,
     "tooltip": true,
     "format": "󰚰  {}",
-    "tooltip-format": "{} updates · click to update everything · right-click for more",
-    "on-click": "~/.local/share/prime-linux/layer/bin/prime-float ~/.local/share/prime-linux/layer/bin/prime-update",
+    "on-click": "~/.local/share/prime-linux/layer/bin/prime-update",
     "on-click-right": "~/.local/share/prime-linux/layer/bin/prime-context bar.updates"
   },
   "custom/theme": {
     "format": "<span color='#a1a1a6'>󰸉</span>",
     "on-click": "~/.local/share/prime-linux/layer/bin/prime-theme",
-    "tooltip-format": "Theme — wallpaper + accent colour (Super+Shift+W)",
+    "tooltip-format": "Theme: wallpaper, accent colour, text size (Super+Shift+W)",
     "on-click-right": "~/.local/share/prime-linux/layer/bin/prime-context bar.theme"
   },
   "custom/notification": {
-    "tooltip": false,
+    "tooltip": true,
     "format": "{icon}",
     "format-icons": {
       "notification": "<span foreground='#fbbf24'>󰂚</span>",
@@ -239,7 +246,7 @@
     },
     "return-type": "json",
     "exec-if": "which swaync-client",
-    "exec": "swaync-client -swb",
+    "exec": "~/.local/share/prime-linux/layer/bin/prime-notify-pill",
     "on-click": "swaync-client -t -sw",
     "on-click-right": "~/.local/share/prime-linux/layer/bin/prime-context bar.notification",
     "escape": true
@@ -247,14 +254,15 @@
   "custom/power": {
     "format": "⏻",
     "on-click": "~/.local/share/prime-linux/layer/bin/prime-power-menu",
-    "tooltip": false,
+    "tooltip": true,
+    "tooltip-format": "Power: lock, sleep, restart, shut down, log out",
     "on-click-right": "~/.local/share/prime-linux/layer/bin/prime-context bar.power"
   },
   "image#logo": {
     "path": "~/.config/prime/theme/mark.svg",
     "size": 20,
     "tooltip": true,
-    "tooltip-format": "Prime Linux\nMenu · Super+Alt+Space   Search · Super+Space   Shortcuts · Super+/",
+    "tooltip-format": "Prime menu (Super+Alt+Space)\nSearch · Super+Space   Bar by keys · Super+Alt+B   Shortcuts · Super+/",
     "on-click": "~/.local/share/prime-linux/layer/bin/prime-menu",
     "on-click-right": "~/.local/share/prime-linux/layer/bin/prime-context bar.logo"
   }

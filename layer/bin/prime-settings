@@ -103,7 +103,7 @@ PRIME_ACTIONS = {   # target -> (description, dispatcher+args)
     "terminal": ("Terminal", "exec, $terminal"),
     "files": ("Files", "exec, $files"),
     "browser": ("Web browser", "exec, $bin/prime-browser"),
-    "health": ("Desktop health check", "exec, $bin/prime-float $bin/prime-doctor"),
+    "health": ("Desktop health check", "exec, $bin/prime-doctor"),
 }
 WINDOW_ACTIONS = {
     "close": ("Close window", "killactive"),
@@ -899,7 +899,8 @@ def t_enable_pack(a):
             return f"The {n} pack is already on.", None
         if pk and not sys.stdin.isatty() and live():
             # no terminal to type a password into: show the install in its own window
-            subprocess.Popen([os.path.join(BIN, "prime-float"), os.path.join(BIN, "prime-addon"), "enable", n],
+            subprocess.Popen([os.path.join(BIN, "prime-panel"), "--title", f"Turning on the {n} pack", "--",
+                              os.path.join(BIN, "prime-addon"), "enable", n],
                              env=dict(os.environ, PRIME_AI_SETUP="keep"), start_new_session=True,
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             return f"Installing the {n} pack in a window — it will ask for your password.", {"op": "pack", "verb": "disable", "name": n}
@@ -933,7 +934,7 @@ def t_start_update(a):
     def do():
         cmd = [os.path.join(BIN, "prime-update")]
         if live():
-            subprocess.Popen([os.path.join(BIN, "prime-float")] + cmd, start_new_session=True,
+            subprocess.Popen(cmd, start_new_session=True,            # opens its own Prime window
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             return "The update is running in its own window (it will ask for your password).", None
         if sys.stdin.isatty():
@@ -1166,6 +1167,11 @@ def notify(title, body):
 
 
 # ── command line ─────────────────────────────────────────────────────────────
+def say(line, kind="text"):
+    """A line for a person: a row in the Prime window (prime-panel), plain text in a terminal."""
+    print((f"@{kind} " if os.environ.get("PRIME_PANEL") else "") + line)
+
+
 def cmd_log(n):
     for e in audit_entries()[-n:]:
         who = "Prime" if e.get("actor") == "ai" else "You"
@@ -1175,7 +1181,7 @@ def cmd_log(n):
         how = {"auto": " (on its own)", "confirmed": " (you allowed it)"}.get(e.get("decision", ""), "")
         if e.get("tool", "").startswith(("list_", "get_")) or e.get("message") == "read":
             continue
-        print(f"{ts}  {who}: {e.get('summary') or e.get('tool')}{how}{st}")
+        say(f"{ts}  {who}: {e.get('summary') or e.get('tool')}{how}{st}")
 
 
 def main(argv):
@@ -1210,7 +1216,7 @@ def main(argv):
     if cmd == "autonomy":
         if len(argv) == 1:
             a, _ = read_caps()
-            print(f"{a}: {AUTONOMY.get(a, '')}")
+            say(f"{a}: {AUTONOMY.get(a, '')}")
             return 0
         if os.environ.get("PRIME_ACTOR") == "ai":
             print("Prime can't change its own permissions — only you can.", file=sys.stderr)
@@ -1229,7 +1235,7 @@ def main(argv):
         if os.environ.get("PRIME_ACTOR") == "ai":
             return 1
         res = run_tool("undo_last", {}, actor="user")
-        print(res.get("message", ""))
+        say(res.get("message", ""), "fix" if res["ok"] else "note")
         return 0 if res["ok"] else 1
     if cmd == "run" and len(argv) >= 2:
         name, rest = argv[1], argv[2:]

@@ -80,10 +80,16 @@ esac
 # ── 1. Prime Linux itself ────────────────────────────────────────────────────
 step "Prime Linux"
 before="$(git -C "$REPO" rev-parse --short HEAD 2>/dev/null)"
-if git -C "$REPO" pull --ff-only --quiet 2>/dev/null; then
+# never stop to ask for a GitHub username in a window that can't answer (private repo, no login):
+# fail at once instead, and say how to sign in
+if pull_err="$(GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=/bin/false SSH_ASKPASS=/bin/false timeout 120 \
+               git -C "$REPO" pull --ff-only --quiet 2>&1 </dev/null)"; then
     after="$(git -C "$REPO" rev-parse --short HEAD)"
     if [ "$before" = "$after" ]; then ok "already up to date"
     else ok "updated"; git -C "$REPO" log --format='%s' "$before..$after" | head -8 | sed 's/^/      · /'; fi
+elif grep -qiE 'username|authentication|could not read|403|repository not found|permission denied' <<<"$pull_err"; then
+    warn "couldn't update Prime Linux itself: GitHub didn't let this computer in (the repository is private)."
+    warn "Sign in once in a terminal with:  gh auth login   — then run Update everything again. Carrying on."
 else
     warn "couldn't update Prime Linux itself (offline, or files in $REPO were edited) — carrying on"
 fi

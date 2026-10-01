@@ -97,7 +97,7 @@ grep -qE '^(budgie|lxqt|mate|i3|sway|niri|wayfire|qtile|bspwm|openbox|lxde)' <<<
 desk_list="$(printf '%s, ' "${have_desktops[@]}")"; desk_list="${desk_list%, }"
 dm=""; [ -L /etc/systemd/system/display-manager.service ] && dm="$(basename "$(readlink -f /etc/systemd/system/display-manager.service)" .service)"
 if [ ${#have_desktops[@]} -gt 0 ]; then
-    ok "Desktop already here: $desk_list — it stays; pick it or Hyprland on the login screen"
+    ok "Desktop already here: $desk_list — it stays; pick it or Prime on the login screen"
 elif grep -qE '^hyprland' <<<"$sessions" && [ -f "$HOME/.config/hypr/hyprland.conf" ]; then
     info "Hyprland is already set up (CachyOS Hyprland edition?) — your config is backed up, then replaced"
     grep -q prime-linux "$HOME/.config/hypr/hyprland.conf" 2>/dev/null \
@@ -336,6 +336,12 @@ else
         warn "Couldn't set up nightly updates and the firewall — run prime-update later to retry"
     fi
     run "$LAYER/bin/prime-security" fix-permissions >/dev/null 2>&1 || true
+    # the login screen's session list says "Prime" (it starts Hyprland through uwsm)
+    sess_src="$LAYER/system/wayland-sessions/prime.desktop" sess=/usr/share/wayland-sessions/prime.desktop
+    if [ -f "$sess_src" ] && ! cmp -s "$sess_src" "$sess"; then
+        if run sudo install -Dm644 "$sess_src" "$sess"; then note "sysfile $sess"; ok "Login screen: offers Prime"
+        else warn "Couldn't add Prime to the login screen — pick Hyprland there instead (Update everything retries)"; fi
+    fi
     if command -v flatpak >/dev/null; then
         run sudo flatpak remote-add --if-not-exists --system flathub https://dl.flathub.org/repo/flathub.flatpakrepo
         ok "App Store: Flathub enabled"
@@ -413,8 +419,8 @@ elif [ $DRY = 0 ] && [ -f "$OLD_HYPR" ] && ! grep -q prime-linux "$OLD_HYPR" \
 fi
 
 printf '\n  %s%sPrime Linux is installed.%s\n\n' "$B" "$A" "$R"
-if [ -n "$dm" ]; then info "Log out, pick ${B}Hyprland${R} on the login screen ($dm: the session menu), and log in."
-else info "Restart the computer, choose ${B}Hyprland${R} on the login screen, and log in."; fi
+if [ -n "$dm" ]; then info "Log out, pick ${B}Prime${R} on the login screen ($dm: the session menu), and log in."
+else info "Restart the computer, choose ${B}Prime${R} on the login screen, and log in."; fi
 info "Then:  Super+Space search · Super+Alt+Space menu · Super+/ every shortcut"
 [ -d "$BACKUP" ] && info "Your previous settings are saved in ${BACKUP/#$HOME/\~}"
 info "Changed your mind? prime-uninstall puts everything back."

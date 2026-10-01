@@ -1,0 +1,108 @@
+name: desktop layer
+# The CachyOS desktop layer (install.sh, layer/) — what a person actually installs.
+# build.yml covers the bootc image; this covers the installer and the desktop.
+on:
+  push:
+    branches: [main, integrate/prime-layer]
+    paths-ignore: ["**.md", "layer/branding/previews/**"]
+  pull_request:
+    paths-ignore: ["**.md", "layer/branding/previews/**"]
+  workflow_dispatch:
+    inputs:
+      vm:
+        description: "Also run the real-boot CachyOS VM test (slow: ~3 GB ISO, 30-60 min)"
+        type: boolean
+        default: true
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref || github.run_id }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+
+jobs:
+  fast:
+    name: Desktop layer tests (no install)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tools
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q shellcheck jq xvfb fd-find python3-gi gir1.2-gtk-3.0 gir1.2-gtklayershell-0.1 \
+            papirus-icon-theme
+          mkdir -p "$HOME/.local/bin" && ln -sf "$(command -v fdfind)" "$HOME/.local/bin/fd"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          # the GUI self-tests want a handful of installed apps to list
+          mkdir -p "$HOME/.local/share/applications"
+          for a in Files Browser Terminal Store Settings Editor Music; do
+            printf '[Desktop Entry]\nType=Application\nName=%s\nExec=true\nIcon=utilities-terminal\n' "$a" \
+              > "$HOME/.local/share/applications/test-$a.desktop"
+          done
+      - name: Syntax (bash -n, Python AST, JSON)
+        run: bash tests/check-syntax.sh
+      - name: Static suite (layer, menus, bar, wording, GTK windows)
+        run: bash tests/check-static.sh
+      - name: Menus and Start menu
+        run: bash tests/check-menus.sh
+      - name: P.R.I.M.E terminal greeting
+        run: bash tests/check-greeting.sh
+      - name: prime-import
+        run: bash tests/check-import.sh
+      - name: Personal add-ons
+        run: bash tests/check-personal-addons.sh
+      - name: Remote login (SSH) safety
+        run: bash tests/check-ssh.sh
+      - name: Nightly updater, system installer, security report
+        run: bash backends/arch/test-system-update.sh
+      - name: Owner's machine leaks
+        run: bash tests/check-portable.sh
+      - name: Update everything on a private-repo install without a GitHub login
+        run: bash tests/check-update-private.sh
+
+  container:
+    name: Clean install (fresh Arch container)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: install.sh as a new user, checks, prime-uninstall
+        run: bash tests/install-in-container.sh
+
+  vm:
+    name: Real boot (CachyOS VM → install → Hyprland → uninstall)
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' && inputs.vm
+    runs-on: ubuntu-24.04
+    timeout-minutes: 100
+    steps:
+      - uses: actions/checkout@v4
+      - name: KVM and QEMU
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm.rules
+          sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm
+          sudo apt-get update -q
+          sudo apt-get install -y -q qemu-system-x86 qemu-utils ovmf libarchive-tools fakeroot e2fsprogs imagemagick
+          ls -l /dev/kvm
+      - name: Newest CachyOS ISO name
+        id: iso
+        run: echo "latest=$(curl -fsSL https://mirror.cachyos.org/ISO/desktop/ | grep -oE 'href=\"[0-9]{6}/\"' | grep -oE '[0-9]{6}' | sort -n | tail -1)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        with:
+          path: tests/vm/.work/cachyos-desktop-linux-*.iso*
+          key: cachyos-iso-${{ steps.iso.outputs.latest }}
+      - name: fetch + base + prime
+        # GitHub's runners: 2 CPUs, about 7 GB of memory, and no GPU, so no render
+        # node for virgl; the guest then draws with Mesa's software renderer
+        run: |
+          export PRIME_VM_CPUS="$(nproc)" PRIME_VM_MEM=5120
+          ls /dev/dri/renderD* >/dev/null 2>&1 && export PRIME_VM_GL=1 || export PRIME_VM_GL=0
+          bash tests/vm/run.sh all
+      - name: Logs and screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vm-test
+          path: |
+            tests/vm/.work/*.log
+            tests/vm/.work/*.png
+          if-no-files-found: ignore
+          include-hidden-files: true   # tests/vm/.work starts with a dot

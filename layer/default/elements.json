@@ -183,8 +183,8 @@
     },
     "bar.gpu": {
       "label": "Graphics",
-      "state": "printf 'busy %s%% · %s°C · vram %s GiB' \"$(cat /sys/class/drm/card1/device/gpu_busy_percent 2>/dev/null)\" \"$(awk '{printf \"%.0f\", $1/1000}' /sys/class/drm/card1/device/hwmon/hwmon1/temp1_input 2>/dev/null)\" \"$(awk '{printf \"%.1f\", $1/1073741824}' /sys/class/drm/card1/device/mem_info_vram_used 2>/dev/null)\"",
-      "ask": "My GPU element shows {state}. Is that healthy for an RX 9060 XT, and is anything using it that shouldn't be?",
+      "state": "~/.local/share/prime-linux/layer/bin/prime-gpu-monitor | jq -r '.tooltip // \"no graphics load reading on this computer\"'",
+      "ask": "My GPU element shows {state}. Is that healthy for this graphics card, and is anything using it that shouldn't be?",
       "items": [
         {
           "label": "󰢮  Open Activity",

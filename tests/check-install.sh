@@ -74,5 +74,7 @@ ck "Prime window self-test (headless part)"  "python3 $L/bin/prime-panel --selft
 ck "health check reports in the window's words" "PRIME_PANEL=1 $L/bin/prime-doctor | grep -q '^@summary '"
 ck "every bar item reachable by keyboard"    "[ \$($L/bin/prime-bar --keys --list | wc -l) -ge 15 ]"
 ck "static suite on the installed copy"     "python3 $P/tests/check-static.py"
+ck "personal add-ons load in every tool"     "bash $P/tests/check-personal-addons.sh"
+ck "prime-import: dry run, apply, verify, undo" "bash $P/tests/check-import.sh"
 ck "no trace of the author's machine"      "! grep -rIl -e /home/sean -e '\\bsean\\b' $L ~/.config/hypr ~/.config/kitty ~/.config/prime"
 echo; [ $fail = 0 ] && echo "ALL PASSED" || echo "$fail FAILED"; exit $fail

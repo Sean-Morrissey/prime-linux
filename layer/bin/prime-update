@@ -1,51 +1,149 @@
 #!/usr/bin/env bash
-# prime-update — update everything: Prime Linux itself, the system packages
-# (repo + AUR), App Store apps, and the window title-bar plugin. A system
-# snapshot and a copy of your desktop settings are taken first (pacman hooks),
-# so a bad update can be undone (boot menu / Menu → Style → Restore).
+# prime-update — update everything: Prime Linux itself, the system (with a
+# safety snapshot first), apps from the AUR (asks first), App Store apps, and
+# the window title bars. Explains every step, and every failure, in plain words.
 #
 #   prime-update            update everything
 #   prime-update --prime    only Prime Linux itself (no system packages)
+#   prime-update --check    what is waiting — changes nothing
+#   prime-update --undo     how to go back to before the last update
+#
+# The system part runs in Prime's updater (prime-system-update): downloads
+# finish before anything installs, shutdown is blocked while it installs, and
+# closing this window can't stop it half-way.
 set -u
 LAYER="$(readlink -f "$(dirname "$(readlink -f "$0")")/..")"
 REPO="$(readlink -f "$LAYER/..")"
-A=$'\e[38;2;248;113;113m'; B=$'\e[1m'; R=$'\e[0m'
-step() { printf '\n%s==>%s %s%s%s\n' "$A" "$R" "$B" "$*" "$R"; }
-ONLY_PRIME=0; [ "${1:-}" = "--prime" ] && ONLY_PRIME=1
+BIN="$LAYER/bin"
+ENGINE=/usr/local/lib/prime-linux/prime-system-update
+[ -x "$ENGINE" ] || ENGINE="$LAYER/system/updates/prime-system-update"
+STATE=/var/lib/prime-linux/updates
+A=$'\e[38;2;248;113;113m'; B=$'\e[1m'; D=$'\e[2m'; G=$'\e[32m'; Y=$'\e[33m'; R=$'\e[0m'
+TOTAL=5; n=0
+step() { n=$((n+1)); printf '\n%s[%d/%d]%s %s%s%s\n' "$A" "$n" "$TOTAL" "$R" "$B" "$*" "$R"; }
+ok()   { printf '    %s✓%s %s\n' "$G" "$R" "$*"; }
+note() { printf '    %s\n' "$*"; }
+warn() { printf '    %s!%s %s\n' "$Y" "$R" "$*"; }
+stop() { printf '\n%s%s%s\n' "$B" "$1" "$R"; shift; for l in "$@"; do printf '  %s\n' "$l"; done; echo; exit 1; }
+trap 'printf "\n  Stopped. The system part (if it had started) finishes by itself — nothing is left half-installed.\n"; exit 130' INT
 
-step "Prime Linux"
-before="$(git -C "$REPO" rev-parse --short HEAD)"
-if git -C "$REPO" pull --ff-only --quiet; then
-    after="$(git -C "$REPO" rev-parse --short HEAD)"
-    [ "$before" = "$after" ] && echo "    already up to date ($after)" || {
-        echo "    $before → $after"; git -C "$REPO" log --oneline "$before..$after" | sed 's/^/      /' | head -15; }
-else
-    echo "    couldn't update Prime Linux (offline, or local changes in $REPO) — continuing"
-fi
-
-if [ $ONLY_PRIME = 0 ]; then
-    step "System packages"
-    mapfile -t want < <(grep -vE '^\s*(#|$)' "$REPO/os/arch/packages.txt")
-    if command -v paru >/dev/null; then paru -Syu --needed "${want[@]}"
-    else sudo pacman -Syu --needed "${want[@]}"; fi
-
-    if command -v flatpak >/dev/null; then
-        step "App Store apps"
-        flatpak update -y --noninteractive
+case "${1:-}" in
+  --check) exec "$ENGINE" check ;;
+  --undo)
+    "$ENGINE" undo
+    if findmnt -no OPTIONS / 2>/dev/null | grep -q 'subvol=[^,]*\.snapshots/[0-9]' && command -v limine-snapper-restore >/dev/null; then
+      read -rp "  Make this snapshot the permanent system now? [y/N] " a
+      [ "${a,,}" = y ] && exec sudo limine-snapper-restore
     fi
+    exit 0 ;;
+  --prime) ONLY_PRIME=1 ;;
+  "") ONLY_PRIME=0 ;;
+  -h|--help) sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+  *) echo "unknown option: $1 (try: prime-update --help)" >&2; exit 2 ;;
+esac
+[ "$ONLY_PRIME" = 1 ] && TOTAL=2
+
+printf '\n  %sUpdating your computer%s %s— this usually takes a few minutes. You can keep working.%s\n' "$B" "$R" "$D" "$R"
+
+# ── 1. Prime Linux itself ────────────────────────────────────────────────────
+step "Prime Linux"
+before="$(git -C "$REPO" rev-parse --short HEAD 2>/dev/null)"
+if git -C "$REPO" pull --ff-only --quiet 2>/dev/null; then
+    after="$(git -C "$REPO" rev-parse --short HEAD)"
+    if [ "$before" = "$after" ]; then ok "already up to date"
+    else ok "updated"; git -C "$REPO" log --format='%s' "$before..$after" | head -8 | sed 's/^/      · /'; fi
+else
+    warn "couldn't update Prime Linux itself (offline, or files in $REPO were edited) — carrying on"
 fi
 
-step "Refreshing the desktop"
+if [ "$ONLY_PRIME" = 0 ]; then
+  # ── 2. ready? ──────────────────────────────────────────────────────────────
+  step "Getting ready"
+  if ! getent hosts cachyos.org >/dev/null 2>&1 && ! getent hosts archlinux.org >/dev/null 2>&1; then
+    stop "No internet connection." "Connect to Wi-Fi or a cable (top bar → network), then run Update everything again." \
+         "Nothing was changed."
+  fi
+  ok "internet works"
+  for b in /sys/class/power_supply/*; do
+    [ "$(cat "$b/type" 2>/dev/null)" = Battery ] && [ "$(cat "$b/scope" 2>/dev/null)" != Device ] || continue
+    cap="$(cat "$b/capacity" 2>/dev/null)"; st="$(cat "$b/status" 2>/dev/null)"
+    if [ "$st" = Discharging ] && [ "${cap:-100}" -lt 15 ]; then
+      stop "The battery is at ${cap}%." "Plug in the charger first — an update must not be cut off by an empty battery." "Nothing was changed."
+    fi
+    [ "$st" = Discharging ] && warn "on battery (${cap}%) — plugging in is safer"
+  done
+  free="$(df -BG --output=avail / | tail -1 | tr -dc 0-9)"
+  [ "${free:-0}" -ge 3 ] || stop "The disk is almost full (${free} GB free)." \
+      "Empty the Trash and Downloads, or remove old game installs, then try again." \
+      "To clear old downloaded updates as well:  sudo paccache -rk1" "Nothing was changed."
+  ok "${free} GB free on the disk"
+  note "Prime needs your password once, to change the system."
+  sudo -v || stop "The password wasn't accepted." "Nothing was changed. Try again, or ask whoever set up this computer."
+  # keep sudo's permission alive for the AUR step after a long system update
+  ( while sleep 50; do sudo -n -v 2>/dev/null || exit; done ) & KEEPALIVE=$!
+  trap 'kill $KEEPALIVE 2>/dev/null' EXIT
+  if ! bash "$LAYER/system/install-system.sh" needs-update >/dev/null 2>&1; then
+    note "updating Prime's update service and safety settings…"
+    sudo bash "$LAYER/system/install-system.sh" install --user "$(id -un)" 2>&1 | sed 's/^    /      /' \
+      && ENGINE=/usr/local/lib/prime-linux/prime-system-update
+  fi
+
+  # ── 3. the system ──────────────────────────────────────────────────────────
+  step "System (safety snapshot first)"
+  out="$(mktemp)"
+  sudo env PRIME_ALLOW_REAL_SYSTEM_CHANGES=yes "$ENGINE" apply --manual --ensure "$REPO/os/arch/packages.txt" 2>&1 | tee "$out"
+  result="$(sed -n 's/^RESULT //p' "$out" | tail -1)"; rm -f "$out"
+  case "$result" in
+    ok)        ok "system up to date" ;;
+    attention) warn "system updated — see the ! lines above (nothing urgent)" ;;
+    skipped)   stop "The system wasn't updated this time." "The reason is just above. Nothing was changed — try again later." ;;
+    failed)    stop "The system update didn't go through." "The reason is just above. Your computer is exactly as it was." \
+                    "If it keeps happening: Prime menu → Update → Check for problems, or ask for help with the log in $STATE." ;;
+    broken)    stop "The system update stopped part-way." \
+                    "Your computer still works. Please don't restart it yet." \
+                    "Run Update everything once more — it usually finishes the job." \
+                    "If that doesn't help:  prime-update --undo  shows the safe way back to before the update." ;;
+    *)         stop "The updater stopped unexpectedly." "Nothing should have changed. Details: sudo journalctl -n 50" ;;
+  esac
+
+  # ── 4. AUR (never unattended) ──────────────────────────────────────────────
+  step "Apps from the AUR"
+  if command -v paru >/dev/null && aur="$(paru -Qua 2>/dev/null)" && [ -n "$aur" ]; then
+    printf '%s\n' "$aur" | sed 's/^/      · /'
+    note "These come from the AUR: made by volunteers and not checked by CachyOS."
+    read -rp "    Update them too? [Y/n] " a
+    if [ "${a,,}" != n ]; then
+      paru -Sua --skipreview || warn "some AUR apps didn't update — they keep working as they are"
+    else note "skipped — they keep working as they are"; fi
+  else ok "nothing to update"; fi
+
+  # ── 5. App Store (system-wide apps were done in step 3) ────────────────────
+  step "App Store apps"
+  if command -v flatpak >/dev/null && flatpak list --user --app 2>/dev/null | grep -q .; then
+    flatpak update --user -y --noninteractive >/dev/null 2>&1 && ok "your apps are up to date" || warn "some apps couldn't update — try again later"
+  else ok "up to date"; fi
+fi
+
+# ── refresh the desktop ──────────────────────────────────────────────────────
+printf '\n%sRefreshing the desktop%s\n' "$B" "$R"
 for u in "$LAYER"/systemd/*; do ln -sfn "$u" "$HOME/.config/systemd/user/$(basename "$u")"; done
-systemctl --user daemon-reload
-"$LAYER/bin/prime-addon" --relink >/dev/null
-"$LAYER/bin/prime-theme" --apply
-if hyprpm update >/dev/null 2>&1 && hyprpm reload -n >/dev/null 2>&1; then echo "    title bars: rebuilt for this Hyprland"
-else echo "    title bars: couldn't rebuild (see: hyprpm update)"; fi
+systemctl --user daemon-reload 2>/dev/null
+"$BIN/prime-addon" --relink >/dev/null 2>&1
+"$BIN/prime-theme" --apply >/dev/null 2>&1
+if hyprpm update >/dev/null 2>&1 && hyprpm reload -n >/dev/null 2>&1; then ok "window title bars rebuilt for this Hyprland"
+else warn "window title bars couldn't be rebuilt now (the next update retries)"; fi
 if [ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]; then
     hyprctl reload >/dev/null
     systemctl --user restart prime-session.target prime-bar@top prime-bar@side 2>/dev/null
 fi
-rm -f "${XDG_RUNTIME_DIR:-/tmp}/waybar-updates.json"
+rm -f "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/waybar-updates.json"
+mkdir -p "${XDG_STATE_HOME:-$HOME/.local/state}/prime"
+jq -r '.seq // empty' "$STATE/last-run.json" 2>/dev/null > "${XDG_STATE_HOME:-$HOME/.local/state}/prime/updates-seen"
 
-printf '\n%sDone.%s If anything looks wrong: Super+H checks and repairs the desktop.\n' "$B" "$R"
+printf '\n%sDone.%s ' "$B" "$R"
+case "$(jq -r '.restart // "no"' "$STATE/last-run.json" 2>/dev/null)" in
+  yes)  echo "Restart the computer when convenient — a new system core is installed." ;;
+  soon) echo "Restarting when convenient makes every part use the new versions." ;;
+  *)    echo "Nothing else to do." ;;
+esac
+echo "If anything looks wrong: Super+H checks and repairs the desktop; prime-update --undo goes back."

@@ -172,7 +172,8 @@ cmd_prime() {
         ck 'prime-session.target active' 'systemctl --user is-active prime-session.target'
         ck 'volume popups (swayosd)'     'pgrep -x swayosd-server'
         ck 'notifications (swaync)'      'pgrep -x swaync'
-        ck 'wallpaper (hyprpaper)'       'pgrep -x hyprpaper'
+        if [ ${PRIME_VM_GL:-1} = 1 ]; then ck 'wallpaper (hyprpaper)' 'pgrep -x hyprpaper'
+        else echo '    · wallpaper (hyprpaper): not checked: it needs a GPU render node and this VM has none (software rendering)'; fi
         ck 'window title bars (built at first login)' 'for i in \$(seq 48); do hyprctl plugin list | grep -qi hyprbars && exit 0; sleep 5; done; exit 1'
         ck 'keyboard layout applied'     'hyprctl -j devices | jq -e \".keyboards[] | select(.main) | .layout\"'
         ck 'binds have descriptions'     '[ \$(hyprctl -j binds | jq \"[.[] | select(.has_description | not)] | length\") = 0 ]'

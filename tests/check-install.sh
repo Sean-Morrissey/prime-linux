@@ -37,7 +37,7 @@ ck "side bar config builds"                 "$L/bin/prime-bar --print side | jq 
 ck "menu: every row resolves"               "$L/bin/prime-menu --check | tail -1 | grep -q 'every row resolves'"
 ck "menu has Quick switches + Capture & tools" "$L/bin/prime-menu --list | grep -q '^toggles' && $L/bin/prime-menu --list | grep -q '^tools'"
 ck "every bar click target exists"          "$L/bin/prime-bar --print top | jq -r '.[] | objects | .[\"on-click\"] // empty' | sed 's#^~#'\$HOME'#' | awk '{print \$1}' | sort -u | while read -r c; do command -v \"\$c\" || [ -x \"\$c\" ] || exit 1; done"
-ck "right-click menus list items"           "$L/bin/prime-context bar.audio --list | grep -q mixer"
+ck "right-click menus list items"           "$L/bin/prime-context bar.audio --list | grep -q 'Sound settings'"
 ck "right-click: battery/recording/switches/keyboard" "for e in bar.battery bar.recording bar.toggles bar.keyboard; do $L/bin/prime-context \$e --list | grep -qv 'Copy this value' || exit 1; done"
 ck "spotlight self-test"                    "python3 $L/bin/prime-spotlight --query notes"
 

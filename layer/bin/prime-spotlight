@@ -1,28 +1,29 @@
 #!/usr/bin/python3
 """Prime Spotlight — the one box that finds anything (Super+Space).
 
-Typing searches locally and instantly: applications, then files and folders in
-your home. Enter opens the top hit. Anything with no local match becomes a web
-search — or, with the AI add-on enabled, a question for the assistant.
+Type and results appear as you go, grouped: the Top Hit, Applications, Files,
+Calculator, and a last row that searches the web — or, with the AI add-on
+enabled, asks the assistant. Enter opens the highlighted row; the mouse works
+too (hover to highlight, click to open). Esc closes.
 
-Prefixes, for when the guess is wrong or you want a specific lane:
-    = <expr>     arithmetic, evaluated locally (result copied on Enter)
+Plain sums are answered in place (2+2, 15% of nothing, just arithmetic);
+Enter copies the result. Prefixes, for when the guess is wrong:
+    = <expr>     arithmetic only
     > <text>     applications only
     / <text>     search the web
 
   prime-spotlight                    run it (what the keybind does)
-  prime-spotlight --selftest         every source + the router, no window
+  prime-spotlight --selftest         every source + the router + the window, map nothing
   prime-spotlight --query "notes"    what the list would show, headless
+  prime-spotlight --screenshot F --query Q   render the window to a PNG (needs a display)
 """
 from __future__ import annotations
 
 import argparse
 import ast
-import html
 import operator
 import os
 import re
-import shlex
 import subprocess
 import sys
 import threading
@@ -34,7 +35,7 @@ import gi
 
 gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")
-from gi.repository import Gdk, GLib, Gtk  # noqa: E402
+from gi.repository import Gdk, Gio, GLib, Gtk, Pango  # noqa: E402
 
 try:
     gi.require_version("GtkLayerShell", "0.1")
@@ -70,40 +71,90 @@ def theme_accent() -> str:
     try:
         for line in open(os.path.join(HOME, ".config/prime/theme.conf")):
             if line.startswith("ACCENT="):
-                return "#" + line.split("=", 1)[1].strip()
+                v = line.split("=", 1)[1].strip().strip("'\"").lstrip("#")
+                if re.fullmatch(r"[0-9a-fA-F]{6}", v):
+                    return "#" + v.lower()
     except OSError:
         pass
     return "#f87171"
+
+
 XDG_DATA_DIRS = os.environ.get("XDG_DATA_DIRS", "/usr/local/share:/usr/share").split(":")
-APP_DIRS = [os.path.join(d, "applications") for d in XDG_DATA_DIRS] + [
-    os.path.join(HOME, ".local/share/applications"),
+APP_DIRS = [os.path.join(HOME, ".local/share/applications")] + \
+    [os.path.join(d, "applications") for d in XDG_DATA_DIRS] + [
     "/var/lib/flatpak/exports/share/applications",
     os.path.join(HOME, ".local/share/flatpak/exports/share/applications"),
 ]
 SKIP_DIRS = {".git", "node_modules", ".cache", ".venv", "venv", "__pycache__",
              ".npm", ".cargo", ".rustup", ".local/share/Trash"}
 MAX_ROWS = 9
-ROW_H = 46
+APP_ICONS: dict = {}          # desktop id -> Icon= value (filled by load_apps)
+
+SECTION = {"app": "Applications", "path": "Files", "recent": "Recent",
+           "math": "Calculator", "ask": "Ask Prime" if ASKER else "Web", "hint": ""}
 
 CSS = """
-window { background: transparent; }
-#card { background: alpha(#1c1c1e, 0.94); border: 1px solid alpha(#ffffff, 0.13);
-        border-radius: 14px; padding: 10px; }
-entry { background: alpha(#ffffff, 0.07); border: 1px solid alpha(#ffffff, 0.16);
-        border-radius: 9px; padding: 9px 12px; caret-color: #ffffff; }
-.row { padding: 7px 10px; border-radius: 8px; }
-.row.sel { background: alpha(@ACCENT@, 0.28); }
-.kind { color: alpha(#ffffff, 0.42); }
-.main { color: #f4f4f5; }
-.sub  { color: alpha(#ffffff, 0.45); }
-.mono { font-family: monospace; color: #ffd479; }
-""".replace("@ACCENT@", theme_accent()).encode()
+window, .background { background: transparent; }
+#card {
+    background-color: rgba(22, 22, 28, 0.90);
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    border-radius: 22px;
+    box-shadow: 0 20px 48px rgba(0, 0, 0, 0.50), inset 0 1px rgba(255, 255, 255, 0.06);
+    margin: 28px;
+    font-family: "Inter", "Noto Sans", sans-serif;
+}
+#searchbar { padding: 16px 20px 14px 22px; }
+#searchicon { color: rgba(255, 255, 255, 0.55); }
+#search, #search:focus {
+    background: transparent; border: none; box-shadow: none; outline: none;
+    font-size: 22px; font-weight: 400; color: #f4f4f6;
+    caret-color: @ACCENT@; padding: 2px 0; min-height: 34px;
+}
+#search selection { background-color: alpha(@ACCENT@, 0.35); }
+#divider { background-color: rgba(255, 255, 255, 0.07); min-height: 1px; }
+#results { padding: 6px 0 8px 0; }
+list, list row { background: transparent; }
+.section {
+    font-size: 11px; font-weight: 600; color: rgba(255, 255, 255, 0.42);
+    padding: 10px 22px 4px 22px; letter-spacing: 0.04em;
+}
+row.hit {
+    margin: 1px 10px; padding: 7px 12px; border-radius: 12px;
+    border: 1px solid transparent; outline: none;
+}
+row.hit:hover { background-color: rgba(255, 255, 255, 0.05); }
+row.hit:selected, row.hit:selected:hover {
+    background-color: alpha(@ACCENT@, 0.20);
+    border-color: alpha(@ACCENT@, 0.45);
+}
+.title { font-size: 14px; font-weight: 500; color: #f4f4f6; }
+.subtitle { font-size: 12px; color: rgba(255, 255, 255, 0.48); }
+row.top .title { font-size: 16px; font-weight: 600; }
+.answer { font-family: "JetBrainsMono Nerd Font", monospace; font-size: 22px;
+          font-weight: 600; color: @ACCENT@; }
+.keycap {
+    font-size: 11px; font-weight: 600; color: rgba(255, 255, 255, 0.72);
+    background-color: rgba(255, 255, 255, 0.09); border-radius: 6px; padding: 2px 8px;
+}
+.hintrow .title { color: rgba(255, 255, 255, 0.62); font-weight: 400; }
+#footer {
+    padding: 9px 22px 11px 22px; font-size: 11.5px; color: rgba(255, 255, 255, 0.40);
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+#footer .key { color: rgba(255, 255, 255, 0.70); font-weight: 600; }
+"""
+
+
+def css_bytes() -> bytes:
+    return CSS.replace("@ACCENT@", theme_accent()).encode()
 
 
 # ── sources ────────────────────────────────────────────────────────────────────
 
 def _desktop_field(text: str, key: str) -> str:
-    m = re.search(rf"^{key}=(.*)$", text, re.M)
+    """A key from the [Desktop Entry] group only (not from Actions)."""
+    head = text.split("\n[", 1)[0] if text.lstrip().startswith("[Desktop Entry]") else text
+    m = re.search(rf"^{key}=(.*)$", head, re.M)
     return (m.group(1) if m else "").strip()
 
 
@@ -127,14 +178,17 @@ def load_apps() -> list:
                 continue
             if _desktop_field(text, "NoDisplay").lower() == "true":
                 continue
+            if _desktop_field(text, "Hidden").lower() == "true":
+                continue
             if _desktop_field(text, "Type") not in ("", "Application"):
                 continue
             name = _desktop_field(text, "Name")
             exe = _desktop_field(text, "Exec")
             if not name or not exe:
                 continue
-            out.append((name, exe, fn[:-len(".desktop")],
-                        _desktop_field(text, "Comment")))
+            did = fn[:-len(".desktop")]
+            APP_ICONS[did] = _desktop_field(text, "Icon")
+            out.append((name, exe, did, _desktop_field(text, "Comment")))
     return out
 
 
@@ -171,7 +225,7 @@ def find_paths(query: str, limit: int = 24, timeout: int = 4) -> list:
     q = query.strip()
     if not q:
         return []
-    args = ["fd", "--absolute-path", "--max-results", str(limit),
+    args = ["fd", "--absolute-path", "--max-results", str(limit), "--fixed-strings",
             "--type", "f", "--type", "d", "--color", "never"]
     for d in SKIP_DIRS:
         args += ["--exclude", d]
@@ -183,15 +237,18 @@ def find_paths(query: str, limit: int = 24, timeout: int = 4) -> list:
         hits = []
     if not hits:                      # plocate covers the rest of the disk, instantly
         try:
-            r = subprocess.run(["plocate", "-i", "-l", str(limit), "--", q],
+            r = subprocess.run(["plocate", "-i", "-l", str(limit * 8), "--", q],
                                capture_output=True, text=True, timeout=timeout)
-            hits = [ln for ln in r.stdout.splitlines() if ln.strip()]
+            # people's files only: home, other disks, USB sticks — not /etc or /usr
+            mine = (HOME + "/", "/mnt/", "/media/", "/run/media/")
+            hits = [ln for ln in r.stdout.splitlines()
+                    if ln.strip() and ln.startswith(mine)][:limit]
         except (OSError, subprocess.TimeoutExpired):
             hits = []
     return hits
 
 
-# ── local arithmetic (= prefix) ────────────────────────────────────────────────
+# ── local arithmetic ───────────────────────────────────────────────────────────
 
 _OPS = {ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul,
         ast.Div: operator.truediv, ast.FloorDiv: operator.floordiv,
@@ -205,6 +262,11 @@ def _eval_node(node):
     if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
         return node.value
     if isinstance(node, ast.BinOp) and type(node.op) in _OPS:
+        if isinstance(node.op, ast.Pow):
+            exp = _eval_node(node.right)
+            if abs(exp) > 1000:
+                raise ValueError("too big")
+            return operator.pow(_eval_node(node.left), exp)
         return _OPS[type(node.op)](_eval_node(node.left), _eval_node(node.right))
     if isinstance(node, ast.UnaryOp) and type(node.op) in _OPS:
         return _OPS[type(node.op)](_eval_node(node.operand))
@@ -213,7 +275,8 @@ def _eval_node(node):
 
 def calc(expr: str) -> str:
     """Safe arithmetic. Empty string when it is not a sum we should answer."""
-    expr = expr.strip().lstrip("=").strip().replace("^", "**").replace("×", "*").replace("÷", "/")
+    expr = expr.strip().lstrip("=").strip().replace("^", "**").replace("×", "*") \
+        .replace("÷", "/").replace(",", "")
     if not expr or not re.fullmatch(r"[0-9 .+\-*/%()]+", expr):
         return ""
     try:
@@ -226,6 +289,11 @@ def calc(expr: str) -> str:
         else:
             value = round(value, 6)
     return str(value)
+
+
+def looks_like_sum(q: str) -> bool:
+    """2+2, (3*4)/2, 2^8 — digits with at least one operator between them."""
+    return bool(re.fullmatch(r"[\d\s.,()]*\d[\d\s.,()]*([+\-*/×÷^%][\d\s.,()]+)+", q.strip()))
 
 
 # ── ranking + routing (pure, so the self-test can assert them) ─────────────────
@@ -243,7 +311,7 @@ def rank_apps(query: str, apps: list, limit: int = 6) -> list:
             score = 1
         elif q in n:
             score = 2
-        elif q in d or q in exe.lower():
+        elif q in d or q in exe.lower() or (len(q) > 2 and q in comment.lower()):
             score = 3
         else:
             continue
@@ -279,7 +347,7 @@ def route(kind: str, main: str, sub: str, query: str) -> tuple:
     if kind == "path":
         return ("open_path", sub)
     if kind == "math":
-        return ("copy", main)
+        return ("copy", main.lstrip("= ").strip())
     if query.startswith("/") or not ASKER:
         return ("web", query.lstrip("/").strip())
     return ("ask", query)
@@ -291,95 +359,213 @@ def results_for(query: str, apps: list, recents: list, timeout: int = 4) -> list
     rows = []
     if not q:
         rows = [("path", os.path.basename(p.rstrip("/")) or p, p, "recent")
-                for p in recents[:MAX_ROWS]]
-        return rows or [("hint", "Type to search apps, files, folders — or =2+2",
-                         "Enter on a hit opens it · anything else " +
-                         ("asks the assistant" if ASKER else "searches the web"), "")]
+                for p in recents[:6]]
+        return rows or [("hint", "Start typing to search",
+                         "apps · files · 2+2 · or anything else to " +
+                         ("ask Prime" if ASKER else "search the web"), "")]
 
     asked_only_apps = q.startswith(">")
     asked_only_web = q.startswith("/")
     body = q.lstrip(">/").strip() if (asked_only_apps or asked_only_web) else q
+    is_sum = q.startswith("=") or looks_like_sum(q)
 
-    if q.startswith("="):
+    if is_sum:
         value = calc(q)
         if value:
             rows.append(("math", f"= {value}", q.lstrip("=").strip(), "copy"))
-    if not asked_only_web:
-        rows += rank_apps(body, apps, 6 if not asked_only_apps else MAX_ROWS)
-    if not asked_only_apps and not asked_only_web and not q.startswith("="):
+    if not asked_only_web and not q.startswith("="):
+        rows += rank_apps(body, apps, 5 if not asked_only_apps else MAX_ROWS)
+    if not asked_only_apps and not asked_only_web and not is_sum:
         hits = find_paths(body, timeout=timeout)
-        existing = set(recents)
-        rows += rank_paths(body, hits, existing, 6)
+        rows += rank_paths(body, hits, set(recents), 5)
     if ASKER and not asked_only_web:
-        rows.append(("ask", f"Ask Prime: {body}", "the assistant gets the question as typed", "enter"))
+        rows.append(("ask", f"Ask Prime “{body}”", "the assistant answers in a window", "enter"))
     else:
-        rows.append(("ask", f"Search the web: {body}", "opens your browser", "enter"))
+        rows.append(("ask", f"Search the web for “{body}”", "opens in your browser", "enter"))
     return rows[:MAX_ROWS + 1]
+
+
+def top_hit(rows: list, query: str):
+    """The best single answer: a sum, an app named like the query, a file named
+    like it, then any app, any file — the web/ask row only when nothing else."""
+    q = query.strip().lstrip(">/=").strip().lower()
+    def named(r):
+        return bool(q) and any(w.startswith(q) for w in [r[1].lower()] + re.split(r"[\s\-_.]+", r[1].lower()))
+    tests = [lambda r: r[0] == "math",
+             lambda r: r[0] == "app" and named(r),
+             lambda r: r[0] == "path" and named(r),
+             lambda r: r[0] == "app",
+             lambda r: r[0] == "path"]
+    for t in tests:
+        for r in rows:
+            if t(r):
+                return r
+    return rows[0]
+
+
+def grouped(rows: list, query: str = "") -> list:
+    """[(section, row)] in display order: the Top Hit, then each kind in turn."""
+    if not rows:
+        return []
+    if rows[0][0] == "hint":
+        return [("", rows[0])]
+    if rows[0][3] == "recent":
+        return [("Recent", r) for r in rows]
+    order = ["math", "app", "path", "ask"]
+    top = top_hit(rows, query)
+    out = [("Top Hit", top)]
+    for k in order:
+        for r in rows:
+            if r is not top and r[0] == k:
+                out.append((SECTION[k], r))
+    return out
+
+
+# ── icons ──────────────────────────────────────────────────────────────────────
+
+def icon_for(kind: str, sub: str):
+    """A Gio.Icon for a row (resolved lazily by the icon theme)."""
+    theme = Gtk.IconTheme.get_default()
+
+    def themed(*names):
+        for n in names:
+            if theme is None or theme.has_icon(n):
+                return Gio.ThemedIcon.new(n)
+        return Gio.ThemedIcon.new(names[-1])
+
+    if kind == "app":
+        val = APP_ICONS.get(sub, "")
+        if val.startswith("/") and os.path.exists(val):
+            return Gio.FileIcon.new(Gio.File.new_for_path(val))
+        if val:
+            return themed(val, "application-x-executable")
+        return themed("application-x-executable")
+    if kind == "path":
+        if os.path.isdir(sub):
+            return themed("folder")
+        ctype, _ = Gio.content_type_guess(sub, None)
+        return Gio.content_type_get_icon(ctype) if ctype else themed("text-x-generic")
+    if kind == "math":
+        return themed("accessories-calculator", "accessories-calculator-symbolic")
+    if kind == "ask":
+        return themed("prime-linux", "dialog-question") if ASKER else \
+            themed("web-browser", "applications-internet", "system-search")
+    return themed("system-search-symbolic")
+
+
+def pretty_path(p: str) -> str:
+    d = os.path.dirname(p.rstrip("/"))
+    return "~" + d[len(HOME):] if d.startswith(HOME) else d
 
 
 # ── window ─────────────────────────────────────────────────────────────────────
 
 class Spotlight(Gtk.Window):
-    def __init__(self, show: bool = True):
+    WIDTH = 720
+
+    def __init__(self, show: bool = True, offscreen: bool = False):
         super().__init__(type=Gtk.WindowType.TOPLEVEL)
         self.apps = load_apps()
         self.recents = load_recent()
         self.rows: list = []
-        self.sel = 0
         self.seq = 0                       # guards against out-of-order searches
         self.mapped_at = 0.0
 
         self.set_name("prime-spotlight")
+        self.set_title("Spotlight")
         self.set_decorated(False)
         self.set_skip_taskbar_hint(True)
         self.set_resizable(False)
-        self.set_default_size(720, -1)
+        self.set_app_paintable(True)
+        screen = self.get_screen()
+        if screen is not None and screen.get_rgba_visual() is not None:
+            self.set_visual(screen.get_rgba_visual())
+        self.set_default_size(self.WIDTH, -1)
 
-        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        self.card = card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         card.set_name("card")
-        outer.pack_start(card, True, True, 0)
-        self.add(outer)
+        card.set_size_request(self.WIDTH - 56, -1)
+        self.add(card)
 
+        bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=14)
+        bar.set_name("searchbar")
+        icon = Gtk.Image.new_from_icon_name("system-search-symbolic", Gtk.IconSize.LARGE_TOOLBAR)
+        icon.set_pixel_size(22)
+        icon.set_name("searchicon")
+        bar.pack_start(icon, False, False, 0)
         self.entry = Gtk.Entry()
-        self.entry.set_placeholder_text("Search apps, files, folders — or just ask")
+        self.entry.set_name("search")
+        self.entry.set_has_frame(False)
+        self.entry.set_placeholder_text("Search apps, files, or ask…")
         self.entry.connect("changed", self.on_changed)
         self.entry.connect("activate", lambda *_: self.run_selected())
         self.entry.connect("key-press-event", self.on_key)
-        card.pack_start(self.entry, False, False, 0)
+        bar.pack_start(self.entry, True, True, 0)
+        card.pack_start(bar, False, False, 0)
 
-        self.listbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1)
+        self.divider = Gtk.Box()
+        self.divider.set_name("divider")
+        card.pack_start(self.divider, False, False, 0)
+
+        self.listbox = Gtk.ListBox()
+        self.listbox.set_name("results")
+        self.listbox.set_selection_mode(Gtk.SelectionMode.BROWSE)
+        self.listbox.set_activate_on_single_click(True)
+        self.listbox.set_can_focus(False)
+        self.listbox.set_header_func(self._header)
+        self.listbox.connect("row-activated", lambda _l, row: self.run_row(row.idx))
+        self.listbox.add_events(Gdk.EventMask.POINTER_MOTION_MASK)
+        self.listbox.connect("motion-notify-event", self.on_motion)
         card.pack_start(self.listbox, False, False, 0)
 
-        self.hint = Gtk.Label(label="↑↓ pick   ·   Enter open   ·   =math   ·   /web   ·   Esc close")
-        self.hint.set_name("hint")
-        self.hint.get_style_context().add_class("sub")
-        self.hint.set_xalign(0.0)
-        card.pack_start(self.hint, False, False, 0)
+        foot = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
+        foot.set_name("footer")
+        left = Gtk.Label()
+        left.set_markup("<span weight='600' alpha='70%'>↑↓</span>  move    "
+                        "<span weight='600' alpha='70%'>↵</span>  open    "
+                        "<span weight='600' alpha='70%'>esc</span>  close")
+        right = Gtk.Label()
+        right.set_markup("<span weight='600' alpha='70%'>&gt;</span> apps only    "
+                         "<span weight='600' alpha='70%'>/</span> web    "
+                         "<span weight='600' alpha='70%'>=</span> maths")
+        foot.pack_start(left, False, False, 0)
+        foot.pack_end(right, False, False, 0)
+        card.pack_start(foot, False, False, 0)
 
-        self.setup_layer()
+        if not offscreen:
+            self.setup_layer()
         self.connect("map", lambda *_: setattr(self, "mapped_at", time.monotonic()))
-        self.connect("focus-out-event", lambda *_: self.hide_now())
+        if not offscreen:
+            self.connect("focus-out-event", lambda *_: self.hide_now())
         self.render(results_for("", self.apps, self.recents, timeout=1))
         if show:
             self.show_all()
             self.entry.grab_focus()
 
     def setup_layer(self):
-        if not HAVE_LAYER:
+        if not HAVE_LAYER or not GtkLayerShell.is_supported():
+            self.set_position(Gtk.WindowPosition.CENTER)
             return
         GtkLayerShell.init_for_window(self)
         GtkLayerShell.set_namespace(self, "prime-spotlight")
         GtkLayerShell.set_layer(self, GtkLayerShell.Layer.OVERLAY)
         GtkLayerShell.set_anchor(self, GtkLayerShell.Edge.TOP, True)
-        GtkLayerShell.set_margin(self, GtkLayerShell.Edge.TOP, 190)
+        mon_h = 1080
+        try:
+            disp = Gdk.Display.get_default()
+            mon = disp.get_monitor_at_point(0, 0) if disp else None
+            if mon is not None:
+                mon_h = mon.get_geometry().height
+        except Exception:                    # noqa: BLE001
+            pass
+        GtkLayerShell.set_margin(self, GtkLayerShell.Edge.TOP, max(80, int(mon_h * 0.18)))
         GtkLayerShell.set_keyboard_mode(self, GtkLayerShell.KeyboardMode.EXCLUSIVE)
 
     # ── results ──────────────────────────────────────────────────────────────
     def on_changed(self, _entry):
         self.seq += 1
         seq = self.seq
-        GLib.timeout_add(70, self._search, seq)
+        GLib.timeout_add(60, self._search, seq)
 
     def _search(self, seq: int) -> bool:
         if seq != self.seq:
@@ -402,66 +588,121 @@ class Spotlight(Gtk.Window):
         return False
 
     def render(self, rows: list):
-        self.rows = rows
-        self.sel = 0
+        self.rows = grouped(rows, self.entry.get_text())
         for child in self.listbox.get_children():
             self.listbox.remove(child)
-        for i, (kind, main, sub, right) in enumerate(rows):
-            self.listbox.pack_start(self.make_row(kind, main, sub, right, i), False, False, 0)
+        for i, (section, row) in enumerate(self.rows):
+            self.listbox.add(self.make_row(i, section, *row))
         self.listbox.show_all()
-        self.highlight()
+        first = self.listbox.get_row_at_index(0)
+        if first is not None and self.rows and self.rows[0][1][0] != "hint":
+            self.listbox.select_row(first)
+        self.card.queue_resize()
+        self.resize(self.WIDTH, 1)             # shrink back when the list gets shorter
 
-    def make_row(self, kind, main, sub, right, idx) -> Gtk.Box:
-        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
-        row.set_name(f"row{idx}")
-        row.get_style_context().add_class("row")
-        glyph = {"app": "▸", "path": "▪", "math": "＝", "ask": "✱", "hint": "·"}.get(kind, "·")
-        tag = Gtk.Label(label=glyph)
-        tag.get_style_context().add_class("kind")
-        row.pack_start(tag, False, False, 0)
-        text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        lab = Gtk.Label(label=main)
+    def _header(self, row, before):
+        if before is not None and before.section == row.section:
+            row.set_header(None)
+            return
+        if not row.section:
+            row.set_header(None)
+            return
+        lab = Gtk.Label(label=row.section)
         lab.set_xalign(0.0)
-        lab.set_ellipsize(3)
-        lab.get_style_context().add_class("mono" if kind == "math" else "main")
-        text.pack_start(lab, False, False, 0)
-        if sub:
-            sub_label = Gtk.Label(label=html.escape(sub))
-            sub_label.set_xalign(0.0)
-            sub_label.set_ellipsize(3)
-            sub_label.get_style_context().add_class("sub")
-            text.pack_start(sub_label, False, False, 0)
-        row.pack_start(text, True, True, 0)
-        if right:
-            r = Gtk.Label(label=right)
-            r.get_style_context().add_class("kind")
-            row.pack_end(r, False, False, 0)
-        row.set_size_request(-1, ROW_H if sub else 34)
+        lab.get_style_context().add_class("section")
+        row.set_header(lab)
+
+    def make_row(self, idx, section, kind, main, sub, right) -> Gtk.ListBoxRow:
+        row = Gtk.ListBoxRow()
+        row.idx, row.section = idx, section
+        row.set_can_focus(False)
+        ctx = row.get_style_context()
+        ctx.add_class("hit")
+        top = section == "Top Hit"
+        if top:
+            ctx.add_class("top")
+        if kind == "hint":
+            ctx.add_class("hintrow")
+            row.set_selectable(False)
+            row.set_activatable(False)
+
+        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        img = Gtk.Image.new_from_gicon(icon_for(kind, sub), Gtk.IconSize.DND)
+        img.set_pixel_size(40 if top else 28)
+        box.pack_start(img, False, False, 0)
+
+        text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1)
+        text.set_valign(Gtk.Align.CENTER)
+        title = Gtk.Label()
+        title.set_text(main)              # plain text: names like "R&D.pdf" show as-is
+        title.set_xalign(0.0)
+        title.set_ellipsize(Pango.EllipsizeMode.MIDDLE if kind == "path" else Pango.EllipsizeMode.END)
+        title.get_style_context().add_class("answer" if kind == "math" else "title")
+        text.pack_start(title, False, False, 0)
+        detail = {"app": sub and "", "path": pretty_path(sub)}.get(kind, sub)
+        if kind == "app":
+            detail = sub_comment = next((c for (_n, _e, d, c) in self.apps if d == sub), "")
+            detail = sub_comment or "Application"
+        if detail:
+            st = Gtk.Label()
+            st.set_text(detail)
+            st.set_xalign(0.0)
+            st.set_ellipsize(Pango.EllipsizeMode.END)
+            st.get_style_context().add_class("subtitle")
+            text.pack_start(st, False, False, 0)
+        box.pack_start(text, True, True, 0)
+
+        verb = {"app": "Open", "path": "Open", "math": "Copy", "ask": "Ask" if ASKER else "Search"}.get(kind)
+        if verb:
+            cap = Gtk.Label(label=f"{verb}  ↵")
+            cap.get_style_context().add_class("keycap")
+            cap.set_valign(Gtk.Align.CENTER)
+            cap.set_no_show_all(True)
+            row.keycap = cap
+            box.pack_end(cap, False, False, 0)
+        row.add(box)
+        row.connect("state-flags-changed", self._sync_keycap)
         return row
 
-    def highlight(self):
-        for i, child in enumerate(self.listbox.get_children()):
-            ctx = child.get_style_context()
-            if i == self.sel:
-                ctx.add_class("sel")
-            else:
-                ctx.remove_class("sel")
+    @staticmethod
+    def _sync_keycap(row, _old):
+        cap = getattr(row, "keycap", None)
+        if cap is not None:
+            cap.set_visible(row.is_selected())
+
+    def on_motion(self, _lb, event) -> bool:
+        row = self.listbox.get_row_at_y(int(event.y))
+        if row is not None and row.get_selectable() and not row.is_selected():
+            self.listbox.select_row(row)
+        return False
 
     # ── input ────────────────────────────────────────────────────────────────
+    def move(self, step: int):
+        n = len(self.rows)
+        if not n:
+            return
+        cur = self.listbox.get_selected_row()
+        i = cur.get_index() if cur else -1
+        for _ in range(n):
+            i = (i + step) % n
+            row = self.listbox.get_row_at_index(i)
+            if row is not None and row.get_selectable():
+                self.listbox.select_row(row)
+                return
+
     def on_key(self, _w, event) -> bool:
         key = event.keyval
-        if (time.monotonic() - self.mapped_at) < 1.0 and key == Gdk.KEY_Escape:
+        ctrl = event.state & Gdk.ModifierType.CONTROL_MASK
+        if (time.monotonic() - self.mapped_at) < 0.3 and key == Gdk.KEY_Escape:
             return True                    # a stray key at map time is not an intent
         if key == Gdk.KEY_Escape:
             self.hide_now()
             return True
-        if key == Gdk.KEY_Down:
-            self.sel = min(self.sel + 1, len(self.rows) - 1)
-            self.highlight()
+        if key in (Gdk.KEY_Down, Gdk.KEY_Tab) or (ctrl and key in (Gdk.KEY_n, Gdk.KEY_j)):
+            self.move(1)
             return True
-        if key == Gdk.KEY_Up:
-            self.sel = max(self.sel - 1, 0)
-            self.highlight()
+        if key in (Gdk.KEY_Up, Gdk.KEY_ISO_Left_Tab) or (ctrl and key in (Gdk.KEY_p, Gdk.KEY_k)):
+            self.move(-1)
             return True
         return False
 
@@ -470,9 +711,14 @@ class Spotlight(Gtk.Window):
         return False
 
     def run_selected(self):
-        if not self.rows:
+        row = self.listbox.get_selected_row()
+        if row is not None:
+            self.run_row(row.idx)
+
+    def run_row(self, idx: int):
+        if not (0 <= idx < len(self.rows)):
             return
-        kind, main, sub, _right = self.rows[self.sel]
+        kind, main, sub, _right = self.rows[idx][1]
         if kind == "hint":
             return
         action, payload = route(kind, main, sub, self.entry.get_text().strip())
@@ -510,18 +756,58 @@ def copy_to_clipboard(text: str):
             continue
 
 
+def install_css():
+    style = Gtk.CssProvider()
+    style.load_from_data(css_bytes())
+    Gtk.StyleContext.add_provider_for_screen(
+        Gdk.Screen.get_default(), style, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+
+
 # ── headless verification ──────────────────────────────────────────────────────
 
 def run_query(query: str) -> int:
     apps = load_apps()
     recents = load_recent()
-    for kind, main, sub, right in results_for(query, apps, recents):
+    last = None
+    for section, (kind, main, sub, right) in grouped(results_for(query, apps, recents), query):
+        if section != last:
+            print(f"{section or '·'}")
+            last = section
         print(f"  {kind:<5} {main:<52} {sub[:60]:<60} {right}")
     return 0
 
 
+def screenshot(path: str, query: str) -> int:
+    """Render the real window offscreen (needs a display, e.g. Xvfb) to a PNG."""
+    if not Gtk.init_check(sys.argv)[0]:
+        print("no display", file=sys.stderr)
+        return 1
+    install_css()
+    win = Spotlight(show=False, offscreen=True)
+    win.entry.set_text(query)
+    win.entry.set_position(-1)
+    win.render(results_for(query, win.apps, win.recents))
+    off = Gtk.OffscreenWindow()
+    screen = off.get_screen()
+    if screen.get_rgba_visual() is not None:
+        off.set_visual(screen.get_rgba_visual())
+    win.remove(win.card)
+    off.add(win.card)
+    off.show_all()
+    if query:
+        win.listbox.select_row(win.listbox.get_row_at_index(0))
+    for _ in range(40):
+        while Gtk.events_pending():
+            Gtk.main_iteration_do(False)
+        time.sleep(0.01)
+    pb = off.get_pixbuf()
+    pb.savev(path, "png", [], [])
+    print(path)
+    return 0
+
+
 def selftest() -> int:
-    """Exercise every source and the router without mapping a window."""
+    """Exercise every source and the router; build the window without mapping it."""
     fails = []
 
     def check(name, ok, detail=""):
@@ -535,35 +821,61 @@ def selftest() -> int:
     first = apps[0][0] if apps else ""
     hits = rank_apps(first[:4], apps)
     check("app search finds an app by its first letters", bool(hits), hits[0][1] if hits else "nothing")
+    check("apps carry an icon name", sum(1 for a in apps if APP_ICONS.get(a[2])) > len(apps) // 2,
+          f"{sum(1 for a in apps if APP_ICONS.get(a[2]))}/{len(apps)}")
 
     check("arithmetic is exact", calc("=16*7/4") == "28" and calc("=2^10") == "1024"
           and calc("=10-2.5") == "7.5", f"16*7/4={calc('=16*7/4')} 2^10={calc('=2^10')}")
-    check("not-arithmetic is refused", calc("hello") == "" and calc("=1;rm -rf /") == "")
+    check("not-arithmetic is refused", calc("hello") == "" and calc("=1;rm -rf /") == ""
+          and calc("=9**9**9") == "")
+    check("plain sums are answered without '='", looks_like_sum("2+2") and not looks_like_sum("2048")
+          and not looks_like_sum("mp3") and grouped(results_for("12*3", apps, []), "12*3")[0][1][1] == "= 36")
 
     import tempfile
-    probe = tempfile.NamedTemporaryFile(prefix="spotlight-selftest-", dir=HOME, delete=True)
+    probe = tempfile.NamedTemporaryFile(prefix="spotlight-selftest-R&D-", dir=HOME, delete=True)
     name = os.path.basename(probe.name)
     paths = find_paths(name)
     check("file search finds a file in home", any(name in p for p in paths), f"{len(paths)} hit(s)")
     rows = results_for(name, apps, [])
     probe.close()
+    check("file names are shown as-is (no &amp;)",
+          any(r[0] == "path" and "&" in r[1] and "&amp;" not in r[1] for r in rows))
     check("router opens a file hit",
           any(r[0] == "path" for r in rows) and route("path", "", "/tmp/x", "")[0] == "open_path")
     check("router launches an app hit", route("app", "", "firefox", "") == ("launch_app", "firefox"))
-    check("router copies a sum", route("math", "= 28", "", "=16*7/4") == ("copy", "= 28"))
+    check("router copies a sum", route("math", "= 28", "", "=16*7/4") == ("copy", "28"))
     check("no match falls through", rows[-1][0] == "ask"
           and route("ask", "", "", "weather")[0] == ("ask" if ASKER else "web"), rows[-1][1][:60])
     check("web prefix searches the web", route("ask", "", "", "/pla filament") == ("web", "pla filament"))
+    g = grouped(results_for(first[:4], apps, []), first[:4])
+    check("results are grouped with a Top Hit first",
+          g and g[0][0] == "Top Hit" and g[-1][0] in ("Web", "Ask Prime"),
+          " / ".join(dict.fromkeys(s for s, _ in g)))
 
     recents = load_recent()
     check("recent files parsed", isinstance(recents, list), f"{len(recents)} entries")
 
-    win = Spotlight(show=False)
-    check("window builds with the layer shell configured", win.get_name() == "prime-spotlight")
-    check("nothing was mapped (no window on screen)",
-          not win.get_mapped() and not win.get_visible(),
-          "built but never shown, then destroyed")
-    win.destroy()
+    if Gtk.init_check(sys.argv)[0]:
+        install_css()
+        win = Spotlight(show=False, offscreen=True)
+        win.entry.set_text(first[:4])
+        win.render(results_for(first[:4], win.apps, win.recents))
+        check("window builds: search field, grouped rows, top hit selected",
+              win.get_name() == "prime-spotlight"
+              and win.entry.get_placeholder_text().startswith("Search apps")
+              and win.listbox.get_selected_row() is not None
+              and win.listbox.get_selected_row().section == "Top Hit")
+        check("nothing was mapped (no window on screen)",
+              not win.get_mapped() and not win.get_visible(), "built but never shown, then destroyed")
+        win.destroy()
+    else:
+        print("  SKIP  window build — no display here (the logic above is what runs)")
+        prov = Gtk.CssProvider()
+        try:
+            prov.load_from_data(css_bytes())
+            check("stylesheet parses", True)
+        except GLib.Error as e:
+            check("stylesheet parses", False, str(e))
 
     print(f"\n{len(fails)} failure(s)")
     return 1 if fails else 0
@@ -573,11 +885,14 @@ def main() -> int:
     ap = argparse.ArgumentParser(prog="prime-spotlight")
     ap.add_argument("--selftest", action="store_true", help="verify everything, map nothing")
     ap.add_argument("--query", help="print the list for a query, headless")
+    ap.add_argument("--screenshot", metavar="PNG", help="render the window with --query to a PNG")
     ap.add_argument("--seconds", type=float, default=0, help="auto-close after N seconds")
     a = ap.parse_args()
 
     if a.selftest:
         return selftest()
+    if a.screenshot:
+        return screenshot(a.screenshot, a.query or "")
     if a.query is not None:
         return run_query(a.query)
 
@@ -585,14 +900,12 @@ def main() -> int:
     for pid in subprocess.run(["pgrep", "-f", "prime-[s]potlight$"], capture_output=True,
                               text=True).stdout.split():
         if int(pid) != os.getpid():
-            try: os.kill(int(pid), 15)
-            except OSError: pass
+            try:
+                os.kill(int(pid), 15)
+            except OSError:
+                pass
 
-    style = Gtk.CssProvider()
-    style.load_from_data(CSS)
-    Gtk.StyleContext.add_provider_for_screen(
-        Gdk.Screen.get_default(), style, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
-
+    install_css()
     started = time.monotonic()
     win = Spotlight()
     if a.seconds:

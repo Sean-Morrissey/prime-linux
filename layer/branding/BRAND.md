@@ -14,4 +14,7 @@ diagonal top-left to bottom-right.
 | `mark.svg` | Desktop copy, single colour `#f87171`; `prime-theme` recolours it to each user's accent (bar logo, lock screen, app icon) |
 
 Rejected: the faceted shield (v1), and concepts A, B, C, E, F from `concepts-sheet.png`.
-Still to do: wordmark/lockup using this mark, symbolic (monochrome) version, boot/login themes in Sunset.
+Still to do — redraw with Orbit P (these files were cut from the rejected Split-tile emblem):
+`mark-small.svg`, `mark-symbolic.svg`, `mark-white.svg`, `lockup-*.svg`, and everything in `png/`
+and `previews/`. The `wordmark-*.svg` "Prime Linux" text (Inter) can stay; re-pair it with Orbit P.
+Boot splash, login screen and installer art should use `brand-mark.svg` (Sunset).

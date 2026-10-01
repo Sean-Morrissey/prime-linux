@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# prime-emoji — the emoji picker (Super+Ctrl+E). Type to search ("heart",
+# "thumbs"), Enter types the emoji into the app you were in and copies it too.
+set -u
+THEMES="$(dirname "$(readlink -f "$0")")/../default/rofi"
+exec rofimoji --selector rofi --action type copy --skin-tone neutral \
+    --clipboarder wl-copy --typer wtype \
+    --selector-args "-theme $THEMES/menu.rasi -theme-str 'mainbox { children: [ inputbar, listview ]; }' -theme-str 'listview { lines: 10; }'"

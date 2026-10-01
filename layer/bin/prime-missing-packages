@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# prime-missing-packages — which of Prime's packages (os/arch/packages.txt)
+# this computer still needs, one per line. Nothing printed = all there.
+#
+# Uses pacman's own dependency test, so a package that is "provided" by
+# something already installed counts as present (CachyOS's tuned-ppd provides
+# power-profiles-daemon; asking pacman for the latter would try to swap them
+# and stop the whole transaction). The installer and prime-update both use it:
+#   mapfile -t need < <(prime-missing-packages)
+#   [ ${#need[@]} -eq 0 ] || sudo pacman -S --needed "${need[@]}"
+set -u
+LIST="${1:-$(readlink -f "$(dirname "$(readlink -f "$0")")/../..")/os/arch/packages.txt}"
+mapfile -t pkgs < <(grep -vE '^\s*(#|$)' "$LIST" | sed 's/\s*#.*//; s/\s\+$//')
+[ ${#pkgs[@]} -gt 0 ] || exit 0
+pacman -T "${pkgs[@]}" 2>/dev/null || true

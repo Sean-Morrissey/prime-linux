@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# prime-power-profile — battery saver, balanced or performance (click the
+# battery on the bar, or Menu → Toggles → Power mode).
+#
+#   prime-power-profile                pick from a list
+#   prime-power-profile <name>         power-saver | balanced | performance
+#   prime-power-profile current
+set -u
+BIN="$(dirname "$(readlink -f "$0")")"
+note() { notify-send -a Prime -t 3000 "$1" "${2:-}" >/dev/null 2>&1 || true; }
+command -v powerprofilesctl >/dev/null || { note "Power modes aren't available" "power-profiles-daemon isn't installed"; exit 1; }
+cur="$(powerprofilesctl get 2>/dev/null)" || { note "Power modes aren't available" "The power-profiles service isn't running — try Super+H"; exit 1; }
+label() { case "$1" in power-saver) echo "󰌪  Battery saver — longer battery, a little slower" ;;
+                       balanced) echo "󰗑  Balanced — the usual" ;;
+                       performance) echo "󰓅  Performance — fastest, louder fans, more power" ;; *) echo "$1" ;; esac; }
+case "${1:-}" in
+    current) echo "$cur"; exit 0 ;;
+    power-saver|balanced|performance) want="$1" ;;
+    "")
+        mapfile -t P < <(powerprofilesctl list 2>/dev/null | sed -nE 's/^[ *]+([a-z-]+):$/\1/p')
+        rows=(); for p in "${P[@]}"; do r="$(label "$p")"; [ "$p" = "$cur" ] && r="$r   ✓"; rows+=("$r"); done
+        i="$(printf '%s\n' "${rows[@]}" | ROFI_HINT="Enter choose  ·  Esc close" "$BIN/prime-rofi" -dmenu -i -no-custom -format i -theme bar -p "󰂄 Power mode")" || exit 0
+        [ -n "$i" ] || exit 0; want="${P[$i]}" ;;
+    *) sed -n '2,7p' "$0"; exit 2 ;;
+esac
+powerprofilesctl set "$want" && note "Power mode: $(label "$want" | sed 's/^[^ ]*  //; s/ —.*//')"

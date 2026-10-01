@@ -1,0 +1,79 @@
+#!/usr/bin/env bash
+# prime-toggle — the quick switches: night light, do not disturb, keep awake.
+#
+#   prime-toggle nightlight [on|off]   warmer screen colours in the evening
+#   prime-toggle dnd [on|off]          do not disturb (notifications wait quietly)
+#   prime-toggle idle [on|off]         keep awake: no dimming, locking or screen-off
+#   prime-toggle menu                  pick a switch from a list that shows what's on
+#   prime-toggle restore               at login: put the night light back
+#   prime-toggle status [name]         JSON for the bar, or "on"/"off" for one switch
+#
+# With no on/off it flips. Night light is remembered across log-ins; keep-awake
+# deliberately is not (a laptop that never locks again is a surprise).
+set -u
+BIN="$(dirname "$(readlink -f "$0")")"
+STATE="${XDG_STATE_HOME:-$HOME/.local/state}/prime"
+NL_FILE="$STATE/nightlight"
+NL_TEMP="${PRIME_NIGHTLIGHT_TEMP:-4000}"
+IDLE_CONF="$BIN/../default/hypr/hypridle.conf"
+
+note()   { notify-send -a Prime -t 2500 -h string:x-canonical-private-synchronous:prime-toggle "$1" "${2:-}" >/dev/null 2>&1 || true; }
+bar()    { pkill -RTMIN+10 -x waybar 2>/dev/null || true; }
+detach() { setsid -f "$@" >/dev/null 2>&1 </dev/null; }
+
+is_on() {
+    case "$1" in
+        nightlight) pgrep -x hyprsunset >/dev/null 2>&1 ;;
+        dnd)        [ "$(swaync-client -D 2>/dev/null)" = true ] ;;
+        idle)       ! pgrep -x hypridle >/dev/null 2>&1 ;;   # keep-awake is on when hypridle isn't running
+        *)          return 2 ;;
+    esac
+}
+
+set_state() {   # set_state <name> on|off
+    mkdir -p "$STATE"
+    case "$1:$2" in
+        nightlight:on)  is_on nightlight || detach hyprsunset -t "$NL_TEMP"; echo "$NL_TEMP" > "$NL_FILE"
+                        note "Night light on" "Warmer colours — easier on the eyes at night" ;;
+        nightlight:off) pkill -x hyprsunset; rm -f "$NL_FILE"; note "Night light off" ;;
+        dnd:on)         swaync-client -dn >/dev/null 2>&1; note "Do not disturb on" "Notifications wait quietly in the notification centre" ;;
+        dnd:off)        swaync-client -df >/dev/null 2>&1; note "Do not disturb off" ;;
+        idle:on)        pkill -x hypridle; note "Keep awake on" "The screen won't dim, lock or turn off until you switch this off" ;;
+        idle:off)       is_on idle && detach hypridle -c "$IDLE_CONF"; note "Keep awake off" "The screen locks after 10 idle minutes again" ;;
+    esac
+    bar
+}
+
+flip() { local want="${2:-toggle}"
+    if [ "$want" = toggle ]; then if is_on "$1"; then want=off; else want=on; fi; fi
+    case "$want" in on|off) set_state "$1" "$want" ;; *) echo "on, off or nothing" >&2; exit 2 ;; esac
+}
+
+status_json() {
+    local icons="" tips=""
+    if is_on idle;       then icons+="󰅶 "; tips+="Keep awake is on\\n"; fi
+    if is_on nightlight; then icons+="󰖔 "; tips+="Night light is on\\n"; fi
+    if [ -z "$icons" ]; then echo '{"text":""}'; return; fi
+    printf '{"text":"%s","tooltip":"%sClick for the quick switches","class":"active"}\n' "${icons% }" "$tips"
+}
+
+case "${1:-}" in
+    nightlight|dnd|idle) flip "$1" "${2:-toggle}" ;;
+    menu)
+        mark() { is_on "$1" && printf '●  on ' || printf '○  off'; }
+        choice="$(printf '%s\n' \
+            "$(mark nightlight)   Night light" \
+            "$(mark dnd)   Do not disturb" \
+            "$(mark idle)   Keep awake" \
+            | ROFI_HINT="Enter switches it  ·  Esc closes" "$BIN/prime-rofi" -dmenu -i -no-custom -theme bar -p "󰔡 Quick switches")" || exit 0
+        case "$choice" in
+            *"Night light")    flip nightlight ;;
+            *"Do not disturb") flip dnd ;;
+            *"Keep awake")     flip idle ;;
+        esac ;;
+    restore)
+        if [ -f "$NL_FILE" ] && ! is_on nightlight; then detach hyprsunset -t "$(cat "$NL_FILE")"; fi; exit 0 ;;
+    status)
+        if [ -n "${2:-}" ]; then if is_on "$2"; then echo on; else echo off; fi; else status_json; fi ;;
+    *) sed -n '2,14p' "$0"; exit 2 ;;
+esac

@@ -25,9 +25,13 @@
   ],
   "modules-right": [
     "tray",
+    "custom/recording",
+    "custom/toggles",
+    "custom/keyboard",
     "custom/audio",
     "network",
     "bluetooth",
+    "battery",
     "cpu",
     "memory",
     "custom/gpu",
@@ -39,6 +43,31 @@
   "tray": {
     "icon-size": 16,
     "spacing": 6
+  },
+  "custom/recording": {
+    "exec": "~/.local/share/prime-linux/layer/bin/prime-record status",
+    "return-type": "json",
+    "interval": 1,
+    "signal": 9,
+    "escape": false,
+    "on-click": "~/.local/share/prime-linux/layer/bin/prime-record stop",
+    "on-click-right": "~/.local/share/prime-linux/layer/bin/prime-context bar.recording"
+  },
+  "custom/toggles": {
+    "exec": "~/.local/share/prime-linux/layer/bin/prime-toggle status",
+    "return-type": "json",
+    "interval": 5,
+    "signal": 10,
+    "on-click": "~/.local/share/prime-linux/layer/bin/prime-toggle menu",
+    "on-click-right": "~/.local/share/prime-linux/layer/bin/prime-context bar.toggles"
+  },
+  "custom/keyboard": {
+    "exec": "~/.local/share/prime-linux/layer/bin/prime-keyboard status",
+    "return-type": "json",
+    "interval": 2,
+    "signal": 11,
+    "on-click": "~/.local/share/prime-linux/layer/bin/prime-keyboard next",
+    "on-click-right": "~/.local/share/prime-linux/layer/bin/prime-context bar.keyboard"
   },
   "clock": {
     "format": "{:%a %b %d   %I:%M %p}",
@@ -104,17 +133,18 @@
     "return-type": "json",
     "interval": 1,
     "signal": 8,
-    "on-click": "pavucontrol",
+    "on-click": "~/.local/share/prime-linux/layer/bin/prime-sound",
     "on-click-right": "~/.local/share/prime-linux/layer/bin/prime-context bar.audio",
-    "on-scroll-up": "wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%+",
-    "on-scroll-down": "wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-"
+    "on-scroll-up": "~/.local/share/prime-linux/layer/bin/prime-osd volume up",
+    "on-scroll-down": "~/.local/share/prime-linux/layer/bin/prime-osd volume down",
+    "on-click-middle": "pavucontrol"
   },
   "network": {
     "format-wifi": "󰤨",
     "format-ethernet": "󰈀",
     "format-disconnected": "󰤮",
     "tooltip-format": "{essid} · {signalStrength}% · {ipaddr}",
-    "on-click": "~/.local/share/prime-linux/layer/bin/prime-float nmtui",
+    "on-click": "~/.local/share/prime-linux/layer/bin/prime-wifi",
     "on-click-right": "~/.local/share/prime-linux/layer/bin/prime-context bar.network"
   },
   "bluetooth": {
@@ -122,8 +152,29 @@
     "format-disabled": "󰂲",
     "format-connected": "󰂱  {device_alias}",
     "tooltip-format": "{status} · {device_alias}",
-    "on-click": "blueman-manager",
+    "on-click": "~/.local/share/prime-linux/layer/bin/prime-bluetooth",
     "on-click-right": "~/.local/share/prime-linux/layer/bin/prime-context bar.bluetooth"
+  },
+  "battery": {
+    "interval": 30,
+    "states": {
+      "warning": 20,
+      "critical": 10
+    },
+    "format": "{icon}  {capacity}%",
+    "format-charging": "󰂄  {capacity}%",
+    "format-plugged": "󰚥  {capacity}%",
+    "format-full": "󰁹  {capacity}%",
+    "format-icons": [
+      "󰁺",
+      "󰁼",
+      "󰁾",
+      "󰂀",
+      "󰁹"
+    ],
+    "tooltip-format": "{timeTo}\nClick: battery saver / balanced / performance",
+    "on-click": "~/.local/share/prime-linux/layer/bin/prime-power-profile",
+    "on-click-right": "~/.local/share/prime-linux/layer/bin/prime-context bar.battery"
   },
   "cpu": {
     "format": "󰻠  {usage}%",

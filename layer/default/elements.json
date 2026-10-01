@@ -88,20 +88,24 @@
       "ask": "My audio state: {state}. Is the output device and level sensible?",
       "items": [
         {
+          "label": "󰓃  Choose speakers / headphones / microphone",
+          "cmd": "~/.local/share/prime-linux/layer/bin/prime-sound"
+        },
+        {
           "label": "󰕾  Open the mixer",
           "cmd": "pavucontrol"
         },
         {
           "label": "󰝟  Mute / unmute",
-          "cmd": "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"
+          "cmd": "~/.local/share/prime-linux/layer/bin/prime-osd volume mute"
         },
         {
           "label": "󰕾  Volume +5%",
-          "cmd": "wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%+"
+          "cmd": "~/.local/share/prime-linux/layer/bin/prime-osd volume up"
         },
         {
           "label": "󰖀  Volume −5%",
-          "cmd": "wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-"
+          "cmd": "~/.local/share/prime-linux/layer/bin/prime-osd volume down"
         }
       ]
     },
@@ -110,6 +114,10 @@
       "state": "printf '%s · ' \"$(nmcli -t -f STATE,CONNECTIVITY general 2>/dev/null | paste -sd' ' -)\"; ip -brief addr show 2>/dev/null | awk '/^[a-z]/ && $1!=\"lo\" && $2==\"UP\" {printf \"%s %s; \", $1, $3}'",
       "ask": "My network state: {state}. Is the connection healthy, and what is my IP?",
       "items": [
+        {
+          "label": "󰤨  Choose a Wi-Fi network",
+          "cmd": "~/.local/share/prime-linux/layer/bin/prime-wifi"
+        },
         {
           "label": "󰈀  Open network settings",
           "cmd": "nm-connection-editor"
@@ -129,6 +137,10 @@
       "state": "printf 'powered %s · %s device(s) connected' \"$(timeout 3 bluetoothctl show 2>/dev/null | awk -F': ' '/Powered/{print $2}')\" \"$(timeout 3 bluetoothctl devices Connected 2>/dev/null | wc -l)\"",
       "ask": "My bluetooth state: {state}. Anything wrong, or anything I should pair?",
       "items": [
+        {
+          "label": "󰂱  Connect a device",
+          "cmd": "~/.local/share/prime-linux/layer/bin/prime-bluetooth"
+        },
         {
           "label": "󰂯  Open blueman",
           "cmd": "blueman-manager"
@@ -225,7 +237,7 @@
         },
         {
           "label": "󰂛  Toggle do-not-disturb",
-          "cmd": "swaync-client -d -sw"
+          "cmd": "~/.local/share/prime-linux/layer/bin/prime-toggle dnd"
         },
         {
           "label": "󰃢  Clear all notifications",
@@ -310,6 +322,74 @@
         {
           "label": "󰕧  Display settings",
           "cmd": "nwg-displays"
+        }
+      ]
+    },
+    "bar.battery": {
+      "label": "Battery",
+      "state": "for b in /sys/class/power_supply/BAT*; do printf '%s%% · %s · ' \"$(cat $b/capacity)\" \"$(cat $b/status)\"; done; printf 'power mode: %s' \"$(powerprofilesctl get 2>/dev/null || echo n/a)\"",
+      "ask": "My battery reads: {state}. Is that healthy, and how do I make it last longer?",
+      "items": [
+        {
+          "label": "󰂄  Power mode — saver / balanced / performance",
+          "cmd": "~/.local/share/prime-linux/layer/bin/prime-power-profile"
+        },
+        {
+          "label": "󰌪  Battery saver now",
+          "cmd": "~/.local/share/prime-linux/layer/bin/prime-power-profile power-saver"
+        },
+        {
+          "label": "󰅶  Keep awake on / off",
+          "cmd": "~/.local/share/prime-linux/layer/bin/prime-toggle idle"
+        }
+      ]
+    },
+    "bar.recording": {
+      "label": "Screen recording",
+      "state": "~/.local/share/prime-linux/layer/bin/prime-record status | jq -r 'if .text == \"\" then \"not recording\" else .tooltip end'",
+      "ask": "I'm recording my screen: {state}. Anything I should know?",
+      "items": [
+        {
+          "label": "󰙧  Stop and save",
+          "cmd": "~/.local/share/prime-linux/layer/bin/prime-record stop"
+        },
+        {
+          "label": "󰉋  Open the recordings folder",
+          "cmd": "xdg-open \"$(xdg-user-dir VIDEOS)/Recordings\""
+        }
+      ]
+    },
+    "bar.toggles": {
+      "label": "Quick switches",
+      "state": "printf 'night light %s · keep awake %s · do not disturb %s' \"$(~/.local/share/prime-linux/layer/bin/prime-toggle status nightlight)\" \"$(~/.local/share/prime-linux/layer/bin/prime-toggle status idle)\" \"$(~/.local/share/prime-linux/layer/bin/prime-toggle status dnd)\"",
+      "ask": "My quick switches: {state}. What do these do?",
+      "items": [
+        {
+          "label": "󰖔  Night light on / off",
+          "cmd": "~/.local/share/prime-linux/layer/bin/prime-toggle nightlight"
+        },
+        {
+          "label": "󰅶  Keep awake on / off",
+          "cmd": "~/.local/share/prime-linux/layer/bin/prime-toggle idle"
+        },
+        {
+          "label": "󰂛  Do not disturb on / off",
+          "cmd": "~/.local/share/prime-linux/layer/bin/prime-toggle dnd"
+        }
+      ]
+    },
+    "bar.keyboard": {
+      "label": "Keyboard layout",
+      "state": "printf 'layouts: %s' \"$(~/.local/share/prime-linux/layer/bin/prime-keyboard current)\"",
+      "ask": "My keyboard layouts are {state}. How do I type special characters?",
+      "items": [
+        {
+          "label": "󰌌  Next layout",
+          "cmd": "~/.local/share/prime-linux/layer/bin/prime-keyboard next"
+        },
+        {
+          "label": "󰒓  Add or remove layouts",
+          "cmd": "~/.local/share/prime-linux/layer/bin/prime-keyboard"
         }
       ]
     }

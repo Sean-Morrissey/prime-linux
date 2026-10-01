@@ -115,6 +115,15 @@ backend_restore() { # backend_restore <id>  — the dangerous one
   return 1
 }
 
+# pacman has no single image digest, so there is nothing to identify a "known-bad
+# image" with — the skip-a-bad-digest policy is a no-op here on purpose.
+backend_current_digest() { echo ""; }
+backend_pending_digest() { echo ""; }
+
+# btrfs has no atomic boot-time verify to roll back on, so the boot-critical and
+# full checks are the same probe.
+backend_health_boot() { backend_health; }
+
 backend_health() {
   # reuse the same probe the interview uses; no model call, no network needed
   local probe="$SELF_DIR/../../files/system/usr/libexec/prime/hw-probe.sh"

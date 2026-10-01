@@ -43,7 +43,7 @@ need_root() { [ "$(id -u)" = 0 ] || [ "$TESTING" = 1 ] || { echo "This part need
 ufw_enabled() { grep -q '^ENABLED=yes' "$UFW_DIR/ufw.conf" 2>/dev/null && systemctl is-enabled ufw.service >/dev/null 2>&1; }
 ufw_rules() { # "<port> <proto> <source>" for every allow rule (user.rules is readable without root)
   cat "$UFW_DIR/user.rules" "$UFW_DIR/user6.rules" 2>/dev/null \
-    | awk '/^### tuple ### allow / && $10 ~ /^in/ {print $6, $5, $9}'   # port proto source
+    | awk '/^### tuple ### allow / { for (i = 10; i <= NF; i++) if ($i == "in" || $i ~ /^in_/) { print $6, $5, $9; break } }'   # port proto source (app rules: "… OpenSSH - in")
 }
 is_lan() { case "$1" in 10.*|172.1[6-9].*|172.2[0-9].*|172.3[01].*|192.168.*|fe80:*|fd*|127.*|::1*) return 0 ;; esac; return 1; }
 
@@ -87,10 +87,6 @@ firewall_apply() {
     && rules+=("1714:1764 udp Prime: KDE Connect (your phone)" "1714:1764 tcp Prime: KDE Connect (your phone)")
   { pacman -Qq localsend >/dev/null 2>&1 || pacman -Qq localsend-bin >/dev/null 2>&1; } \
     && rules+=("53317 udp Prime: LocalSend (share files nearby)" "53317 tcp Prime: LocalSend (share files nearby)")
-  # SSH that's already in use must keep working: the firewall would otherwise cut
-  # off whoever administers this computer remotely (or is installing over SSH).
-  # Same rule as `prime-security ssh on` — your own network only.
-  ssh_on && rules+=("22 tcp Prime: remote login from your network")
   local r port proto comment net
   for r in "${rules[@]}"; do
     port="${r%% *}"; r="${r#* }"; proto="${r%% *}"; comment="${r#* }"
@@ -98,6 +94,14 @@ firewall_apply() {
       ufw allow from "$net" to any port "$port" proto "$proto" comment "$comment" >/dev/null 2>&1 || true
     done
   done
+  # SSH that's already in use must keep working: the firewall would otherwise cut
+  # off whoever administers this computer remotely (or is installing over SSH).
+  # But only from your own network: a rule letting the whole internet try
+  # passwords on port 22 is removed (same as `prime-security ssh on`).
+  if ssh_on; then
+    if [ -n "$(ssh_open_rules)" ]; then ssh_limit_to_lan; echo "  remote login (SSH): was open to every network — now your home network only"
+    else ssh_limit_to_lan; fi
+  fi
   if ufw --force enable >/dev/null 2>&1; then
     systemctl enable ufw.service >/dev/null 2>&1 || true
     echo "  firewall on: nothing gets in, except discovery from your own network (${#rules[@]} rule(s))"
@@ -108,24 +112,74 @@ firewall_apply() {
 }
 
 # ── remote login ─────────────────────────────────────────────────────────────
+SSHD_CONFIG="${PRIME_SSHD_CONFIG:-/etc/ssh/sshd_config}"
 ssh_on() { systemctl is-enabled sshd.service >/dev/null 2>&1 || systemctl is-active --quiet sshd.service 2>/dev/null \
-           || systemctl is-enabled sshd.socket >/dev/null 2>&1; }
-ssh_status() {
-  if ! ssh_on; then row ok "Remote login (SSH) is off"; return; fi
-  local everyone=0 port proto src
+           || systemctl is-enabled sshd.socket >/dev/null 2>&1 || systemctl is-active --quiet sshd.socket 2>/dev/null; }
+# sshd takes the FIRST value it reads for a setting, following Include lines in
+# order (Arch's sshd_config includes sshd_config.d/*.conf at the very top). A
+# Match block only applies to some logins, so reading stops there. No value: yes.
+ssh_passwords() { # → yes|no
+  local pw="" kbd=""
+  _sshd_walk() {
+    local f="$1" key val inc
+    [ -r "$f" ] || return 0
+    while read -r key val _; do
+      case "${key,,}" in
+        ''|\#*) ;;
+        include) for inc in $val; do [[ "$inc" = /* ]] || inc="$(dirname "$SSHD_CONFIG")/$inc"
+                   for g in $inc; do _sshd_walk "$g" || return 1; done; done ;;
+        match) return 1 ;;
+        passwordauthentication) [ -n "$pw" ] || pw="${val,,}" ;;
+        kbdinteractiveauthentication|challengeresponseauthentication) [ -n "$kbd" ] || kbd="${val,,}" ;;
+      esac
+    done < "$f"
+    return 0
+  }
+  _sshd_walk "$SSHD_CONFIG"
+  # keyboard-interactive through PAM asks for the same password
+  if [ "${pw:-yes}" = yes ] || [ "$kbd" = yes ]; then echo yes; else echo no; fi
+}
+# is port 22 reachable from outside your own network? (no firewall, or a rule for anyone)
+ssh_everyone() {
+  systemctl is-active --quiet firewalld.service 2>/dev/null && return 1     # firewalld: its zones decide; not ours to judge
+  ufw_enabled || return 0
+  local port proto src
   while read -r port proto src; do
     [ "$port" = 22 ] || [ "$port" = ssh ] || continue
-    is_lan "$src" || everyone=1
+    is_lan "$src" || return 0
   done < <(ufw_rules)
-  local pw="yes"
-  grep -hiE '^\s*PasswordAuthentication\s+no' /etc/ssh/sshd_config /etc/ssh/sshd_config.d/*.conf >/dev/null 2>&1 && pw=no
-  if [ $everyone = 1 ] && [ $pw = yes ]; then
+  return 1
+}
+ssh_status() {
+  if ! ssh_on; then row ok "Remote login (SSH) is off"; return; fi
+  local everyone=0 pw; ssh_everyone && everyone=1; pw="$(ssh_passwords)"
+  if [ $everyone = 1 ] && [ "$pw" = yes ]; then
     row bad "Remote login (SSH) is on, open to every network, and accepts passwords" "turn it off: sudo prime-security ssh off   (or limit it to your network: sudo prime-security ssh on)"
   elif [ $everyone = 1 ]; then
     row warn "Remote login (SSH) is on and open to every network (keys only)" "limit it to your home network: sudo prime-security ssh on"
+  elif [ "$pw" = yes ]; then
+    row warn "Remote login (SSH) is on and accepts passwords (your home network only)" "if you don't use it: sudo prime-security ssh off"
   else
-    row warn "Remote login (SSH) is on" "if you don't use it: sudo prime-security ssh off"
+    row warn "Remote login (SSH) is on (your home network only, keys only)" "if you don't use it: sudo prime-security ssh off"
   fi
+}
+# ufw rules that let anyone reach port 22, as "ufw delete" arguments
+ssh_open_rules() {
+  local port proto src
+  while read -r port proto src; do
+    { [ "$port" = 22 ] || [ "$port" = ssh ]; } && ! is_lan "$src" && echo "$proto"
+  done < <(ufw_rules) | sort -u
+}
+ssh_limit_to_lan() { # remove "SSH from anywhere" rules, keep it working from your own network
+  local proto net
+  for net in "${LAN4[@]}" "${LAN6[@]}"; do
+    ufw allow from "$net" to any port 22 proto tcp comment "Prime: remote login from your network" >/dev/null 2>&1 || true
+  done
+  for proto in $(ssh_open_rules); do
+    case "$proto" in any) ufw --force delete allow 22 >/dev/null 2>&1 || true; ufw --force delete allow ssh >/dev/null 2>&1 || true ;;
+                     *)   ufw --force delete allow "22/$proto" >/dev/null 2>&1 || true ;; esac
+  done
+  ufw --force delete allow OpenSSH >/dev/null 2>&1 || true
 }
 ssh_set() {
   need_root ssh "$1"
@@ -133,8 +187,7 @@ ssh_set() {
     off) systemctl disable --now sshd.service sshd.socket >/dev/null 2>&1 || true
          echo "Remote login (SSH) is off." ;;
     on)  pacman -Qq openssh >/dev/null 2>&1 || pacman -S --needed --noconfirm openssh >/dev/null
-         local net; for net in "${LAN4[@]}" "${LAN6[@]}"; do
-           ufw allow from "$net" to any port 22 proto tcp comment "Prime: remote login from your network" >/dev/null 2>&1 || true; done
+         ssh_limit_to_lan
          systemctl enable --now sshd.service >/dev/null 2>&1
          echo "Remote login (SSH) is on, reachable from your home network only."
          echo "Safer still: log in with a key instead of a password (ssh-copy-id from the other computer)." ;;
@@ -258,8 +311,11 @@ apply() {
          && echo "  network protections on" || echo "  network protections saved (active from the next start)"
     else echo "  network protections saved"; fi
   fi
-  if ssh_on; then echo "  remote login (SSH) is on — left as it is (turn off with: sudo prime-security ssh off)"
-  else echo "  remote login (SSH) is off"; fi
+  if ! ssh_on; then echo "  remote login (SSH) is off"
+  elif [ "$(ssh_passwords)" = yes ]; then
+    echo "  ! remote login (SSH) is on and accepts passwords. If you don't log in to this computer"
+    echo "    from another one, turn it off: sudo prime-security ssh off"
+  else echo "  remote login (SSH) is on, keys only — left as it is (turn off with: sudo prime-security ssh off)"; fi
   return 0
 }
 

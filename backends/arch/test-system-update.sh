@@ -259,7 +259,10 @@ chmod 700 "$SH"; echo k > "$SH/.config/prime/ai.key"; chmod 644 "$SH/.config/pri
 U="$T/ufw"; mkdir -p "$U"; echo ENABLED=yes > "$U/ufw.conf"
 printf '%s\n' '### tuple ### allow any 22 0.0.0.0/0 any 0.0.0.0/0 in' \
   '### tuple ### allow udp 5353 0.0.0.0/0 any 192.168.0.0/16 in comment=50' > "$U/user.rules"
-sec() { env HOME="$SH" PRIME_UFW_DIR="$U" "$LAYER/bin/prime-security" "$@" 2>/dev/null; }
+# the firewall is on (ufw enabled), SSH is off: no answer may come from this machine's own systemd
+SB="$T/secbin"; mkdir -p "$SB"
+printf '#!/bin/sh\ncase "$*" in *is-enabled*ufw.service*) exit 0 ;; esac\nexit 1\n' > "$SB/systemctl"; chmod +x "$SB/systemctl"
+sec() { env HOME="$SH" PRIME_UFW_DIR="$U" PATH="$SB:$PATH" "$LAYER/bin/prime-security" "$@" 2>/dev/null; }
 sec status --tsv > "$T/sec.tsv"
 has "private files flagged" "Readable by other accounts" "$T/sec.tsv"
 has "port open to every network flagged" "Open to every network.*22/any" "$T/sec.tsv"

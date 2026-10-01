@@ -28,6 +28,7 @@ echo "== a new terminal shows it (any shell, never twice)"
 G="$T/g"; mkdir -p "$G/bin" "$G/home"
 printf '#!/bin/sh\necho GREETING\n' > "$G/bin/fastfetch"
 for s in bash zsh fish; do printf '#!/bin/sh\necho SHELL-RAN\n' > "$G/bin/$s"; done
+printf '#!/bin/sh\necho "$PATH"\n' > "$G/bin/pathsh"
 chmod +x "$G/bin"/*
 term() { env -u KITTY_WINDOW_ID HOME="$G/home" PATH="$G/bin:$PATH" SHELL="$G/bin/$1" "${@:2}" /bin/bash $L/bin/prime-terminal-shell; }
 ck "bash with no greeting of its own: greeting, then the shell" "[ \"\$(term bash | paste -sd' ')\" = 'GREETING SHELL-RAN' ]"
@@ -36,6 +37,7 @@ ck "a shell that already greets: only once"    "echo fastfetch > $G/home/.bashrc
 ck "a commented-out greeting doesn't count"    "echo '# fastfetch' > $G/home/.bashrc && term bash | grep -q GREETING; rm -f $G/home/.bashrc"
 ck "fish with CachyOS-style greeting: once"    "mkdir -p $G/home/.config/fish && printf 'function fish_greeting\n  fastfetch\nend\n' > $G/home/.config/fish/config.fish && [ \"\$(term fish | paste -sd' ')\" = 'SHELL-RAN' ]"
 ck "PRIME_NO_GREETING=1 switches it off"       "[ \"\$(term bash env PRIME_NO_GREETING=1 | paste -sd' ')\" = 'SHELL-RAN' ]"
+ck "Prime's commands are on PATH in it"         "term pathsh env PRIME_NO_GREETING=1 | grep -q \"^$G/home/.local/bin:\""
 ck "the theme makes kitty start it"            "HOME=$T/h1 PRIME_NO_GSETTINGS=1 bash $L/bin/prime-theme --apply >/dev/null 2>&1; grep -qx \"shell *\\\"$L/bin/prime-terminal-shell\\\"\" $T/h1/.config/prime/theme/kitty.conf"
 
 echo "== upgrading an existing install ($(basename "$MIG"))"

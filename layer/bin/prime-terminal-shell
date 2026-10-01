@@ -22,6 +22,9 @@ greets_already() {
 if [ -z "${PRIME_NO_GREETING:-}" ] && command -v fastfetch >/dev/null && ! greets_already; then
     fastfetch 2>/dev/null
 fi
+# Prime's commands (prime-update, prime-uninstall, prime-doctor…) live in ~/.local/bin,
+# which a plain bash login on Arch/CachyOS doesn't put on PATH
+case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) export PATH="$HOME/.local/bin:$PATH" ;; esac
 # kitty only turns on its shell integration for a shell it starts itself; run-shell keeps it
 if command -v kitten >/dev/null && [ -n "${KITTY_WINDOW_ID:-}" ]; then exec kitten run-shell --shell="$sh"; fi
 exec "$sh"

@@ -87,6 +87,10 @@ firewall_apply() {
     && rules+=("1714:1764 udp Prime: KDE Connect (your phone)" "1714:1764 tcp Prime: KDE Connect (your phone)")
   { pacman -Qq localsend >/dev/null 2>&1 || pacman -Qq localsend-bin >/dev/null 2>&1; } \
     && rules+=("53317 udp Prime: LocalSend (share files nearby)" "53317 tcp Prime: LocalSend (share files nearby)")
+  # SSH that's already in use must keep working: the firewall would otherwise cut
+  # off whoever administers this computer remotely (or is installing over SSH).
+  # Same rule as `prime-security ssh on` — your own network only.
+  ssh_on && rules+=("22 tcp Prime: remote login from your network")
   local r port proto comment net
   for r in "${rules[@]}"; do
     port="${r%% *}"; r="${r#* }"; proto="${r%% *}"; comment="${r#* }"

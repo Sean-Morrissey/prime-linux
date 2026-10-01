@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Keyboard Shortcuts
+Comment=Every shortcut, searchable
+Exec=@LAYER@/bin/prime-keys
+Icon=preferences-desktop-keyboard-shortcuts
+Categories=Settings;
+Keywords=keys;hotkeys;bindings;

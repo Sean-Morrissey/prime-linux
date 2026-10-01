@@ -1,0 +1,44 @@
+#!/bin/sh
+# prime-live-overrides — copy Prime OS's installer configuration over the packaged defaults.
+#
+# Runs from the pacman hook 95-prime-os-overrides.hook, after cachyos-calamares has been
+# installed into the live image. The staged tree mirrors the real filesystem, so this is one
+# copy: /usr/share/prime/overrides/etc/calamares/modules/partition.conf ends up at
+# /etc/calamares/modules/partition.conf.
+#
+# Fails loudly rather than quietly: a live image that silently keeps CachyOS's defaults would
+# look fine and then let a stranger pre-select "erase disk" on a Windows machine.
+set -eu
+
+SRC=/usr/share/prime/overrides
+[ -d "$SRC" ] || { echo "prime: no staged overrides at $SRC — installer config NOT applied" >&2; exit 1; }
+
+# Staged '/usr/share/calamares/settings_online.conf' is the one that matters: the live
+# launcher copies it to /etc/calamares/settings.conf at start-up, so a copy sitting only at
+# the destination would be replaced on every boot.
+copy_tree() {
+    for rel in $(cd "$1" && find . -type f); do
+        dst="/${rel#./}"
+        mkdir -p "$(dirname "$dst")"
+        cp -a "$1/${rel#./}" "$dst"
+    done
+}
+copy_tree "$SRC"
+cp -a "$SRC/usr/share/calamares/settings_online.conf" /etc/calamares/settings.conf
+count=$(cd "$SRC" && find . -type f | wc -l)
+
+# The two files the whole dual-boot requirement rests on must be present and ours.
+for must in /etc/calamares/modules/partition.conf \
+            /etc/calamares/modules/packagechooser_bootloader.conf \
+            /etc/calamares/modules/packagechooser_desktop.conf \
+            /etc/calamares/modules/netinstall.conf \
+            /etc/calamares/modules/netinstall.yaml \
+            /etc/calamares/settings.conf; do
+    [ -f "$must" ] || { echo "prime: missing $must after override copy" >&2; exit 1; }
+done
+
+grep -q '^initialPartitioningChoice: none' /etc/calamares/modules/partition.conf \
+    || { echo "prime: partition layout is pre-selected — refusing" >&2; exit 1; }
+
+echo "prime: applied $count installer override file(s)"
+exit 0

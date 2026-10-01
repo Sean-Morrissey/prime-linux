@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Super+V — clipboard history. Pick an entry and it goes back on the
+# clipboard; paste with Ctrl+V. (rofi can't type into other windows on Wayland.)
+set -u
+BIN="$(dirname "$(readlink -f "$0")")"
+sel=$(cliphist list | ROFI_HINT="Enter → copy · Esc → cancel · type to filter" \
+      "$BIN/prime-rofi" -dmenu -p "󰅌 Clipboard" -theme spotlight) || exit 0
+[[ -n "$sel" ]] && printf '%s' "$sel" | cliphist decode | wl-copy

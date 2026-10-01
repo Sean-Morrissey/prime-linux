@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# prime-about — what Prime Linux is, which version, and where things live.
+set -u
+LAYER="$(readlink -f "$(dirname "$(readlink -f "$0")")/..")"
+REPO="$(readlink -f "$LAYER/..")"
+A=$'\e[38;2;248;113;113m'; D=$'\e[2m'; B=$'\e[1m'; R=$'\e[0m'
+ver="$(git -C "$REPO" describe --tags --always 2>/dev/null || echo unknown)"
+when="$(git -C "$REPO" log -1 --format=%cd --date=short 2>/dev/null)"
+
+printf '\n  %s%sPrime Linux%s  %s%s · %s%s\n' "$B" "$A" "$R" "$D" "$ver" "$when" "$R"
+printf '  %sPlease Relax, I'"'"'ll Manage Everything%s\n' "$A" "$R"
+printf '  %sCachyOS speed · Hyprland power · a desktop that explains itself%s\n\n' "$D" "$R"
+row() { printf '  %s%-16s%s %s\n' "$A" "$1" "$R" "$2"; }
+row "Search"        "Super+Space"
+row "Menu"          "Super+Alt+Space  (settings, theme, updates, power)"
+row "Shortcuts"     "Super+/"
+row "Theme"         "Super+Shift+W"
+row "Health check"  "Super+H"
+row "Update"        "prime-update  (or Menu → Update)"
+echo
+row "Your settings" "~/.config/hypr/hyprland.conf · ~/.config/kitty/kitty.conf"
+row "Bar tweaks"    "~/.config/waybar/user.css"
+row "Backups"       "~/.config-backups/desktop  (Menu → Style → Restore)"
+row "Prime itself"  "$REPO"
+row "Add-ons"       "$(grep -v '^#' "$HOME/.config/prime/addons" 2>/dev/null | paste -sd, | sed 's/^$/none/')"
+echo

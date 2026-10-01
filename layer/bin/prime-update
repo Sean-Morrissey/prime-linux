@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# prime-update — update everything: Prime Linux itself, the system packages
+# (repo + AUR), App Store apps, and the window title-bar plugin. A system
+# snapshot and a copy of your desktop settings are taken first (pacman hooks),
+# so a bad update can be undone (boot menu / Menu → Style → Restore).
+#
+#   prime-update            update everything
+#   prime-update --prime    only Prime Linux itself (no system packages)
+set -u
+LAYER="$(readlink -f "$(dirname "$(readlink -f "$0")")/..")"
+REPO="$(readlink -f "$LAYER/..")"
+A=$'\e[38;2;248;113;113m'; B=$'\e[1m'; R=$'\e[0m'
+step() { printf '\n%s==>%s %s%s%s\n' "$A" "$R" "$B" "$*" "$R"; }
+ONLY_PRIME=0; [ "${1:-}" = "--prime" ] && ONLY_PRIME=1
+
+step "Prime Linux"
+before="$(git -C "$REPO" rev-parse --short HEAD)"
+if git -C "$REPO" pull --ff-only --quiet; then
+    after="$(git -C "$REPO" rev-parse --short HEAD)"
+    [ "$before" = "$after" ] && echo "    already up to date ($after)" || {
+        echo "    $before → $after"; git -C "$REPO" log --oneline "$before..$after" | sed 's/^/      /' | head -15; }
+else
+    echo "    couldn't update Prime Linux (offline, or local changes in $REPO) — continuing"
+fi
+
+if [ $ONLY_PRIME = 0 ]; then
+    step "System packages"
+    mapfile -t want < <(grep -vE '^\s*(#|$)' "$REPO/os/arch/packages.txt")
+    if command -v paru >/dev/null; then paru -Syu --needed "${want[@]}"
+    else sudo pacman -Syu --needed "${want[@]}"; fi
+
+    if command -v flatpak >/dev/null; then
+        step "App Store apps"
+        flatpak update -y --noninteractive
+    fi
+fi
+
+step "Refreshing the desktop"
+for u in "$LAYER"/systemd/*; do ln -sfn "$u" "$HOME/.config/systemd/user/$(basename "$u")"; done
+systemctl --user daemon-reload
+"$LAYER/bin/prime-addon" --relink >/dev/null
+"$LAYER/bin/prime-theme" --apply
+if hyprpm update >/dev/null 2>&1 && hyprpm reload -n >/dev/null 2>&1; then echo "    title bars: rebuilt for this Hyprland"
+else echo "    title bars: couldn't rebuild (see: hyprpm update)"; fi
+if [ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]; then
+    hyprctl reload >/dev/null
+    systemctl --user restart prime-session.target prime-bar@top prime-bar@side 2>/dev/null
+fi
+rm -f "${XDG_RUNTIME_DIR:-/tmp}/waybar-updates.json"
+
+printf '\n%sDone.%s If anything looks wrong: Super+H checks and repairs the desktop.\n' "$B" "$R"

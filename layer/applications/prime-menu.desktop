@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Prime Menu
+Comment=Settings, style, updates and power in one list
+Exec=@LAYER@/bin/prime-menu
+Icon=prime-linux
+Categories=Settings;System;
+Keywords=settings;control;panel;preferences;

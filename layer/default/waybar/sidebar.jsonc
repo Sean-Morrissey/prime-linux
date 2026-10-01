@@ -1,0 +1,48 @@
+// Prime Linux — left sidebar: workspaces and running apps (the dock).
+{
+  "layer": "top",
+  "position": "left",
+  "width": 46,
+  "margin-top": 52,
+  "margin-bottom": 10,
+  "margin-left": 10,
+  "exclusive": true,
+  "passthrough": false,
+  "gtk-layer-shell": true,
+  "spacing": 6,
+  "modules-left": [
+    "hyprland/workspaces",
+    "wlr/taskbar"
+  ],
+  "modules-center": [],
+  "modules-right": [],
+  "hyprland/workspaces": {
+    "disable-scroll": false,
+    "all-outputs": false,
+    "active-only": false,
+    "on-click": "activate",
+    "on-scroll-up": "hyprctl dispatch workspace e-1",
+    "on-scroll-down": "hyprctl dispatch workspace e+1",
+    "format": "{icon}",
+    "format-icons": {
+      "active": "●",
+      "occupied": "◉",
+      "default": "○",
+      "urgent": "◈"
+    },
+    "persistent-workspaces": {
+      "*": 5
+    },
+    "on-click-right": "~/.local/share/prime-linux/layer/bin/prime-context bar.workspaces"
+  },
+  "wlr/taskbar": {
+    "format": "{icon}",
+    "icon-size": 24,
+    "icon-theme": "Papirus-Dark",
+    "on-click": "activate",
+    "on-click-middle": "close",
+    "on-click-right": "~/.local/share/prime-linux/layer/bin/prime-context bar.taskbar",
+    "tooltip-format": "{title}",
+    "all-outputs": true
+  }
+}

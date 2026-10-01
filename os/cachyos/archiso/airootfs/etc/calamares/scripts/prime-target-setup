@@ -1,0 +1,63 @@
+#!/bin/bash
+# Prime OS: one rollback entry in the boot menu, and never the broken one.
+#
+# Runs INSIDE the freshly installed system (shellprocess with dontChroot: false), after the
+# package step, so limine-snapper-sync.conf exists by now if Limine was chosen.
+#
+# Why two settings and not one:
+#   snap-pac writes a snapshot BEFORE every update and another AFTER it finishes. If an
+#   update installs cleanly and then the machine will not boot, the newest snapshot is the
+#   broken one. With the menu capped at a single entry, showing the newest would offer the
+#   broken state and hide the good one — so post-update snapshots are excluded from the menu,
+#   which makes the one entry the state from before the last change.
+#
+# Owner's words, 2026-09-27: "he only needs snapshots for 1 rollback. only if something
+# breaks is all, he wont even use it its for prime."
+set -uo pipefail
+
+conf=/etc/limine-snapper-sync.conf
+
+if [ ! -f "$conf" ]; then
+    echo "prime: $conf not present (Limine is not the boot manager here) — skipping"
+    exit 0
+fi
+
+sed -i -E 's|^#?MAX_SNAPSHOT_ENTRIES=.*|MAX_SNAPSHOT_ENTRIES=1|' "$conf"
+sed -i -E 's|^#?EXCLUDE_SNAPSHOT_TYPES=.*|EXCLUDE_SNAPSHOT_TYPES="post"|' "$conf"
+
+if ! grep -q '^MAX_SNAPSHOT_ENTRIES=1$' "$conf"; then
+    echo "prime: could not set MAX_SNAPSHOT_ENTRIES in $conf" >&2
+    exit 1
+fi
+if ! grep -q '^EXCLUDE_SNAPSHOT_TYPES="post"$' "$conf"; then
+    echo "prime: could not set EXCLUDE_SNAPSHOT_TYPES in $conf" >&2
+    exit 1
+fi
+
+# The entry-name link. limine-snapper-sync only manages snapshot entries for the OS entry
+# whose name it knows, and CachyOS's own post-setup step hardcodes "CachyOS" there. We take
+# the name from the installed system instead: whatever the machine calls itself in
+# /etc/os-release is what the boot menu will call it, so rebranding cannot silently break
+# rollbacks. Both places are written because the two limine tools read different files.
+os_name="$(. /etc/os-release; printf '%s' "${PRETTY_NAME:-${NAME:-CachyOS}}")"
+sed -i "s|^TARGET_OS_NAME=.*|TARGET_OS_NAME=\"$os_name\"|" "$conf"
+
+if [ -f /etc/default/limine ]; then
+    if grep -q '^TARGET_OS_NAME=' /etc/default/limine; then
+        sed -i "s|^TARGET_OS_NAME=.*|TARGET_OS_NAME=\"$os_name\"|" /etc/default/limine
+    else
+        printf 'TARGET_OS_NAME="%s"\n' "$os_name" >> /etc/default/limine
+    fi
+else
+    mkdir -p /etc/default
+    printf 'TARGET_OS_NAME="%s"\n' "$os_name" > /etc/default/limine
+fi
+
+grep -q "^TARGET_OS_NAME=\"$os_name\"$" "$conf" || {
+    echo "prime: could not point the rollback tool at the right boot entry" >&2
+    exit 1
+}
+
+echo "prime: boot menu limited to one rollback entry — the state before the last change"
+echo "prime: rollbacks attached to the boot entry named \"$os_name\""
+exit 0

@@ -1,0 +1,5 @@
+[Unit]
+Description=Prime Linux desktop session (bars, clipboard history)
+PartOf=graphical-session.target
+After=graphical-session.target
+Wants=prime-bar@top.service prime-bar@side.service prime-cliphist-text.service prime-cliphist-image.service prime-clip-persist.service

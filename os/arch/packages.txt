@@ -1,0 +1,80 @@
+# Prime Linux on CachyOS / Arch — every package comes from the official repos
+# (no AUR needed). The installer and prime-update install whatever is missing.
+
+# compositor + session
+hyprland
+hyprlock
+hypridle
+hyprpaper
+hyprpolkitagent
+hyprpm
+xdg-desktop-portal-hyprland
+xdg-desktop-portal-gtk
+uwsm
+qt5-wayland
+qt6-wayland
+
+# bar, menus, notifications, clipboard
+waybar
+rofi
+swaync
+libnotify
+cliphist
+wl-clipboard
+wl-clip-persist
+jq
+
+# Spotlight (GTK layer-shell window) + file search
+python
+python-gobject
+gtk3
+gtk-layer-shell
+fd
+plocate
+
+# screenshots
+grim
+slurp
+satty
+
+# audio, network, bluetooth, brightness, media keys
+pipewire
+pipewire-pulse
+wireplumber
+pavucontrol
+networkmanager
+blueman
+brightnessctl
+playerctl
+
+# apps
+kitty
+nemo
+gnome-text-editor
+gnome-software
+flatpak
+nwg-displays
+btop
+fastfetch
+xdg-utils
+xdg-user-dirs
+pacman-contrib
+pciutils
+imagemagick
+
+# look: fonts, icons, GTK theme, cursor
+inter-font
+ttf-jetbrains-mono-nerd
+noto-fonts
+noto-fonts-emoji
+papirus-icon-theme
+adw-gtk-theme
+breeze-cursors
+
+# building the title-bar plugin (hyprpm)
+base-devel
+git
+cmake
+meson
+cpio
+pkgconf

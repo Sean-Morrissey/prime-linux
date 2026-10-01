@@ -1,0 +1,116 @@
+/**
+ * CachyOS Spotlight Search
+ * Frosted obsidian glass · Emerald accents
+ */
+
+* {
+    font:                        "Inter Medium 13";
+    bg-base:                     rgba(10, 10, 14, 0.88);
+    bg-input:                    rgba(255, 255, 255, 0.07);
+    bg-selected:                 rgba(52, 211, 153, 0.14);
+    border-subtle:               rgba(255, 255, 255, 0.12);
+    border-focus:                rgba(52, 211, 153, 0.50);
+    fg-primary:                  #e4e4e7;
+    fg-secondary:                #a1a1a6;
+    fg-accent:                   #34d399;
+
+    background-color:            transparent;
+    text-color:                  @fg-primary;
+    margin:                      0;
+    padding:                     0;
+    spacing:                     0;
+}
+
+window {
+    width:                       620px;
+    background-color:            @bg-base;
+    border:                      1px;
+    border-color:                @border-subtle;
+    border-radius:               16px;
+    location:                    center;
+    anchor:                      center;
+    y-offset:                    -180px;
+    padding:                     16px;
+}
+
+mainbox {
+    background-color:            transparent;
+    children:                    [ inputbar, message, listview ];
+    spacing:                     12px;
+}
+
+inputbar {
+    background-color:            @bg-input;
+    border-radius:               12px;
+    border:                      1px;
+    border-color:                @border-subtle;
+    padding:                     12px 16px;
+    children:                    [ prompt, entry ];
+    spacing:                     12px;
+    alignment:                   center;
+}
+
+prompt {
+    font:                        "Inter Bold 15";
+    text-color:                  @fg-accent;
+    vertical-align:              0.5;
+}
+
+entry {
+    font:                        "Inter 15";
+    text-color:                  @fg-primary;
+    placeholder:                 "Search applications, files, and commands...";
+    placeholder-color:           @fg-secondary;
+    vertical-align:              0.5;
+    cursor:                      text;
+}
+
+message {
+    background-color:            rgba(255, 255, 255, 0.04);
+    border-radius:               8px;
+    padding:                     8px 12px;
+}
+
+textbox {
+    text-color:                  @fg-secondary;
+}
+
+listview {
+    background-color:            transparent;
+    columns:                     1;
+    lines:                       7;
+    spacing:                     4px;
+    cycle:                       true;
+    dynamic:                     true;
+    scrollbar:                   false;
+}
+
+element {
+    background-color:            transparent;
+    text-color:                  @fg-primary;
+    border-radius:               10px;
+    padding:                     10px 14px;
+    children:                    [ element-icon, element-text ];
+    spacing:                     14px;
+    cursor:                      pointer;
+}
+
+element selected.normal {
+    background-color:            @bg-selected;
+    text-color:                  #ffffff;
+    border:                      1px;
+    border-color:                @border-focus;
+}
+
+element-icon {
+    size:                        32px;
+    vertical-align:              0.5;
+    background-color:            transparent;
+}
+
+element-text {
+    background-color:            transparent;
+    text-color:                  inherit;
+    vertical-align:              0.5;
+    font:                        "Inter Medium 13";
+}

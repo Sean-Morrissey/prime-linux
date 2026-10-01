@@ -1,0 +1,4 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+<!-- Prime Linux logo concept — C: first light (Prime = the first hour). Original artwork, CC0. -->
+<defs><clipPath id="d"><circle cx="128" cy="128" r="116"/></clipPath><clipPath id="up"><rect x="0" y="0" width="256" height="140"/></clipPath></defs><g clip-path="url(#d)"><rect width="256" height="256" fill="#f87171"/><rect y="152" width="256" height="104" fill="#000" fill-opacity="0.28"/><circle cx="128" cy="152" r="56" fill="#fff" clip-path="url(#up)"/><rect x="88" y="166" width="80" height="10" rx="5" fill="#fff" fill-opacity="0.7"/><rect x="106" y="188" width="44" height="10" rx="5" fill="#fff" fill-opacity="0.45"/></g>
+</svg>

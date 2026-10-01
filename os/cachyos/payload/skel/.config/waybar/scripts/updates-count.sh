@@ -1,0 +1,90 @@
+#!/usr/bin/env bash
+# updates-count.sh — package-update counter for the waybar pill (custom/updates).
+#
+# WHY THIS EXISTS: the ml4w checker (ml4w-check-system-updates) prints NOTHING
+# when its per-distro branch doesn't match or when checkupdates/paru come back
+# empty, and waybar's `hide-empty-text` then hides the whole module — the pill
+# silently disappears, which is exactly the bug that made the counter "vanish"
+# from the bar. This script ALWAYS prints one valid JSON line.
+#
+# It also caches the result so the bar never waits on `checkupdates` (which
+# takes ~5-10s and blocks on /var/lib/pacman/db.lck):
+#   * cache younger than CACHE_TTL  -> print it and exit (instant)
+#   * otherwise re-count, rewrite the cache, print
+#   * counting fails / db locked    -> still print the last known value
+#
+#   updates-count.sh            status (cached)
+#   updates-count.sh --refresh  force a re-count
+set -u
+
+CACHE="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/waybar-updates.json"
+CACHE_TTL=900          # seconds; bar polls every 15 min
+CHECK_TIMEOUT=45       # hard cap on checkupdates / paru
+LOCK=/var/lib/pacman/db.lck
+
+force=0
+[ "${1:-}" = "--refresh" ] && force=1
+
+cache_age() {                     # seconds since the cache was written, or -1
+    [ -f "$CACHE" ] || { echo -1; return; }
+    echo $(( $(date +%s) - $(stat -c %Y "$CACHE" 2>/dev/null || echo 0) ))
+}
+
+# ── fast path: fresh cache ────────────────────────────────────────────────────
+age=$(cache_age)
+if [ "$force" -eq 0 ] && [ "$age" -ge 0 ] && [ "$age" -lt "$CACHE_TTL" ]; then
+    cat "$CACHE"
+    exit 0
+fi
+
+# ── count ────────────────────────────────────────────────────────────────────
+official=0
+aur=0
+stale=0
+
+# Don't fight a live transaction; checkupdates' own db copy is fine, but the
+# real pacman lock means another run is mid-check and we'd just block.
+if [ -f "$LOCK" ]; then
+    stale=1
+else
+    if command -v checkupdates >/dev/null 2>&1; then
+        official=$(timeout "$CHECK_TIMEOUT" checkupdates 2>/dev/null | wc -l | tr -d ' ')
+    fi
+    helper=""
+    for h in paru yay; do
+        if command -v "$h" >/dev/null 2>&1; then helper="$h"; break; fi
+    done
+    if [ -n "$helper" ]; then
+        aur=$(timeout "$CHECK_TIMEOUT" "$helper" -Qum 2>/dev/null | wc -l | tr -d ' ')
+    fi
+fi
+
+# Anything non-numeric (partial failure) becomes 0, never an empty field.
+case "$official" in ''|*[!0-9]*) official=0 ;; esac
+case "$aur"      in ''|*[!0-9]*) aur=0      ;; esac
+total=$((official + aur))
+
+# ── class by severity (styled in style-macos.css) ────────────────────────────
+if   [ "$stale" -eq 1 ]; then cls="yellow"
+elif [ "$total" -eq 0  ]; then cls="green"
+elif [ "$total" -gt 100   ]; then cls="red"
+elif [ "$total" -gt 25    ]; then cls="yellow"
+else                           cls="normal"
+fi
+
+when=$(date +%H:%M)
+if [ "$stale" -eq 1 ]; then
+    tip="pacman is busy — showing the last count\nchecked $when"
+elif [ "$total" -eq 0 ]; then
+    tip="System up to date ($official official · $aur AUR)\nchecked $when · right-click for package manager"
+else
+    tip="$official official · $aur AUR\nclick to update · right-click for package manager\nchecked $when"
+fi
+
+line=$(printf '{"text":"%s","class":"%s","tooltip":"%s"}\n' "$total" "$cls" "${tip//$'\n'/\\n}")
+
+# Only overwrite the cache with a real measurement.
+if [ "$stale" -eq 0 ]; then
+    printf '%s\n' "$line" > "$CACHE.tmp" && mv -f "$CACHE.tmp" "$CACHE"
+fi
+printf '%s\n' "$line"

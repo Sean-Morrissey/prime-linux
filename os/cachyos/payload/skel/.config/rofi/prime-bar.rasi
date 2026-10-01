@@ -1,0 +1,103 @@
+/**
+ * Hermes bar input — the little glass line that drops out of the bar.
+ * Matches the CachyOS obsidian glass bar (style-macos.css) with the magenta
+ * accent the Hermes pill uses.
+ */
+
+* {
+    font:                        "Inter Medium 13";
+    bg-base:                     rgba(10, 10, 14, 0.94);
+    bg-input:                    rgba(255, 255, 255, 0.06);
+    border-subtle:               rgba(255, 255, 255, 0.12);
+    border-focus:                rgba(192, 132, 252, 0.55);
+    fg-primary:                  #e4e4e7;
+    fg-secondary:                #a1a1a6;
+    fg-accent:                   #c084fc;
+
+    background-color:            transparent;
+    text-color:                  @fg-primary;
+    margin:                      0;
+    padding:                     0;
+    spacing:                     0;
+}
+
+window {
+    width:                       640px;
+    background-color:            @bg-base;
+    border:                      1px;
+    border-color:                @border-subtle;
+    border-radius:               14px;
+    location:                    north;
+    anchor:                      north;
+    y-offset:                    52px;
+    padding:                     10px;
+}
+
+mainbox {
+    background-color:            transparent;
+    children:                    [ inputbar, listview, message];
+    spacing:                     8px;
+}
+
+inputbar {
+    background-color:            @bg-input;
+    border-radius:               10px;
+    border:                      1px;
+    border-color:                @border-subtle;
+    padding:                     11px 14px;
+    children:                    [ prompt, entry ];
+    spacing:                     10px;
+    alignment:                   center;
+}
+
+prompt {
+    font:                        "Inter Bold 14";
+    text-color:                  @fg-accent;
+    vertical-align:              0.5;
+}
+
+entry {
+    font:                        "Inter 14";
+    text-color:                  @fg-primary;
+    placeholder:                 "Type to Hermes…  (Enter to send, Esc to cancel)";
+    placeholder-color:           @fg-secondary;
+    vertical-align:              0.5;
+    cursor:                      text;
+}
+
+listview {
+    background-color:            transparent;
+    columns:                     1;
+    lines:                       12;
+    spacing:                     2px;
+    dynamic:                     true;
+    scrollbar:                   false;
+}
+
+element {
+    background-color:            transparent;
+    text-color:                  @fg-primary;
+    border-radius:               8px;
+    padding:                     4px 10px;
+}
+
+element selected.normal {
+    background-color:            rgba(192, 132, 252, 0.14);
+    text-color:                  #ffffff;
+}
+
+element-text {
+    background-color:            transparent;
+    text-color:                  inherit;
+    font:                        "Inter 13";
+    vertical-align:              0.5;
+}
+
+/* universal footer hint (see ~/.config/prime/rofi-hint.sh) */
+message {
+    text-color:                  #a1a1a6;
+    background-color:            transparent;
+    font:                        "Inter 11";
+    padding:                     6px 12px 0px 12px;
+    border:                      0px;
+}

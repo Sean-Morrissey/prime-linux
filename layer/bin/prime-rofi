@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# prime-rofi — rofi with Prime's themes and the key-hint footer every menu shows.
+#   prime-rofi -theme <spotlight|menu|bar> …   (a bare name means a Prime theme)
+#   ROFI_HINT="custom text" prime-rofi …       (default: the generic key hint)
+set -u
+THEMES="$(dirname "$(readlink -f "$0")")/../default/rofi"
+args=() mesg=0 prev=""
+for a in "$@"; do
+    if [ "$prev" = "-theme" ] && [ -f "$THEMES/$a.rasi" ]; then a="$THEMES/$a.rasi"; fi
+    [ "$a" = "-mesg" ] && mesg=1
+    args+=("$a"); prev="$a"
+done
+[ "$mesg" = 1 ] && exec rofi "${args[@]}"
+exec rofi "${args[@]}" -mesg "${ROFI_HINT:-↑↓ move  ·  Enter pick  ·  Esc cancel  ·  type to filter}"

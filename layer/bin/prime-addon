@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# prime-addon — optional extras for Prime Linux.
+#
+#   prime-addon                 list add-ons and whether they're on
+#   prime-addon enable <name>   install what it needs, set it up, switch it on
+#   prime-addon disable <name>  switch it off (its packages and settings stay)
+#   prime-addon --relink        rebuild ~/.config/hypr/addons.conf (prime-update)
+#
+# An add-on is a folder in layer/addons/<name>/ with addon.conf (DESCRIPTION,
+# PACKAGES, SETUP) and any of: hypr.conf, waybar-top.json, waybar.css,
+# menu.json, elements.json, bin/.
+set -u
+LAYER="$(readlink -f "$(dirname "$(readlink -f "$0")")/..")"
+LIST="$HOME/.config/prime/addons"
+mkdir -p "$(dirname "$LIST")"; [ -f "$LIST" ] || echo "# enabled add-ons, one per line — manage with: prime-addon" > "$LIST"
+enabled() { grep -qx "$1" "$LIST"; }
+
+relink() {
+    { echo "# Written by prime-addon — the enabled add-ons' window-manager settings."
+      while read -r a; do
+          [ -f "$LAYER/addons/$a/hypr.conf" ] && echo "source = $LAYER/addons/$a/hypr.conf"
+      done < <(grep -v '^#' "$LIST")
+    } > "$HOME/.config/hypr/addons.conf"
+}
+reload() {
+    relink
+    [ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ] && { hyprctl reload >/dev/null; "$LAYER/bin/prime-bar" restart; }
+    return 0
+}
+
+case "${1:-}" in
+    ""|list)
+        for d in "$LAYER"/addons/*/; do
+            n="$(basename "$d")"; DESCRIPTION=""; . "$d/addon.conf"
+            printf '  %-6s %-10s %s\n' "$(enabled "$n" && echo '[on]' || echo '[off]')" "$n" "$DESCRIPTION"
+        done
+        echo; echo "  prime-addon enable <name>  ·  prime-addon disable <name>" ;;
+    enable)
+        n="${2:?which add-on? (prime-addon list)}"; d="$LAYER/addons/$n"
+        [ -f "$d/addon.conf" ] || { echo "no add-on called '$n'"; exit 1; }
+        PACKAGES=""; SETUP=""; . "$d/addon.conf"
+        if [ -n "$PACKAGES" ]; then sudo pacman -S --needed --noconfirm $PACKAGES || exit 1; fi
+        if [ -n "$SETUP" ]; then "$d/$SETUP" || { echo "setup didn't finish — '$n' left off"; exit 1; }; fi
+        enabled "$n" || echo "$n" >> "$LIST"
+        for f in "$d"/*.desktop; do [ -f "$f" ] && sed "s|@LAYER@|$LAYER|g" "$f" > "$HOME/.local/share/applications/$(basename "$f")"; done
+        reload; echo "'$n' is on." ;;
+    disable)
+        n="${2:?which add-on?}"
+        sed -i "/^$n\$/d" "$LIST"
+        for f in "$LAYER/addons/$n"/*.desktop; do [ -f "$f" ] && rm -f "$HOME/.local/share/applications/$(basename "$f")"; done
+        reload; echo "'$n' is off." ;;
+    --relink) relink ;;
+    *) sed -n '2,12p' "$0"; exit 2 ;;
+esac

@@ -5,6 +5,10 @@ A student-first, atomic Linux desktop that ships with a resident AI agent.
 Status: **skeleton** — recipe, build pipeline, and first-boot scaffold are in place.
 First milestone is a bootable ISO built from this repo.
 
+**Install it today on CachyOS:** `bash install.sh` — see
+[`docs/PRIME-LAYER.md`](docs/PRIME-LAYER.md) for the one-line installer, how the
+layer is built, and the roadmap (packs, nightly updates, conversational setup).
+
 ---
 
 ## The idea

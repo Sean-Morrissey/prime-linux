@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# prime-new-file <dir> — "New text file here" (Windows' New → Text Document).
+set -u
+dir="${1:-$HOME/Desktop}"
+[ -d "$dir" ] || dir="$HOME"
+f="$dir/untitled.txt"; n=2
+while [ -e "$f" ]; do f="$dir/untitled $n.txt"; n=$((n + 1)); done
+: >"$f" || exit 1
+notify-send -a Prime "New file" "$(basename "$f")" >/dev/null 2>&1 || true

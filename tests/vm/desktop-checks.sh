@@ -26,7 +26,17 @@ ck 'Prime menu (Super+Alt+Space) opens'      '( setsid "$L/bin/prime-menu" >/tmp
 grim /tmp/prime-menu.png 2>/dev/null
 pkill -x rofi; sleep 1
 ck 'Prime menu: every row resolves'          '"$L/bin/prime-menu" --check | tail -1 | grep -q "every row resolves"'
-ck 'terminal greeting spells P.R.I.M.E'      'SHELL=/bin/true script -qc "$L/bin/prime-terminal-shell" /dev/null | grep -q "verything"'
+# what a new terminal prints, from the greeting through the user's own shell (bash here),
+# on a terminal-sized pty (fastfetch drops the logo on a 0-column one)
+ck 'terminal greeting spells P.R.I.M.E'      'timeout 30 script -qc "stty cols 120 rows 40; SHELL=/bin/bash $L/bin/prime-terminal-shell" /dev/null </dev/null > /tmp/greeting.txt 2>&1; grep -q "verything" /tmp/greeting.txt'
 ck 'a terminal window opens (kitty)'         '( setsid kitty >/dev/null 2>&1 & ); for i in $(seq 20); do hyprctl -j clients | jq -e "map(select(.class==\"kitty\")) | length > 0" && exit 0; sleep 0.5; done; exit 1'
 sleep 2; grim /tmp/terminal.png 2>/dev/null; pkill -x kitty
+
+# short diagnostics for anything that failed above, so a red run explains itself
+echo "    -- diagnostics"
+pgrep -x hyprpaper >/dev/null || { echo "    hyprpaper is not running; its last words:"
+    journalctl --user -b --no-pager 2>/dev/null | grep -i hyprpaper | tail -15 | sed 's/^/      /'
+    grep -ih hyprpaper /run/user/"$(id -u)"/hypr/*/hyprland.log 2>/dev/null | tail -10 | sed 's/^/      /'
+    timeout 5 hyprpaper -c ~/.config/prime/theme/hyprpaper.conf 2>&1 | tail -15 | sed 's/^/      /'; }
+grep -q verything /tmp/greeting.txt 2>/dev/null || { echo "    terminal output was:"; head -30 /tmp/greeting.txt | cat -v | sed 's/^/      /'; }
 exit 0

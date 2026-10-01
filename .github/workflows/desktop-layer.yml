@@ -56,6 +56,8 @@ jobs:
         run: bash backends/arch/test-system-update.sh
       - name: Owner's machine leaks
         run: bash tests/check-portable.sh
+      - name: Update everything on a private-repo install without a GitHub login
+        run: bash tests/check-update-private.sh
 
   container:
     name: Clean install (fresh Arch container)

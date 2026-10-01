@@ -135,8 +135,11 @@ row.top .title { font-size: 16px; font-weight: 600; }
 .keycap {
     font-size: 11px; font-weight: 600; color: rgba(255, 255, 255, 0.72);
     background-color: rgba(255, 255, 255, 0.09); border-radius: 6px; padding: 2px 8px;
+    border: none; box-shadow: none;
 }
 .hintrow .title { color: rgba(255, 255, 255, 0.62); font-weight: 400; }
+/* symbolic icons take the theme's text colour — black under a light GTK theme */
+.hintrow image, row.hit image { color: rgba(255, 255, 255, 0.62); }
 #footer {
     padding: 9px 22px 11px 22px; font-size: 11.5px; color: rgba(255, 255, 255, 0.40);
     border-top: 1px solid rgba(255, 255, 255, 0.06);

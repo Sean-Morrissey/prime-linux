@@ -3,6 +3,7 @@
 // them all (prime-bar --keys). Don't edit this copy (prime-update replaces it):
 // put a full replacement at ~/.config/waybar/config.jsonc, or styling tweaks in
 // ~/.config/waybar/user.css. Add-ons insert their own modules at start-up.
+// image#logo needs an "interval": without one, waybar never draws the bar when it runs on 2+ screens.
 {
   "layer": "top",
   "position": "top",
@@ -264,6 +265,7 @@
     "tooltip": true,
     "tooltip-format": "Prime menu (Super+Alt+Space)\nSearch · Super+Space   Bar by keys · Super+Alt+B   Shortcuts · Super+/",
     "on-click": "~/.local/share/prime-linux/layer/bin/prime-menu",
-    "on-click-right": "~/.local/share/prime-linux/layer/bin/prime-context bar.logo"
+    "on-click-right": "~/.local/share/prime-linux/layer/bin/prime-context bar.logo",
+    "interval": 3600
   }
 }

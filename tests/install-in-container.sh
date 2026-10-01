@@ -9,9 +9,17 @@ REPO="$(cd "$(dirname "$0")/.." && pwd)"
 NAME="prime-install-test-$$"
 trap '[ "${KEEP:-0}" = 1 ] || docker rm -f "$NAME" >/dev/null 2>&1' EXIT
 
-docker run -d --name "$NAME" archlinux:latest sleep infinity >/dev/null
-docker exec "$NAME" bash -c 'pacman -Syu --noconfirm --needed sudo git >/dev/null &&
-    useradd -m alex && echo "alex ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/alex'
+# the package download is the slow part — cache it as an image keyed on packages.txt
+BASE="prime-test-base:$(sha256sum "$REPO/os/arch/packages.txt" | cut -c1-12)"
+if ! docker image inspect "$BASE" >/dev/null 2>&1; then
+    echo "== building $BASE (one-time package download)"
+    docker run -d --name "$NAME-base" archlinux:latest sleep infinity >/dev/null
+    docker cp "$REPO/os/arch/packages.txt" "$NAME-base":/tmp/packages.txt
+    docker exec "$NAME-base" bash -c 'pacman -Syu --noconfirm --needed sudo git $(grep -vE "^\s*(#|$)" /tmp/packages.txt) >/dev/null 2>&1; pacman -Q hyprland waybar >/dev/null'
+    docker commit "$NAME-base" "$BASE" >/dev/null; docker rm -f "$NAME-base" >/dev/null
+fi
+docker run -d --name "$NAME" "$BASE" sleep infinity >/dev/null
+docker exec "$NAME" bash -c 'useradd -m alex && echo "alex ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/alex'
 # hand the checkout over as a git repo, exactly like boot.sh would clone it
 git -C "$REPO" bundle create /tmp/prime-$$.bundle HEAD >/dev/null 2>&1
 docker cp /tmp/prime-$$.bundle "$NAME":/tmp/prime.bundle; rm -f /tmp/prime-$$.bundle

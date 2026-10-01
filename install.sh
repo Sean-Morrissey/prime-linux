@@ -63,15 +63,16 @@ if [ "$SRC" = "$PRIME_HOME" ]; then
     info "Already running from there"
 else
     origin="$(git -C "$SRC" remote get-url origin 2>/dev/null || true)"
-    branch="$(git -C "$SRC" rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)"
+    branch="$(git -C "$SRC" symbolic-ref --short -q HEAD || echo main)"
+    commit="$(git -C "$SRC" rev-parse HEAD)"
     if [ -d "$PRIME_HOME/.git" ]; then
         info "Updating the existing copy"
-        run git -C "$PRIME_HOME" fetch --quiet "$SRC" "$branch"
-        run git -C "$PRIME_HOME" checkout --quiet -B "$branch" FETCH_HEAD
+        run git -C "$PRIME_HOME" fetch --quiet "$SRC" "$commit"
     else
         run mkdir -p "$(dirname "$PRIME_HOME")"
-        run git clone --quiet --branch "$branch" "$SRC" "$PRIME_HOME"
+        run git clone --quiet --no-checkout "$SRC" "$PRIME_HOME"
     fi
+    run git -C "$PRIME_HOME" checkout --quiet -B "$branch" "$commit"
     # updates come from the published repo, not from wherever this ran
     [ -n "$origin" ] && run git -C "$PRIME_HOME" remote set-url origin "$origin"
 fi

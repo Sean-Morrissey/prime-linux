@@ -29,7 +29,10 @@ WALL="$LAYER/wallpapers/prime-ember.jpg"; ACCENT="f87171"
 
 save()   { mkdir -p "$(dirname "$STATE")"; printf 'WALL=%q\nACCENT=%s\n' "$WALL" "$ACCENT" > "$STATE"; }
 notify() { notify-send -a Prime -t 4000 ${2:+-i "$2"} "Theme" "$1" >/dev/null 2>&1 || true; }
-live()   { [ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]; }
+# only touch the running desktop when this is the real session's own home —
+# never from a test or a second HOME (that once swapped a live wallpaper)
+live()   { [ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ] && [ -z "${PRIME_NO_LIVE:-}" ] \
+           && [ "$HOME" = "$(getent passwd "$(id -un)" | cut -d: -f6)" ]; }
 
 # ── write every app's colour file from $WALL + $ACCENT ───────────────────────
 generate() {
@@ -81,7 +84,7 @@ EOF
   [ -f "$HOME/.config/swaync/user.css" ] && echo "@import url(\"file://$HOME/.config/swaync/user.css\");" >> "$OUT/swaync.css"
 
   # GTK 4 / libadwaita apps take one of nine named accents: the nearest hue
-  [ -n "${PRIME_NO_GSETTINGS:-}" ] || gsettings set org.gnome.desktop.interface accent-color "$(python3 - "$a" <<'PY'
+  live || [ -z "${HYPRLAND_INSTANCE_SIGNATURE:-}" ] && [ -z "${PRIME_NO_GSETTINGS:-}" ] && gsettings set org.gnome.desktop.interface accent-color "$(python3 - "$a" <<'PY'
 import colorsys, sys
 h = sys.argv[1]
 r, g, b = (int(h[i:i + 2], 16) / 255 for i in (0, 2, 4))

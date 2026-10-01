@@ -17,3 +17,7 @@ cosign.key
 # and the review tree holds Sean's own skills/ledger. Neither is shippable.
 os/cachyos/capture-report.json
 os/cachyos/payload-review/
+
+# Python bytecode
+__pycache__/
+*.pyc

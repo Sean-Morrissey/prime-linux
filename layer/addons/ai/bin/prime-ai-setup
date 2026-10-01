@@ -11,6 +11,39 @@ HERE="$(dirname "$(readlink -f "$0")")"
 mkdir -p "$(dirname "$CONF")"
 B=$'\e[1m'; D=$'\e[2m'; R=$'\e[0m'
 
+# Welcome already connected it (prime-addon enable runs this): keep that, don't ask again.
+if [ "${PRIME_AI_SETUP:-}" = keep ] && grep -q '^BASE_URL=.' "$CONF" 2>/dev/null; then
+    echo "Keeping the assistant settings you already chose ($(sed -n 's/^MODEL=//p' "$CONF"))."
+    exit 0
+fi
+
+# Non-interactive (the Welcome app uses this):
+#   prime-ai-setup --url URL --model NAME [--key-stdin] [--no-test]
+if [ "${1:-}" = --url ]; then
+    url="${2:-}"; model=""; keyin=0; dotest=1; shift 2 || true
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --model) model="${2:-}"; shift 2 ;;
+            --key-stdin) keyin=1; shift ;;
+            --no-test) dotest=0; shift ;;
+            *) echo "unknown option: $1" >&2; exit 2 ;;
+        esac
+    done
+    [[ "$url" =~ ^https?://[^[:space:]]+$ ]] || { echo "That address doesn't look right (it starts with http:// or https://)." >&2; exit 2; }
+    [[ "$model" =~ ^[^[:space:]=]+$ ]] || { echo "Pick a model." >&2; exit 2; }
+    if [ $keyin = 1 ]; then
+        IFS= read -r key || true
+        [ -n "$key" ] || { echo "No key given." >&2; exit 2; }
+        ( umask 077; printf '%s' "$key" > "$KEY" )
+    else
+        rm -f "$KEY"
+    fi
+    printf '# Prime assistant — change with: prime-addon enable ai\nBASE_URL=%s\nMODEL=%s\n' "$url" "$model" > "$CONF"
+    [ $dotest = 1 ] || exit 0
+    "$HERE/prime-ask" --test
+    exit $?
+fi
+
 echo
 echo "${B}Where should Prime's answers come from?${R}"
 echo "  1) A model on this computer   (llama-server or Ollama — private, free)"

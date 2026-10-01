@@ -44,7 +44,7 @@ ck "switch status answers"                  "$L/bin/prime-toggle status | jq -e 
 ck "web app: install, list, remove"         "$L/bin/prime-webapp install 'Test Site' example.com && grep -q 'prime-webapp open https://example.com' ~/.local/share/applications/prime-webapp-test-site.desktop && $L/bin/prime-webapp list | grep -q '^Test Site' && $L/bin/prime-webapp remove 'Test Site' && [ ! -e ~/.local/share/applications/prime-webapp-test-site.desktop ]"
 ck "web app: refuses non-web addresses"     "! $L/bin/prime-webapp install Bad 'javascript:alert(1)' && ! $L/bin/prime-webapp install 'a/b' example.com"
 ck "battery alert exits quietly on a desktop" "timeout 5 $L/bin/prime-battery-alert --once"
-ck "OSD helpers parse"                      "for f in prime-osd prime-toggle prime-record prime-wifi prime-bluetooth prime-sound prime-keyboard prime-power-profile prime-colour prime-emoji prime-webapp prime-migrate; do bash -n $L/bin/\$f || exit 1; done"
+ck "OSD helpers parse"                      "for f in prime-titlebars prime-osd prime-toggle prime-record prime-wifi prime-bluetooth prime-sound prime-keyboard prime-power-profile prime-colour prime-emoji prime-webapp prime-migrate; do bash -n $L/bin/\$f || exit 1; done"
 ck "new services linked"                    "[ -L ~/.config/systemd/user/prime-osd.service ] && [ -L ~/.config/systemd/user/prime-battery-alert.service ]"
 
 echo "-- migrations"

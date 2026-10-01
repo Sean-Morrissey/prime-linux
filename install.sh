@@ -330,16 +330,21 @@ else
 fi
 
 # ── 7. window title bars (hyprpm builds hyprbars for this Hyprland) ──────────
-step "Window title bars (downloads and builds a plugin — about a minute)"
+step "Window title bars (downloads Hyprland's build files — about a minute)"
+# hyprpm can fetch the build files (needs sudo — we still have it) from anywhere, but it
+# can only add the plugin inside a running Hyprland: prime-titlebars finishes that at
+# the first login (layer/default/hypr/autostart.conf), in the background.
 if skip_step 7; then info "done earlier"
-elif [ $DRY = 1 ]; then info "[dry-run] hyprpm update · hyprpm add hyprland-plugins · hyprpm enable hyprbars"
-elif [ $online = 0 ]; then warn "Skipped (no internet) — prime-update builds them later"; done_step 7
+elif [ $DRY = 1 ]; then info "[dry-run] hyprpm update   (the plugin itself is added at the first Hyprland login)"
+elif [ $online = 0 ]; then warn "Skipped (no internet) — done at your first login instead"; done_step 7
 else
     mkdir -p "$HOME/.cache"
-    if { hyprpm update && { hyprpm list 2>/dev/null | grep -q hyprbars || hyprpm add https://github.com/hyprwm/hyprland-plugins; } && hyprpm enable hyprbars; } >"$HOME/.cache/prime-hyprpm.log" 2>&1; then
-        ok "Title bars ready"
+    if [ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]; then
+        "$LAYER/bin/prime-titlebars" --rebuild >/dev/null 2>&1 && ok "Title bars ready" || warn "Title bars: not yet — retried at the next login"
+    elif hyprpm update >"$HOME/.cache/prime-hyprpm.log" 2>&1 </dev/null; then
+        ok "Build files ready — the title bars switch on at your first login"
     else
-        warn "Couldn't build the title bars now (log: ~/.cache/prime-hyprpm.log) — prime-update retries. Everything else works without them."
+        warn "Couldn't prepare the title bars now (log: ~/.cache/prime-hyprpm.log) — retried at login. Everything else works without them."
     fi
     done_step 7
 fi

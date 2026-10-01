@@ -162,7 +162,7 @@ cmd_prime() {
     local E="XDG_RUNTIME_DIR=/run/user/1000 WAYLAND_DISPLAY=$w HYPRLAND_INSTANCE_SIGNATURE=\$(ls /run/user/1000/hypr | head -1)"
     say "checking the live session"
     ssh_vm "$E; export XDG_RUNTIME_DIR WAYLAND_DISPLAY HYPRLAND_INSTANCE_SIGNATURE
-        ck() { if eval \"\$2\" >/dev/null 2>&1; then echo \"    ✓ \$1\"; else echo \"    ✗ \$1\"; fi; }
+        ck() { if ( eval \"\$2\" ) >/dev/null 2>&1; then echo \"    ✓ \$1\"; else echo \"    ✗ \$1\"; fi; }
         ck 'Hyprland running'            'hyprctl -j version'
         ck 'config loaded with no errors' '[ \"\$(hyprctl -j configerrors | jq -r \".[]\" | grep -c .)\" = 0 ]'
         ck 'top bar + dock running'      '[ \$(pgrep -cx waybar) -ge 2 ]'
@@ -171,7 +171,7 @@ cmd_prime() {
         ck 'notifications (swaync)'      'pgrep -x swaync'
         ck 'wallpaper (hyprpaper)'       'pgrep -x hyprpaper'
         ck 'wallpaper shown'             'hyprctl hyprpaper listactive | grep -q /'
-        ck 'window title bars (hyprbars)' 'hyprctl plugin list | grep -qi hyprbars'
+        ck 'window title bars (built at first login)' 'for i in \$(seq 48); do hyprctl plugin list | grep -qi hyprbars && exit 0; sleep 5; done; exit 1'
         ck 'keyboard layout applied'     'hyprctl -j devices | jq -e \".keyboards[] | select(.main) | .layout\"'
         ck 'binds have descriptions'     '[ \$(hyprctl -j binds | jq \"[.[] | select(.has_description | not)] | length\") = 0 ]'
         ck 'login health check clean'    '~/.local/share/prime-linux/layer/bin/prime-doctor --login'
@@ -180,7 +180,8 @@ cmd_prime() {
     say "uninstall in the VM, then check the account is back"
     ssh_vm 'bash ~/.local/share/prime-linux/layer/bin/prime-uninstall --yes' > "$WORK/uninstall.log" 2>&1 \
         && echo "    ✓ prime-uninstall ran (log: uninstall.log)" || echo "    ✗ prime-uninstall failed"
-    left="$(ssh_vm 'ls -d ~/.local/share/prime-linux ~/.config/hypr/*.conf ~/.config/prime ~/.config/systemd/user/prime-* ~/.local/bin/prime-* ~/.local/share/applications/prime-* /etc/pacman.d/hooks/zz-prime-* 2>/dev/null')"
+    # (a running Hyprland writes a stub hyprland.conf when its config disappears — not Prime's)
+    left="$(ssh_vm 'grep -l prime-linux ~/.config/hypr/*.conf 2>/dev/null; ls -d ~/.local/share/prime-linux ~/.config/prime ~/.config/systemd/user/prime-* ~/.local/bin/prime-* ~/.local/share/applications/prime-* /etc/pacman.d/hooks/zz-prime-* 2>/dev/null')"
     if [ -z "$left" ]; then echo "    ✓ nothing of Prime left" | tee -a "$WORK/session-checks.log"
     else echo "    ✗ left behind: $(echo $left)" | tee -a "$WORK/session-checks.log"; fi
     stop_vm

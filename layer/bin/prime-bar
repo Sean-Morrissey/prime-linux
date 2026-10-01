@@ -15,7 +15,8 @@ import json, os, re, subprocess, sys
 
 HOME = os.path.expanduser("~")
 LAYER = os.path.realpath(os.path.join(os.path.dirname(os.path.realpath(__file__)), ".."))
-RUN = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "prime-bar")
+_rt = os.environ.get("XDG_RUNTIME_DIR", "")
+RUN = os.path.join(_rt if _rt and os.access(_rt, os.W_OK) else f"/tmp/prime-{os.getuid()}", "prime-bar")
 FILES = {"top": ("config.jsonc", "style.css"), "side": ("sidebar.jsonc", "sidebar.css")}
 
 

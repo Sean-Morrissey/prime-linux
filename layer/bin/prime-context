@@ -25,6 +25,8 @@ DRY=0
 for a in "$@"; do [ "$a" = "--dry" ] && DRY=1; done
 
 RUNTIME="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+# no runtime dir (a bare shell, a container): use a private temp dir instead
+[ -d "$RUNTIME" ] && [ -w "$RUNTIME" ] || { RUNTIME="${TMPDIR:-/tmp}/prime-$(id -u)"; mkdir -p -m 700 "$RUNTIME"; }
 export XDG_RUNTIME_DIR="$RUNTIME"
 if [ -z "${WAYLAND_DISPLAY:-}" ]; then
     WAYLAND_DISPLAY="$(ls "$RUNTIME" 2>/dev/null | grep -m1 '^wayland-[0-9]*$' || true)"

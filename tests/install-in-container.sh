@@ -19,7 +19,8 @@ if ! docker image inspect "$BASE" >/dev/null 2>&1; then
     docker commit "$NAME-base" "$BASE" >/dev/null; docker rm -f "$NAME-base" >/dev/null
 fi
 docker run -d --name "$NAME" "$BASE" sleep infinity >/dev/null
-docker exec "$NAME" bash -c 'useradd -m alex && echo "alex ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/alex'
+docker exec "$NAME" bash -c 'useradd -m alex && echo "alex ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/alex &&
+    install -d -m 700 -o alex -g alex /run/user/$(id -u alex)'
 # hand the checkout over as a git repo, exactly like boot.sh would clone it
 git -C "$REPO" bundle create /tmp/prime-$$.bundle HEAD >/dev/null 2>&1
 docker cp /tmp/prime-$$.bundle "$NAME":/tmp/prime.bundle; rm -f /tmp/prime-$$.bundle
@@ -29,8 +30,8 @@ docker exec "$NAME" bash -c 'rm -rf /home/alex/src-worktree/.git && cp -a /home/
     chown -R alex: /home/alex/src && cd /home/alex/src && sudo -u alex git add -A && sudo -u alex git -c user.name=t -c user.email=t@t commit -qm wip || true'
 
 echo "== install"
-docker exec -u alex -e HOME=/home/alex "$NAME" bash /home/alex/src/install.sh
+docker exec -u alex -e HOME=/home/alex -e XDG_RUNTIME_DIR=/run/user/1000 "$NAME" bash /home/alex/src/install.sh
 
 echo "== checks"
 docker cp "$REPO/tests/check-install.sh" "$NAME":/tmp/check-install.sh
-docker exec -u alex -e HOME=/home/alex "$NAME" bash /tmp/check-install.sh
+docker exec -u alex -e HOME=/home/alex -e XDG_RUNTIME_DIR=/run/user/1000 "$NAME" bash /tmp/check-install.sh

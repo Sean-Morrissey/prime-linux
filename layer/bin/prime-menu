@@ -27,6 +27,8 @@ while [ $# -gt 0 ]; do
 done
 
 RUNTIME="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+# no runtime dir (a bare shell, a container): use a private temp dir instead
+[ -d "$RUNTIME" ] && [ -w "$RUNTIME" ] || { RUNTIME="${TMPDIR:-/tmp}/prime-$(id -u)"; mkdir -p -m 700 "$RUNTIME"; }
 export XDG_RUNTIME_DIR="$RUNTIME"
 if [ -z "${WAYLAND_DISPLAY:-}" ]; then
     WAYLAND_DISPLAY="$(ls "$RUNTIME" 2>/dev/null | grep -m1 '^wayland-[0-9]*$' || true)"
@@ -291,6 +293,7 @@ if [ "$MODE" = "check" ]; then
                     for|echo|if|while) target="${toks[0]}"; kindof="shell" ;;
                     *)       target="${toks[0]}";  kindof="path" ;;
                 esac
+                target="${target/#\~/$HOME}"; target="${target%;}"
                 case "$kindof" in
                     shell) printf 'ok   %-22s (shell snippet)\n' "$id" ;;
                     file)

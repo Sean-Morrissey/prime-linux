@@ -12,7 +12,7 @@ ck "emblem generated in the accent"         "grep -q f87171 ~/.config/prime/them
 ck "app-list entries installed, paths filled" "[ -f ~/.local/share/applications/prime-menu.desktop ] && ! grep -q @LAYER@ ~/.local/share/applications/prime-*.desktop"
 ck "bar logo path expanded"                 "$L/bin/prime-bar --print top | jq -e '.\"image#logo\".path | startswith(\"/\")'"
 ck "Hyprland accepts the whole config"      "Hyprland --verify-config -c ~/.config/hypr/hyprland.conf"
-ck "every bind has a description"           "! grep -hE '^bind[a-z]* =' $L/default/hypr/*.conf $L/addons/*/hypr.conf"
+ck "every bind has a description"           "! grep -hE '^bind[a-z]* =' $L/default/hypr/*.conf $L/addons/*/hypr.conf | grep -vE '^bind[a-z]*d[a-z]* ='"
 ck "top bar config builds"                  "$L/bin/prime-bar --print top | jq -e '.\"modules-right\" | length > 5'"
 ck "side bar config builds"                 "$L/bin/prime-bar --print side | jq -e '.\"modules-left\" | length > 0'"
 ck "menu: every row resolves"               "$L/bin/prime-menu --check | tail -1 | grep -q 'every row resolves'"

@@ -62,11 +62,15 @@ EOF
 \$wallpaper = $WALL
 \$accent = rgb($r, $g, $b)
 EOF
+  # hyprpaper 0.8+ syntax (it ignores the old "preload =" / "wallpaper = ,path" lines)
   cat > "$OUT/hyprpaper.conf" <<EOF
 # written by prime-theme
-preload = $WALL
-wallpaper = , $WALL
 splash = false
+wallpaper {
+    monitor =
+    path = $WALL
+    fit_mode = cover
+}
 EOF
   cat > "$OUT/kitty.conf" <<EOF
 # written by prime-theme

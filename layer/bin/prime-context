@@ -26,7 +26,11 @@ for a in "$@"; do [ "$a" = "--dry" ] && DRY=1; done
 
 RUNTIME="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 # no runtime dir (a bare shell, a container): use a private temp dir instead
-[ -d "$RUNTIME" ] && [ -w "$RUNTIME" ] || { RUNTIME="${TMPDIR:-/tmp}/prime-$(id -u)"; mkdir -p -m 700 "$RUNTIME"; }
+[ -d "$RUNTIME" ] && [ -w "$RUNTIME" ] || {
+    RUNTIME="${TMPDIR:-/tmp}/prime-$(id -u)"; mkdir -p -m 700 "$RUNTIME" 2>/dev/null
+    # another account could have made that folder first — then it isn't safe to use
+    if [ ! -O "$RUNTIME" ] || [ "$(stat -c %a "$RUNTIME")" != 700 ]; then RUNTIME="$(mktemp -d)"; fi
+}
 export XDG_RUNTIME_DIR="$RUNTIME"
 if [ -z "${WAYLAND_DISPLAY:-}" ]; then
     WAYLAND_DISPLAY="$(ls "$RUNTIME" 2>/dev/null | grep -m1 '^wayland-[0-9]*$' || true)"
@@ -199,7 +203,7 @@ submit_ask() {                    # $1 text, $2 optional image, $3 optional "new
         return 0
     fi
     [ -n "$ASKER" ] || { notify "Prime" "No assistant add-on is enabled (Settings → Add-ons)"; return 1; }
-    launch_bg "$ASKER" "$text" ${img:+--image "$img"} ${mode:+--$mode}
+    launch_bg "$ASKER" "$text" ${img:+--image "$img"} ${mode:+--$mode} --from "the $LABEL element on the bar"
     log "asked: $(printf '%s' "$text" | cut -c1-120)"
 }
 

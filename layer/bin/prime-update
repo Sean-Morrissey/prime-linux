@@ -90,8 +90,12 @@ if [ "$ONLY_PRIME" = 0 ]; then
 
   # ── 3. the system ──────────────────────────────────────────────────────────
   step "System (safety snapshot first)"
-  out="$(mktemp)"
-  sudo env PRIME_ALLOW_REAL_SYSTEM_CHANGES=yes "$ENGINE" apply --manual --ensure "$REPO/os/arch/packages.txt" 2>&1 | tee "$out"
+  out="$(mktemp)"; need="$(mktemp)"
+  # only what's actually missing — a package "provided" by another (CachyOS's
+  # tuned-ppd for power-profiles-daemon) must not be asked for, or pacman stops
+  "$BIN/prime-missing-packages" > "$need" 2>/dev/null || : > "$need"
+  sudo env PRIME_ALLOW_REAL_SYSTEM_CHANGES=yes "$ENGINE" apply --manual --ensure "$need" 2>&1 | tee "$out"
+  rm -f "$need"
   result="$(sed -n 's/^RESULT //p' "$out" | tail -1)"; rm -f "$out"
   case "$result" in
     ok)        ok "system up to date" ;;
@@ -128,10 +132,13 @@ fi
 printf '\n%sRefreshing the desktop%s\n' "$B" "$R"
 for u in "$LAYER"/systemd/*; do ln -sfn "$u" "$HOME/.config/systemd/user/$(basename "$u")"; done
 systemctl --user daemon-reload 2>/dev/null
+"$BIN/prime-migrate" || warn "some one-time upgrade steps will retry at the next update"
 "$BIN/prime-addon" --relink >/dev/null 2>&1
 "$BIN/prime-theme" --apply >/dev/null 2>&1
-if hyprpm update >/dev/null 2>&1 && hyprpm reload -n >/dev/null 2>&1; then ok "window title bars rebuilt for this Hyprland"
-else warn "window title bars couldn't be rebuilt now (the next update retries)"; fi
+if [ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]; then
+    "$BIN/prime-titlebars" --rebuild >/dev/null 2>&1 && ok "window title bars rebuilt for this Hyprland" \
+        || warn "window title bars couldn't be rebuilt now (the next login retries)"
+fi
 if [ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]; then
     hyprctl reload >/dev/null
     systemctl --user restart prime-session.target prime-bar@top prime-bar@side 2>/dev/null

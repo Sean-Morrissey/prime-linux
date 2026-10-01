@@ -97,11 +97,15 @@ fi
 need_sudo=0
 others="$(ls -d /home/*/.local/share/prime-linux 2>/dev/null | grep -v "^$PRIME_HOME\$" || true)"
 if [ -f "$MANIFEST" ] && grep -q '^service ' "$MANIFEST"; then need_sudo=1; fi
-[ -z "$others" ] && [ -f /etc/pacman.d/hooks/zz-prime-desktop-backup.hook ] && need_sudo=1
+[ -z "$others" ] && { [ -f /etc/pacman.d/hooks/zz-prime-desktop-backup.hook ] || [ -d /usr/local/lib/prime-linux ]; } && need_sudo=1
 [ $PKGS = 1 ] && need_sudo=1
 if [ $need_sudo = 1 ] && [ $DRY = 0 ]; then sudo -v || { echo "sudo is needed for the system parts — run again when you can."; exit 1; }; fi
 if [ -z "$others" ]; then
     # only when nobody else on this computer still uses Prime
+    # nightly updates, backup hook, firewall defaults — undone by the same script that set them up
+    if [ -f "$PRIME_HOME/layer/system/install-system.sh" ]; then
+        run sudo bash "$PRIME_HOME/layer/system/install-system.sh" uninstall && say "Nightly updates and Prime's system settings removed"
+    fi
     [ -f /etc/pacman.d/hooks/zz-prime-desktop-backup.hook ] && \
         run sudo rm -f /etc/pacman.d/hooks/zz-prime-desktop-backup.hook /usr/share/libalpm/scripts/prime-desktop-backup-all
     if [ -f "$MANIFEST" ]; then

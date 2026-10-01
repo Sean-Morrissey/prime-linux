@@ -320,3 +320,27 @@ tooltip label {
 #custom-mediaPlay.playing { color: @accent; }
 #custom-mediaPlay.paused  { color: @fg_dim; }
 #custom-mediaPlay.stopped { color: @fg_faint; }
+
+/* ─── Recording · quick switches · keyboard layout · battery ─────
+   Recording is red on purpose (always means "you are being recorded"),
+   quick switches use the accent, battery follows the status colours. */
+#custom-recording {
+    color: @rose;
+    font-weight: 700;
+    padding: 0 10px;
+    margin: 4px 2px;
+    border-radius: 10px;
+    background: alpha(@rose, 0.14);
+}
+#custom-toggles,
+#custom-keyboard {
+    color: @fg_dim;
+    padding: 0 8px;
+}
+#custom-toggles.on,
+#custom-toggles:hover,
+#custom-keyboard:hover { color: @accent; }
+#battery { color: @fg_dim; padding: 0 8px; }
+#battery.charging, #battery.plugged { color: @accent; }
+#battery.warning:not(.charging)  { color: @amber; }
+#battery.critical:not(.charging) { color: @rose; font-weight: 700; }

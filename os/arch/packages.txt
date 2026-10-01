@@ -112,3 +112,14 @@ cmake
 meson
 cpio
 pkgconf
+
+# updates + safety (nightly updates, snapshots before updates, firewall, advisories)
+ufw
+arch-audit
+snapper
+snap-pac
+btrfs-assistant
+
+# welcome app + assistant UI (GTK 4 / libadwaita)
+gtk4
+libadwaita

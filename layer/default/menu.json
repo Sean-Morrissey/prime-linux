@@ -22,11 +22,25 @@
           "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-spotlight"
         },
         {
+          "id": "apps.packs",
+          "label": "Set this computer up for…",
+          "hint": "Gaming · Coding · Creating · Studying",
+          "kind": "run",
+          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-addon pick"
+        },
+        {
           "id": "apps.store",
           "label": "App Store",
           "hint": "install apps with a click",
           "kind": "run",
           "cmd": "exec gnome-software"
+        },
+        {
+          "id": "apps.welcome",
+          "label": "Set up my computer again",
+          "hint": "the welcome steps: look, packs, updates, assistant",
+          "kind": "run",
+          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-welcome"
         }
       ]
     },
@@ -120,10 +134,10 @@
         },
         {
           "id": "set.addons",
-          "label": "Add-ons",
+          "label": "Packs & add-ons",
           "hint": "optional extras, e.g. the AI assistant",
-          "kind": "term",
-          "cmd": "~/.local/share/prime-linux/layer/bin/prime-addon"
+          "kind": "run",
+          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-addon pick"
         },
         {
           "id": "set.hyprconf",
@@ -131,6 +145,13 @@
           "hint": "~/.config/hypr/hyprland.conf",
           "kind": "run",
           "cmd": "exec gnome-text-editor ~/.config/hypr/hyprland.conf"
+        },
+        {
+          "id": "set.autonomy",
+          "label": "How much Prime may do on its own",
+          "hint": "ask every time · small stuff · just do it",
+          "kind": "term",
+          "cmd": "~/.local/share/prime-linux/layer/bin/prime-settings autonomy"
         }
       ]
     },
@@ -324,17 +345,37 @@
           "cmd": "~/.local/share/prime-linux/layer/bin/prime-update"
         },
         {
+          "id": "upd.settings",
+          "label": "Update settings",
+          "hint": "automatic · ask me · security only · off",
+          "kind": "run",
+          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-updates-settings"
+        },
+        {
+          "id": "upd.undo",
+          "label": "Undo last update",
+          "hint": "go back to the snapshot taken before it",
+          "kind": "term",
+          "cmd": "~/.local/share/prime-linux/layer/bin/prime-update --undo"
+        },
+        {
+          "id": "upd.security",
+          "label": "Security check",
+          "kind": "term",
+          "cmd": "~/.local/share/prime-linux/layer/bin/prime-security"
+        },
+        {
           "id": "upd.check",
           "label": "What's waiting to update",
           "kind": "term",
-          "cmd": "checkupdates; flatpak remote-ls --updates 2>/dev/null"
+          "cmd": "~/.local/share/prime-linux/layer/bin/prime-update --check"
         },
         {
           "id": "upd.snapshots",
           "label": "System snapshots",
           "hint": "roll back from the boot menu if an update breaks things",
           "kind": "term",
-          "cmd": "sudo snapper list"
+          "cmd": "/usr/local/lib/prime-linux/prime-system-update snapshots"
         }
       ]
     },

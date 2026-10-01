@@ -276,7 +276,8 @@ else
     run mkdir -p "$HOME/.config/systemd/user" "$HOME/.local/bin"
     for u in "$LAYER"/systemd/*; do run ln -sfn "$u" "$HOME/.config/systemd/user/$(basename "$u")"; done
     run systemctl --user daemon-reload 2>/dev/null || info "(user services load at next login)"
-    for c in prime-update prime-uninstall prime-addon prime-theme prime-doctor prime-about prime-migrate prime-webapp; do
+    for c in prime-update prime-uninstall prime-addon prime-theme prime-doctor prime-about prime-migrate prime-webapp \
+             prime-security prime-update-policy prime-updates-settings prime-settings prime-welcome; do
         run ln -sfn "$LAYER/bin/$c" "$HOME/.local/bin/$c"
     done
     ok "Commands: prime-update, prime-doctor, prime-addon, prime-theme, prime-webapp, prime-about, prime-uninstall"
@@ -308,9 +309,15 @@ enable_svc() {   # enable_svc <unit> <what it is> — enable a system service if
 }
 if skip_step 6; then info "done earlier"
 else
-    run sudo install -Dm755 "$LAYER/system/libalpm/prime-desktop-backup-all" /usr/share/libalpm/scripts/prime-desktop-backup-all
-    run sudo install -Dm644 "$LAYER/system/zz-prime-desktop-backup.hook" /etc/pacman.d/hooks/zz-prime-desktop-backup.hook
-    ok "Desktop settings are saved before every package update"
+    # nightly updates, snapshot-before-update, desktop-settings backup hook,
+    # firewall + safe defaults — root-owned copies in /usr/local/lib/prime-linux
+    if run sudo bash "$LAYER/system/install-system.sh" install --user "$USER" --policy "${PRIME_UPDATE_POLICY:-auto}"; then
+        note "system install-system.sh"
+        ok "Nightly updates (snapshot first, never reboots), backups before every update, firewall on"
+    else
+        warn "Couldn't set up nightly updates and the firewall — run prime-update later to retry"
+    fi
+    run "$LAYER/bin/prime-security" fix-permissions >/dev/null 2>&1 || true
     if command -v flatpak >/dev/null; then
         run sudo flatpak remote-add --if-not-exists --system flathub https://dl.flathub.org/repo/flathub.flatpakrepo
         ok "App Store: Flathub enabled"

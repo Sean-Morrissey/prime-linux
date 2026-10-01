@@ -115,6 +115,8 @@ active_tab_background #$a
 active_tab_foreground #0a0a0e
 active_border_color  #$a
 font_size            $(size 12)
+# the P.R.I.M.E greeting, then your own shell (a 'shell' line in your kitty.conf wins)
+shell                "$LAYER/bin/prime-terminal-shell"
 EOF
   # the emblem in the accent colour: bar logo, lock screen, notifications, app icon
   sed "s/#f87171/#$a/g" "$LAYER/branding/mark.svg" > "$OUT/mark.svg"

@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# prime-terminal-shell — what a new Prime terminal (kitty) runs: the P.R.I.M.E
+# greeting (fastfetch, ~/.config/fastfetch/config.jsonc), then your own shell.
+#
+# The greeting used to appear only because the author's shell config ran
+# fastfetch; a plain bash or zsh account never saw it. It is shown here unless
+# your shell already shows it (CachyOS's fish config does), so never twice.
+# Switch it off with PRIME_NO_GREETING=1 in ~/.config/environment.d/.
+sh="${SHELL:-}"; [ -x "$sh" ] || sh="$(getent passwd "$(id -un)" | cut -d: -f7)"; [ -x "$sh" ] || sh=/bin/bash
+greets_already() {
+    local f
+    case "$(basename "$sh")" in
+        fish) set -- ~/.config/fish/config.fish ~/.config/fish/conf.d/*.fish ~/.config/fish/functions/fish_greeting.fish \
+                     /etc/fish/config.fish /etc/fish/conf.d/*.fish /usr/share/fish/vendor_conf.d/*.fish \
+                     /usr/share/cachyos-fish-config/*.fish ;;
+        zsh)  set -- ~/.zshrc ~/.zprofile /etc/zsh/zshrc /usr/share/cachyos-zsh-config/*.zsh ;;
+        *)    set -- ~/.bashrc ~/.bash_profile /etc/bash.bashrc ;;
+    esac
+    for f in "$@"; do [ -r "$f" ] && grep -qsE '^[^#]*\b(fastfetch|neofetch)\b' "$f" && return 0; done
+    return 1
+}
+if [ -z "${PRIME_NO_GREETING:-}" ] && command -v fastfetch >/dev/null && ! greets_already; then
+    fastfetch 2>/dev/null
+fi
+# kitty only turns on its shell integration for a shell it starts itself; run-shell keeps it
+if command -v kitten >/dev/null && [ -n "${KITTY_WINDOW_ID:-}" ]; then exec kitten run-shell --shell="$sh"; fi
+exec "$sh"

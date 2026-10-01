@@ -1,0 +1,831 @@
+#!/usr/bin/python3
+"""Prime Start — the start menu on the P logo (click the logo, or Super+X).
+
+A frosted card that drops out of the top-left corner, under the bar, on the
+monitor you are using:
+
+  * a search field — type and the apps filter live; Enter opens the top match,
+    and when nothing matches the text goes on to Spotlight;
+  * Pinned — six to a row; right-click an app to pin or unpin it
+    (~/.config/prime/pinned, one app id per line);
+  * All apps › — every app, A to Z;
+  * Recent — the last files you opened;
+  * your name, and buttons for the Prime menu, Settings, Lock and Power.
+
+Esc, a click anywhere outside, or the logo again closes it.
+
+  prime-start                    open it (or close it if it is open)
+  prime-start --selftest         check pins, search, recents and the window; map nothing
+  prime-start --screenshot F     render the card to a PNG (needs a display)
+     [--query Q] [--all]         … with something typed, or the All apps page
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import signal
+import subprocess
+import sys
+import time
+
+sys.dont_write_bytecode = True            # nothing cached inside the layer
+import importlib.machinery  # noqa: E402
+import importlib.util  # noqa: E402
+
+import gi  # noqa: E402
+
+gi.require_version("Gtk", "3.0")
+gi.require_version("Gdk", "3.0")
+from gi.repository import Gdk, GLib, Gtk, Pango  # noqa: E402
+
+try:
+    gi.require_version("GtkLayerShell", "0.1")
+    from gi.repository import GtkLayerShell
+    HAVE_LAYER = True
+except (ValueError, ImportError):
+    GtkLayerShell = None
+    HAVE_LAYER = False
+
+BIN = os.path.dirname(os.path.realpath(__file__))
+LAYER = os.path.realpath(os.path.join(BIN, ".."))
+HOME = os.path.expanduser("~")
+PINNED = os.path.join(HOME, ".config/prime/pinned")
+IDENTITY = os.path.join(HOME, ".config/prime/identity.yaml")
+MENU_JSON = os.path.join(LAYER, "default/menu.json")
+COLUMNS, WIDTH, BAR_GAP = 6, 640, 6
+
+# Spotlight owns the app list, the icons and the Recent list: load its module
+# instead of keeping a second copy that would drift.
+_loader = importlib.machinery.SourceFileLoader("prime_spotlight", os.path.join(BIN, "prime-spotlight"))
+spot = importlib.util.module_from_spec(importlib.util.spec_from_loader("prime_spotlight", _loader))
+_loader.exec_module(spot)
+
+
+def runtime_dir() -> str:
+    d = os.environ.get("XDG_RUNTIME_DIR", "")
+    return d if d and os.access(d, os.W_OK) else f"/tmp/prime-{os.getuid()}"
+
+
+PIDFILE = os.path.join(runtime_dir(), "prime-start.pid")
+
+# Sizes in rem: they follow the system font (Theme → Text size).
+CSS = """
+window.prime-start, window.prime-start .background { background: transparent; }
+window.backdrop { background: transparent; }
+#card {
+    background-color: rgba(22, 22, 28, 0.90);
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    border-radius: 14px;
+    font-family: "Inter", "Noto Sans", sans-serif;
+    color: #f4f4f6;
+}
+#searchbar {
+    margin: 14px 16px 6px 16px; padding: 4px 12px; border-radius: 10px;
+    background-color: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.08);
+}
+#searchicon { color: rgba(255, 255, 255, 0.55); }
+#search, #search:focus {
+    background: transparent; border: none; box-shadow: none; outline: none;
+    font-size: 1.05rem; color: #f4f4f6; caret-color: @ACCENT@; min-height: 32px;
+}
+#search selection, #search selection:focus { background-color: rgba(10, 132, 255, 0.55); color: #ffffff; }
+.heading { padding: 10px 20px 4px 20px; }
+.heading label.title {
+    font-size: 0.72rem; font-weight: 700; letter-spacing: 0.09em; color: rgba(255, 255, 255, 0.45);
+}
+button.link {
+    font-size: 0.8rem; font-weight: 600; color: rgba(255, 255, 255, 0.80);
+    background: rgba(255, 255, 255, 0.07); border: none; border-radius: 7px;
+    padding: 2px 10px; min-height: 0; box-shadow: none; text-shadow: none;
+}
+button.link:hover, button.link:focus { background: alpha(@ACCENT@, 0.22); }
+flowbox { padding: 2px 12px; }
+flowboxchild { padding: 0; border-radius: 10px; outline: none; }
+flowboxchild:hover { background-color: rgba(255, 255, 255, 0.06); }
+flowboxchild:selected, flowboxchild:focus {
+    background-color: alpha(@ACCENT@, 0.18); box-shadow: inset 0 0 0 1px alpha(@ACCENT@, 0.40);
+}
+.tile { padding: 10px 4px 8px 4px; }
+.tile label { font-size: 0.8rem; color: rgba(255, 255, 255, 0.86); }
+list, list row { background: transparent; }
+row.item { margin: 1px 10px; padding: 5px 10px; border-radius: 9px; outline: none; }
+row.item:hover { background-color: rgba(255, 255, 255, 0.05); }
+row.item:selected, row.item:focus {
+    background-color: alpha(@ACCENT@, 0.18); box-shadow: inset 0 0 0 1px alpha(@ACCENT@, 0.40);
+}
+row.item label.name { font-size: 0.95rem; color: #f4f4f6; }
+row.item label.detail { font-size: 0.8rem; color: rgba(255, 255, 255, 0.45); }
+.letter { font-size: 0.72rem; font-weight: 700; color: rgba(255, 255, 255, 0.40); padding: 8px 22px 2px 22px; }
+#empty { font-size: 0.9rem; color: rgba(255, 255, 255, 0.50); padding: 18px; }
+#footer {
+    margin-top: 6px; padding: 10px 14px 10px 16px;
+    border-top: 1px solid rgba(255, 255, 255, 0.07); background-color: rgba(0, 0, 0, 0.12);
+    border-radius: 0 0 14px 14px;
+}
+#avatar {
+    font-size: 0.95rem; font-weight: 700; color: #0a0a0e; background-color: @ACCENT@;
+    border-radius: 999px; min-width: 2.1rem; min-height: 2.1rem;
+}
+#username { font-size: 0.95rem; font-weight: 600; }
+button.footer {
+    background: transparent; border: none; box-shadow: none; border-radius: 9px;
+    padding: 6px; min-width: 0; min-height: 0; color: rgba(255, 255, 255, 0.80);
+}
+button.footer:hover, button.footer:focus { background-color: rgba(255, 255, 255, 0.09); }
+"""
+
+
+def css_bytes() -> bytes:
+    return CSS.replace("@ACCENT@", spot.theme_accent()).encode()
+
+
+# ── pins (pure, so the self-test can assert them) ─────────────────────────────
+
+def _menu_pins() -> list:
+    try:
+        for s in json.load(open(MENU_JSON)).get("sections", []):
+            if s.get("id") == "apps":
+                return [p for p in s.get("pins", []) if isinstance(p, str)]
+    except (OSError, ValueError):
+        pass
+    return []
+
+
+def default_browser() -> str:
+    try:
+        r = subprocess.run(["xdg-settings", "get", "default-web-browser"],
+                           capture_output=True, text=True, timeout=3)
+        return r.stdout.strip().removesuffix(".desktop")
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+
+
+def sensible_defaults(installed: set) -> list:
+    """Files, browser, terminal, App Store, Settings — whichever of each is installed."""
+    groups = [
+        ["nemo", "org.gnome.Nautilus", "thunar", "org.kde.dolphin"],
+        [default_browser(), "firefox", "chromium", "google-chrome", "brave-browser"],
+        # the terminal is a pinned app the person chooses to open, like "Open a terminal"
+        ["kitty", "org.gnome.Console", "org.gnome.Terminal", "org.kde.konsole"],  # prime-allow-terminal
+        ["org.gnome.Software", "org.kde.discover"],
+        ["prime-settings", "org.gnome.Settings", "systemsettings"],
+    ]
+    out = []
+    for g in groups:
+        hit = next((d for d in g if d and d in installed), None)
+        if hit:
+            out.append(hit)
+    return out
+
+
+def read_pins(installed: set) -> list:
+    """~/.config/prime/pinned, else the Apps section's pins in menu.json, else
+    sensible defaults — only apps that are actually installed, each once."""
+    pins = None
+    try:
+        with open(PINNED) as fh:
+            pins = [l.strip().removesuffix(".desktop") for l in fh
+                    if l.strip() and not l.lstrip().startswith("#")]
+    except OSError:
+        pass
+    if pins is None:
+        pins = [p for p in _menu_pins() if p in installed] or sensible_defaults(installed)
+    seen, out = set(), []
+    for p in pins:
+        if p in installed and p not in seen:
+            seen.add(p)
+            out.append(p)
+    return out
+
+
+def write_pins(pins: list):
+    os.makedirs(os.path.dirname(PINNED), exist_ok=True)
+    tmp = PINNED + ".tmp"
+    with open(tmp, "w") as fh:
+        fh.write("# Pinned apps in the start menu, one app id per line (right-click an app to change)\n")
+        fh.writelines(p + "\n" for p in pins)
+    os.replace(tmp, PINNED)
+
+
+def toggle_pin(did: str, installed: set) -> list:
+    pins = read_pins(installed)
+    pins = [p for p in pins if p != did] if did in pins else pins + [did]
+    write_pins(pins)
+    return pins
+
+
+def user_name() -> str:
+    """The name from ~/.config/prime/identity.yaml (`name: …`), else $USER."""
+    try:
+        for line in open(IDENTITY, encoding="utf-8"):
+            m = re.match(r"""^name:\s*["']?(.*?)["']?\s*$""", line)
+            if m and m.group(1).strip():
+                return m.group(1).strip()
+    except OSError:
+        pass
+    return os.environ.get("USER") or os.path.basename(HOME) or "You"
+
+
+def enter_action(query: str, apps: list) -> tuple:
+    """What Enter does in the search field: open the top match, or hand the text to Spotlight."""
+    q = query.strip()
+    if not q:
+        return ("none", "")
+    hits = spot.rank_apps(q, apps, 1)
+    if hits:
+        return ("launch", hits[0][2])
+    return ("spotlight", q)
+
+
+# ── monitors ──────────────────────────────────────────────────────────────────
+
+def focused_monitor():
+    """The Gdk.Monitor Hyprland says is focused (matched by position), or None."""
+    try:
+        r = subprocess.run(["hyprctl", "monitors", "-j"], capture_output=True, text=True, timeout=2)
+        mons = json.loads(r.stdout or "[]")
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        return None
+    f = next((m for m in mons if m.get("focused")), None)
+    disp = Gdk.Display.get_default()
+    if not f or disp is None:
+        return None
+    for i in range(disp.get_n_monitors()):
+        g = disp.get_monitor(i).get_geometry()
+        if g.x == f.get("x") and g.y == f.get("y"):
+            return disp.get_monitor(i)
+    return None
+
+
+# ── window ────────────────────────────────────────────────────────────────────
+
+def named(widget, name: str):
+    acc = widget.get_accessible()
+    if acc is not None:
+        acc.set_name(name)
+    return widget
+
+
+def app_image(did: str, size: int) -> Gtk.Image:
+    img = Gtk.Image.new_from_gicon(spot.icon_for("app", did), Gtk.IconSize.DIALOG)
+    img.set_pixel_size(size)
+    return img
+
+
+class Start:
+    def __init__(self, offscreen: bool = False):
+        self.offscreen = offscreen
+        self.apps = spot.load_apps()
+        self.by_id = {did: (name, comment) for name, _exe, did, comment in self.apps}
+        self.installed = set(self.by_id)
+        self.pins = read_pins(self.installed)
+        self.recents = spot.load_recent(4)
+        self.page = "pinned"               # pinned | all | search
+        self.mapped_at = 0.0
+
+        self.win = Gtk.Window(type=Gtk.WindowType.TOPLEVEL)
+        self.win.get_style_context().add_class("prime-start")
+        self.win.set_title("Start")
+        self.win.set_decorated(False)
+        self.win.set_resizable(False)
+        self.win.set_app_paintable(True)
+        self._rgba(self.win)
+        self.win.connect("key-press-event", self.on_key)
+        self.win.connect("map", lambda *_: setattr(self, "mapped_at", time.monotonic()))
+
+        self.card = card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        card.set_name("card")
+        card.set_size_request(WIDTH, -1)
+        self.win.add(card)
+
+        bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        bar.set_name("searchbar")
+        icon = Gtk.Image.new_from_icon_name("system-search-symbolic", Gtk.IconSize.MENU)
+        icon.set_pixel_size(16)
+        icon.set_name("searchicon")
+        bar.pack_start(icon, False, False, 0)
+        self.entry = Gtk.Entry()
+        self.entry.set_name("search")
+        self.entry.set_has_frame(False)
+        self.entry.set_placeholder_text("Search for apps, or type anything for Spotlight")
+        named(self.entry, "Search apps")
+        self.entry.connect("changed", lambda *_: self.refresh())
+        self.entry.connect("activate", lambda *_: self.on_enter())
+        bar.pack_start(self.entry, True, True, 0)
+        card.pack_start(bar, False, False, 0)
+
+        self.body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        card.pack_start(self.body, True, True, 0)
+        card.pack_end(self.footer(), False, False, 0)
+        self.refresh()
+
+    @staticmethod
+    def _rgba(win):
+        screen = win.get_screen()
+        if screen is not None and screen.get_rgba_visual() is not None:
+            win.set_visual(screen.get_rgba_visual())
+
+    # ── pieces ────────────────────────────────────────────────────────────────
+    def heading(self, title: str, link: str = "", on_link=None) -> Gtk.Box:
+        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        box.get_style_context().add_class("heading")
+        lab = Gtk.Label(label=title.upper(), xalign=0.0)
+        lab.get_style_context().add_class("title")
+        box.pack_start(lab, True, True, 0)
+        if link:
+            b = Gtk.Button(label=link)
+            b.get_style_context().add_class("link")
+            b.set_relief(Gtk.ReliefStyle.NONE)
+            b.connect("clicked", lambda *_: on_link())
+            named(b, link.strip("‹› "))
+            self.link_button = b
+            box.pack_end(b, False, False, 0)
+        return box
+
+    def pinned_grid(self) -> Gtk.Widget:
+        if not self.pins:
+            lab = Gtk.Label(label="Nothing pinned yet — right-click any app to pin it here.")
+            lab.set_name("empty")
+            return lab
+        grid = Gtk.FlowBox()
+        grid.set_max_children_per_line(COLUMNS)
+        grid.set_min_children_per_line(COLUMNS)
+        grid.set_homogeneous(True)
+        grid.set_selection_mode(Gtk.SelectionMode.SINGLE)
+        grid.set_activate_on_single_click(True)
+        named(grid, "Pinned apps")
+        for did in self.pins:
+            name = self.by_id[did][0]
+            tile = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+            tile.get_style_context().add_class("tile")
+            tile.pack_start(app_image(did, 40), False, False, 0)
+            lab = Gtk.Label(label=name)
+            lab.set_ellipsize(Pango.EllipsizeMode.END)
+            lab.set_max_width_chars(11)
+            lab.set_justify(Gtk.Justification.CENTER)
+            tile.pack_start(lab, False, False, 0)
+            child = Gtk.FlowBoxChild()
+            child.did = did
+            child.add(tile)
+            child.set_tooltip_text(name)
+            named(child, f"{name}, pinned")
+            self._context(child, did)
+            grid.add(child)
+        grid.connect("child-activated", lambda _g, c: self.launch(c.did))
+        self.first_focus = grid
+        return grid
+
+    def app_list(self, rows: list, letters: bool) -> Gtk.Widget:
+        lb = Gtk.ListBox()
+        lb.set_selection_mode(Gtk.SelectionMode.SINGLE)
+        lb.set_activate_on_single_click(True)
+        named(lb, "All apps" if letters else "Matching apps")
+        last = None
+        for name, did, comment in rows:
+            row = Gtk.ListBoxRow()
+            row.did = did
+            row.get_style_context().add_class("item")
+            box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+            box.pack_start(app_image(did, 28 if letters else 32), False, False, 0)
+            text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+            text.set_valign(Gtk.Align.CENTER)
+            n = Gtk.Label(label=name, xalign=0.0)
+            n.get_style_context().add_class("name")
+            n.set_ellipsize(Pango.EllipsizeMode.END)
+            text.pack_start(n, False, False, 0)
+            if comment and not letters:
+                d = Gtk.Label(label=comment, xalign=0.0)
+                d.get_style_context().add_class("detail")
+                d.set_ellipsize(Pango.EllipsizeMode.END)
+                text.pack_start(d, False, False, 0)
+            box.pack_start(text, True, True, 0)
+            row.add(box)
+            named(row, name)
+            self._context(row, did)
+            lb.add(row)
+            initial = (name[:1].upper() if name[:1].isalpha() else "#")
+            row.letter = initial if letters and initial != last else None
+            last = initial if letters else last
+        if letters:
+            lb.set_header_func(self._letter_header)
+        lb.connect("row-activated", lambda _l, r: self.launch(r.did))
+        self.first_focus = lb
+        return lb
+
+    @staticmethod
+    def _letter_header(row, _before):
+        if getattr(row, "letter", None):
+            lab = Gtk.Label(label=row.letter, xalign=0.0)
+            lab.get_style_context().add_class("letter")
+            row.set_header(lab)
+        else:
+            row.set_header(None)
+
+    def recent_list(self) -> Gtk.Widget:
+        lb = Gtk.ListBox()
+        lb.set_selection_mode(Gtk.SelectionMode.SINGLE)
+        lb.set_activate_on_single_click(True)
+        named(lb, "Recent files")
+        for path in self.recents:
+            row = Gtk.ListBoxRow()
+            row.path = path
+            row.get_style_context().add_class("item")
+            box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+            img = Gtk.Image.new_from_gicon(spot.icon_for("path", path), Gtk.IconSize.DND)
+            img.set_pixel_size(24)
+            box.pack_start(img, False, False, 0)
+            name = os.path.basename(path.rstrip("/")) or path
+            n = Gtk.Label(label=name, xalign=0.0)
+            n.get_style_context().add_class("name")
+            n.set_ellipsize(Pango.EllipsizeMode.MIDDLE)
+            box.pack_start(n, True, True, 0)
+            where = Gtk.Label(label=spot.pretty_path(path), xalign=1.0)
+            where.get_style_context().add_class("detail")
+            where.set_ellipsize(Pango.EllipsizeMode.MIDDLE)
+            where.set_max_width_chars(28)
+            box.pack_end(where, False, False, 0)
+            row.add(box)
+            named(row, f"{name}, in {spot.pretty_path(path)}")
+            lb.add(row)
+        lb.connect("row-activated", lambda _l, r: self.open_path(r.path))
+        return lb
+
+    def footer(self) -> Gtk.Box:
+        foot = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        foot.set_name("footer")
+        name = user_name()
+        avatar = Gtk.Label(label=(name[:1] or "?").upper())
+        avatar.set_name("avatar")
+        avatar.set_valign(Gtk.Align.CENTER)
+        foot.pack_start(avatar, False, False, 0)
+        who = Gtk.Label(label=name, xalign=0.0)
+        who.set_name("username")
+        who.set_ellipsize(Pango.EllipsizeMode.END)
+        foot.pack_start(who, True, True, 0)
+        self.footer_buttons = []
+        for icon, label, cmd in (
+            ("prime-linux", "Prime menu", [os.path.join(BIN, "prime-menu")]),
+            ("preferences-system-symbolic", "Settings", [os.path.join(BIN, "prime-menu"), "--section", "settings"]),
+            ("system-lock-screen-symbolic", "Lock", ["loginctl", "lock-session"]),
+            ("system-shutdown-symbolic", "Power", [os.path.join(BIN, "prime-power-menu")]),
+        ):
+            b = Gtk.Button()
+            b.get_style_context().add_class("footer")
+            b.set_relief(Gtk.ReliefStyle.NONE)
+            img = Gtk.Image.new_from_icon_name(icon, Gtk.IconSize.LARGE_TOOLBAR)
+            img.set_pixel_size(18)
+            b.add(img)
+            b.set_tooltip_text(label)
+            named(b, label)
+            b.connect("clicked", lambda _b, c=cmd: self.run(c))
+            self.footer_buttons.append(b)
+            foot.pack_start(b, False, False, 0)
+        return foot
+
+    def _context(self, widget, did: str):
+        """Right-click (or the Menu key) on an app: Open · Pin / Unpin."""
+        def popup(event=None):
+            menu = Gtk.Menu()
+            for label, fn in (("Open", lambda *_: self.launch(did)),
+                              ("Unpin from Start" if did in self.pins else "Pin to Start",
+                               lambda *_: self.toggle_pin(did))):
+                item = Gtk.MenuItem(label=label)
+                item.connect("activate", fn)
+                menu.append(item)
+            menu.show_all()
+            menu.attach_to_widget(widget, None)
+            if event is not None:
+                menu.popup_at_pointer(event)
+            else:
+                menu.popup_at_widget(widget, Gdk.Gravity.CENTER, Gdk.Gravity.NORTH_WEST, None)
+            self.menu = menu
+            return True
+
+        def on_press(_w, event):
+            if event.type == Gdk.EventType.BUTTON_PRESS and event.button == 3:
+                return popup(event)
+            return False
+        widget.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
+        widget.connect("button-press-event", on_press)
+        widget.connect("popup-menu", lambda *_: popup())
+
+    # ── pages ─────────────────────────────────────────────────────────────────
+    def refresh(self):
+        q = self.entry.get_text().strip()
+        if q:
+            self.page = "search"
+        elif self.page == "search":
+            self.page = "pinned"
+        for c in self.body.get_children():
+            self.body.remove(c)
+        self.link_button = None
+        if self.page == "search":
+            hits = spot.rank_apps(q, self.apps, 7)
+            self.body.pack_start(self.heading("Best matches"), False, False, 0)
+            if hits:
+                rows = [(main, did, self.by_id.get(did, ("", ""))[1]) for _k, main, did, _c in hits]
+                lb = self.app_list(rows, letters=False)
+                lb.select_row(lb.get_row_at_index(0))
+                self.body.pack_start(lb, False, False, 0)
+            else:
+                lab = Gtk.Label(label=f"No app called “{q}” — press Enter to search everything for it")
+                lab.set_name("empty")
+                lab.set_line_wrap(True)
+                self.body.pack_start(lab, False, False, 0)
+        elif self.page == "all":
+            self.body.pack_start(self.heading("All apps", "‹ Back", self.show_pinned), False, False, 0)
+            rows = sorted(((n, d, c) for d, (n, c) in self.by_id.items()), key=lambda r: r[0].lower())
+            scroll = Gtk.ScrolledWindow()
+            scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+            scroll.set_min_content_height(420)
+            scroll.set_max_content_height(420)
+            scroll.add(self.app_list(rows, letters=True))
+            self.body.pack_start(scroll, True, True, 0)
+        else:
+            self.body.pack_start(self.heading("Pinned", "All apps ›", self.show_all), False, False, 0)
+            self.body.pack_start(self.pinned_grid(), False, False, 0)
+            if self.recents:
+                self.body.pack_start(self.heading("Recent"), False, False, 0)
+                self.body.pack_start(self.recent_list(), False, False, 0)
+        self.body.show_all()
+        self.card.queue_resize()
+        self.win.resize(WIDTH, 1)
+
+    def show_all(self):
+        self.page = "all"
+        self.refresh()
+
+    def show_pinned(self):
+        self.page = "pinned"
+        self.refresh()
+
+    def toggle_pin(self, did: str):
+        self.pins = toggle_pin(did, self.installed)
+        if self.page == "pinned":
+            self.refresh()
+
+    # ── actions ───────────────────────────────────────────────────────────────
+    def close(self, *_a):
+        Gtk.main_quit()
+        return False
+
+    def run(self, cmd: list):
+        self.close()
+        spot.detached(cmd)
+
+    def launch(self, did: str):
+        self.run(["gtk-launch", did])
+
+    def open_path(self, path: str):
+        self.run(["xdg-open", path])
+
+    def on_enter(self):
+        action, payload = enter_action(self.entry.get_text(), self.apps)
+        if action == "launch":
+            self.launch(payload)
+        elif action == "spotlight":
+            self.run([os.path.join(BIN, "prime-spotlight"), "--prefill", payload])
+
+    def on_key(self, _w, event) -> bool:
+        key = event.keyval
+        if key == Gdk.KEY_Escape:
+            if (time.monotonic() - self.mapped_at) < 0.3:
+                return True                     # a stray key at map time is not an intent
+            if self.entry.get_text():
+                self.entry.set_text("")         # first Esc clears the search, the next closes
+            elif self.page == "all":
+                self.show_pinned()
+            else:
+                self.close()
+            return True
+        if key == Gdk.KEY_Down and self.entry.has_focus():
+            target = getattr(self, "first_focus", None)
+            if target is not None:
+                target.child_focus(Gtk.DirectionType.TAB_FORWARD)
+            return True
+        return False
+
+    # ── on screen ─────────────────────────────────────────────────────────────
+    def present(self):
+        """Layer-shell placement: top-left, under the bar, on the focused monitor,
+        plus a clear full-screen backdrop that closes the menu on any click outside."""
+        mon = focused_monitor()
+        self.backdrop = None
+        if HAVE_LAYER and GtkLayerShell.is_supported():
+            bd = Gtk.Window(type=Gtk.WindowType.TOPLEVEL)
+            bd.get_style_context().add_class("backdrop")
+            bd.set_app_paintable(True)
+            self._rgba(bd)
+            GtkLayerShell.init_for_window(bd)
+            GtkLayerShell.set_namespace(bd, "prime-start-backdrop")
+            GtkLayerShell.set_layer(bd, GtkLayerShell.Layer.TOP)
+            for edge in (GtkLayerShell.Edge.TOP, GtkLayerShell.Edge.BOTTOM,
+                         GtkLayerShell.Edge.LEFT, GtkLayerShell.Edge.RIGHT):
+                GtkLayerShell.set_anchor(bd, edge, True)
+            GtkLayerShell.set_exclusive_zone(bd, -1)
+            if mon is not None:
+                GtkLayerShell.set_monitor(bd, mon)
+            bd.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
+            bd.connect("button-press-event", self.close)
+            bd.show_all()
+            self.backdrop = bd
+
+            w = self.win
+            GtkLayerShell.init_for_window(w)
+            GtkLayerShell.set_namespace(w, "prime-start")
+            GtkLayerShell.set_layer(w, GtkLayerShell.Layer.OVERLAY)
+            GtkLayerShell.set_anchor(w, GtkLayerShell.Edge.TOP, True)
+            GtkLayerShell.set_anchor(w, GtkLayerShell.Edge.LEFT, True)
+            # exclusive zone 0: the compositor places it below the bar's reserved space
+            GtkLayerShell.set_margin(w, GtkLayerShell.Edge.TOP, BAR_GAP)
+            GtkLayerShell.set_margin(w, GtkLayerShell.Edge.LEFT, 8)
+            GtkLayerShell.set_keyboard_mode(w, GtkLayerShell.KeyboardMode.EXCLUSIVE)
+            if mon is not None:
+                GtkLayerShell.set_monitor(w, mon)
+        else:
+            self.win.move(8, 40)
+            self.win.connect("focus-out-event", self.close)
+        self.win.show_all()
+        self.entry.grab_focus()
+
+
+def install_css():
+    style = Gtk.CssProvider()
+    style.load_from_data(css_bytes())
+    Gtk.StyleContext.add_provider_for_screen(Gdk.Screen.get_default(), style,
+                                             Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+
+
+# ── one at a time: a second press closes it ───────────────────────────────────
+
+def other_instance() -> int:
+    try:
+        pid = int(open(PIDFILE).read().strip())
+    except (OSError, ValueError):
+        return 0
+    if pid == os.getpid():
+        return 0
+    try:
+        with open(f"/proc/{pid}/cmdline", "rb") as fh:
+            if b"prime-start" not in fh.read():
+                return 0                        # a stale file pointing at someone else
+    except OSError:
+        return 0
+    return pid
+
+
+def claim():
+    os.makedirs(os.path.dirname(PIDFILE), mode=0o700, exist_ok=True)
+    with open(PIDFILE + ".tmp", "w") as fh:
+        fh.write(str(os.getpid()))
+    os.replace(PIDFILE + ".tmp", PIDFILE)
+
+
+def release():
+    try:
+        if open(PIDFILE).read().strip() == str(os.getpid()):
+            os.unlink(PIDFILE)
+    except OSError:
+        pass
+
+
+# ── headless verification ─────────────────────────────────────────────────────
+
+def render(start: Start, path: str):
+    off = Gtk.OffscreenWindow()
+    Start._rgba(off)
+    start.win.remove(start.card)
+    off.add(start.card)
+    off.show_all()
+    for _ in range(40):
+        while Gtk.events_pending():
+            Gtk.main_iteration_do(False)
+        time.sleep(0.01)
+    off.get_pixbuf().savev(path, "png", [], [])
+    print(path)
+
+
+def screenshot(path: str, query: str, all_apps: bool) -> int:
+    if not Gtk.init_check(sys.argv)[0]:
+        print("no display", file=sys.stderr)
+        return 1
+    install_css()
+    s = Start(offscreen=True)
+    if all_apps:
+        s.show_all()
+    if query:
+        s.entry.set_text(query)
+    render(s, path)
+    return 0
+
+
+def selftest() -> int:
+    fails = []
+
+    def check(name, ok, detail=""):
+        print(f"  {'PASS' if ok else 'FAIL'}  {name}" + (f" — {detail}" if detail and not ok else ""))
+        if not ok:
+            fails.append(name)
+
+    global PINNED, IDENTITY
+    import tempfile
+    tmp = tempfile.mkdtemp(prefix="prime-start-test-")
+    PINNED, IDENTITY = os.path.join(tmp, "pinned"), os.path.join(tmp, "identity.yaml")
+
+    apps = spot.load_apps()
+    installed = {did for _n, _e, did, _c in apps}
+    check("apps come from Spotlight's loader", len(apps) > 3, f"{len(apps)} apps")
+    first = sorted(installed)[0] if installed else ""
+
+    pins = read_pins(installed)
+    check("with no pinned file: menu.json pins or sensible defaults, all installed",
+          all(p in installed for p in pins), str(pins))
+    open(PINNED, "w").write(f"# comment\n{first}.desktop\nnot-an-installed-app\n{first}\n")
+    check("pinned file: installed apps only, each once, .desktop optional", read_pins(installed) == [first],
+          str(read_pins(installed)))
+    after = toggle_pin(first, installed)
+    check("right-click Unpin removes it", first not in after and first not in read_pins(installed))
+    after = toggle_pin(first, installed)
+    check("right-click Pin adds it back", read_pins(installed) == [first], str(after))
+
+    open(IDENTITY, "w").write('version: 1\nname: "Alex Example"\ncourses: []\n')
+    check("name from identity.yaml", user_name() == "Alex Example", user_name())
+    os.unlink(IDENTITY)
+    check("name falls back to $USER", user_name() == (os.environ.get("USER") or os.path.basename(HOME) or "You"))
+
+    if apps:
+        name = apps[0][0]
+        act = enter_action(name[:4], apps)
+        check("Enter opens the top match", act[0] == "launch" and act[1] in installed, str(act))
+    check("Enter with no match goes to Spotlight", enter_action("zzqxv no such app", apps) == ("spotlight", "zzqxv no such app"))
+    check("Enter on an empty field does nothing", enter_action("   ", apps) == ("none", ""))
+    check("Recent never shows scratch or hidden-folder files",
+          all(spot.wanted_recent(p) for p in spot.load_recent(4)))
+
+    if Gtk.init_check(sys.argv)[0]:
+        install_css()
+        s = Start(offscreen=True)
+        check("window builds with search, pinned grid and footer",
+              s.entry.get_placeholder_text().startswith("Search") and len(s.footer_buttons) == 4)
+        check("footer buttons are named", [b.get_accessible().get_name() for b in s.footer_buttons]
+              == ["Prime menu", "Settings", "Lock", "Power"])
+        s.show_all()
+        check("All apps › shows every app A–Z", s.page == "all" and s.link_button.get_label() == "‹ Back")
+        s.show_pinned()
+        s.entry.set_text(apps[0][0][:4] if apps else "x")
+        check("typing switches to matching apps", s.page == "search")
+        s.entry.set_text("")
+        check("clearing the search goes back to Pinned", s.page == "pinned")
+        check("nothing was mapped (no window on screen)", not s.win.get_mapped())
+        s.win.destroy()
+    else:
+        print("  SKIP  window build — no display here")
+        prov = Gtk.CssProvider()
+        try:
+            prov.load_from_data(css_bytes())
+            check("stylesheet parses", True)
+        except GLib.Error as e:
+            check("stylesheet parses", False, str(e))
+    check("stylesheet has no pixel font sizes", not re.search(r"font-size:\s*[0-9.]+px", CSS))
+    print(f"\n{len(fails)} failure(s)")
+    return 1 if fails else 0
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(prog="prime-start", description="The Prime start menu.")
+    ap.add_argument("--selftest", action="store_true")
+    ap.add_argument("--screenshot", metavar="PNG")
+    ap.add_argument("--query", default="")
+    ap.add_argument("--all", action="store_true", help="with --screenshot: the All apps page")
+    a = ap.parse_args()
+    if a.selftest:
+        return selftest()
+    if a.screenshot:
+        return screenshot(a.screenshot, a.query, a.all)
+
+    other = other_instance()
+    if other:                                   # the logo (or Super+X) again: close it
+        try:
+            os.kill(other, signal.SIGTERM)
+        except OSError:
+            pass
+        return 0
+    if not Gtk.init_check(sys.argv)[0]:
+        print("prime-start needs the desktop", file=sys.stderr)
+        return 1
+    claim()
+    try:
+        install_css()
+        start = Start()
+        GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGTERM, start.close)
+        start.present()
+        Gtk.main()
+    finally:
+        release()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

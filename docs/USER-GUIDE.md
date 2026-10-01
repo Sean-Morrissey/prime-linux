@@ -76,7 +76,7 @@ Everything in this guide is also in the Prime menu, so you never *need* a termin
 ## 4. Everyday things
 
 ### Apps
-- **Open an app**: Super+Space, type its name, Enter. Or Super+A for the full list.
+- **Open an app**: click the **P** logo (or Super+X) for the Start menu — pinned apps, All apps, recent files. Or Super+Space, type its name, Enter. Right-click an app in Start to pin or unpin it.
 - **Install an app**: Prime menu → Apps → **App Store**. Click Install.
 - **A website as an app** (WhatsApp, YouTube, Gmail…): Prime menu → Capture & tools
   → **Make a website into an app**. It gets its own window and icon.

@@ -225,6 +225,8 @@ else
     create "$HOME/.config/hypr/monitors.conf" $'# Screens — Menu → Settings → Displays rewrites this file.\n'
     create "$HOME/.config/hypr/addons.conf"   $'# managed by Prime Linux (prime-addon)\n'
     create "$HOME/.config/prime/addons"       $'# enabled add-ons, one per line — manage with: prime-addon\n'
+    # the terminal greeting (fastfetch): P.R.I.M.E — only when there's no config of yours
+    create "$HOME/.config/fastfetch/config.jsonc" "$(cat "$SRC/layer/seed/fastfetch/config.jsonc")"
     # the keyboard layout chosen when CachyOS was installed, so typing works from the first login
     layout="$(localectl status 2>/dev/null | sed -n 's/^ *X11 Layout: *//p' | tr -d ' ' || true)"
     create "$HOME/.config/hypr/keyboard.conf" "$(printf '# Keyboard layouts — written by Settings → Keyboard layout (prime-keyboard).\n# Switch between them with Super+Ctrl+Space. You can edit this file too.\ninput {\n    kb_layout = %s\n}\n' "${layout:-us}")"

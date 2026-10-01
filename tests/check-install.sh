@@ -40,6 +40,8 @@ ck "every bar click target exists"          "$L/bin/prime-bar --print top | jq -
 ck "right-click menus list items"           "$L/bin/prime-context bar.audio --list | grep -q 'Sound settings'"
 ck "right-click: battery/recording/switches/keyboard" "for e in bar.battery bar.recording bar.toggles bar.keyboard; do $L/bin/prime-context \$e --list | grep -qv 'Copy this value' || exit 1; done"
 ck "spotlight self-test"                    "python3 $L/bin/prime-spotlight --query notes"
+ck "start menu installed and self-tests"    "[ -x $L/bin/prime-start ] && python3 $L/bin/prime-start --selftest"
+ck "the P logo opens the start menu"        "python3 $L/bin/prime-bar --print top | jq -e '.\"image#logo\".\"on-click\" | endswith(\"prime-start\")'"
 
 echo "-- the new tools (headless)"
 ck "bar widgets are silent when idle"       "[ \"\$($L/bin/prime-record status)\" = '{\"text\":\"\"}' ] && $L/bin/prime-keyboard status | jq -e '.text == \"\"'"

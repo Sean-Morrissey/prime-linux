@@ -2,12 +2,34 @@
 
 A student-first, atomic Linux desktop that ships with a resident AI agent.
 
-Status: **skeleton** — recipe, build pipeline, and first-boot scaffold are in place.
-First milestone is a bootable ISO built from this repo.
+Status (2026-10-01): **Prime Linux installs onto CachyOS with one command** (below).
+The image/ISO work further down is the longer road and is not needed to try it.
 
-**Install it today on CachyOS:** `bash install.sh` — see
-[`docs/PRIME-LAYER.md`](docs/PRIME-LAYER.md) for the one-line installer, how the
-layer is built, and the roadmap (packs, nightly updates, conversational setup).
+## Install (on CachyOS)
+
+1. Install **CachyOS** with its normal installer — any edition (KDE Plasma is a
+   good pick; your first desktop stays available on the login screen).
+2. Open a terminal and paste one line:
+
+   ```bash
+   curl -fsSL https://raw.githubusercontent.com/sean-morrissey/prime-linux/main/boot.sh | bash
+   ```
+
+   *(While the repo is private: `gh repo clone sean-morrissey/prime-linux && bash prime-linux/install.sh`.)*
+3. Log out, choose **Hyprland** on the login screen, log in. Super+Space searches,
+   Super+Alt+Space opens the Prime menu, Super+/ lists every shortcut.
+
+The installer checks the computer first (internet, disk space, which desktop is
+already there), shows numbered progress, logs to `~/.local/state/prime/logs/`,
+picks up where it stopped if interrupted, and `bash install.sh --dry-run` shows
+exactly what it would do. `prime-uninstall` puts everything back.
+
+- New to Linux? **[docs/USER-GUIDE.md](docs/USER-GUIDE.md)** — install to everyday use.
+- How the layer is built: [docs/PRIME-LAYER.md](docs/PRIME-LAYER.md) ·
+  what it does vs Omarchy: [docs/PARITY.md](docs/PARITY.md) ·
+  releases and channels: [docs/RELEASE.md](docs/RELEASE.md)
+- Tests: `tests/install-in-container.sh` (clean Arch container, install +
+  uninstall) and `tests/vm/run.sh all` (real CachyOS VM boot, screenshot).
 
 ---
 

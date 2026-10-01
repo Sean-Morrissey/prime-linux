@@ -64,9 +64,12 @@ if [ -f "$MANIFEST" ]; then
                 f="$rest"; [ -e "$f" ] || continue
                 case "$f" in */hypr/monitors.conf|*/hypr/keyboard.conf|*/hypr/hardware.conf|*/hypr/addons.conf|*/prime/addons|*/autostart/nm-applet.desktop) run rm -f "$f" ;;
                              *) grep -q 'prime-linux' "$f" 2>/dev/null && run rm -f "$f" ;; esac ;;
-            replaced)
+            replaced)   # the OLDEST backup holding it is the pre-Prime version
                 f="$rest"; rel="${f#$HOME/.config/}"
-                if [ -n "$BACKUP" ] && [ -e "$BACKUP/$rel" ]; then run mkdir -p "$(dirname "$f")"; run cp -a "$BACKUP/$rel" "$f"; say "Restored ~/.config/$rel"; fi ;;
+                for b in $(sed -n 's/^backup //p' "$MANIFEST") "$BACKUP"; do
+                    [ -n "$b" ] && [ -e "$b/$rel" ] || continue
+                    run mkdir -p "$(dirname "$f")"; run cp -a "$b/$rel" "$f"; say "Restored ~/.config/$rel"; break
+                done ;;
         esac
     done < "$MANIFEST"
 elif [ -n "$BACKUP" ] && [ -d "$BACKUP" ]; then

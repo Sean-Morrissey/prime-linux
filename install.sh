@@ -94,9 +94,10 @@ grep -qE '^cosmic' <<<"$sessions" && have_desktops+=("COSMIC")
 grep -qE '^xfce' <<<"$sessions" && have_desktops+=("Xfce")
 grep -qE '^cinnamon' <<<"$sessions" && have_desktops+=("Cinnamon")
 grep -qE '^(budgie|lxqt|mate|i3|sway|niri|wayfire|qtile|bspwm|openbox|lxde)' <<<"$sessions" && have_desktops+=("$(grep -m1 -oE '^(budgie|lxqt|mate|i3|sway|niri|wayfire|qtile|bspwm|openbox|lxde)' <<<"$sessions")")
+desk_list="$(printf '%s, ' "${have_desktops[@]}")"; desk_list="${desk_list%, }"
 dm=""; [ -L /etc/systemd/system/display-manager.service ] && dm="$(basename "$(readlink -f /etc/systemd/system/display-manager.service)" .service)"
 if [ ${#have_desktops[@]} -gt 0 ]; then
-    ok "Desktop already here: ${have_desktops[*]} — it stays; pick it or Hyprland on the login screen"
+    ok "Desktop already here: $desk_list — it stays; pick it or Hyprland on the login screen"
 elif grep -qE '^hyprland' <<<"$sessions" && [ -f "$HOME/.config/hypr/hyprland.conf" ]; then
     info "Hyprland is already set up (CachyOS Hyprland edition?) — your config is backed up, then replaced"
 else
@@ -192,6 +193,7 @@ step "Your config files"
 backup() {   # backup <path relative to ~/.config> — copy it into this install's backup
     local rel="$1"
     run mkdir -p "$BACKUP/$(dirname "$rel")"; run cp -a "$HOME/.config/$rel" "$BACKUP/$rel"
+    grep -qxF "backup $BACKUP" "$MANIFEST" 2>/dev/null || note "backup $BACKUP"
     note "replaced $HOME/.config/$rel"
 }
 seed() {     # seed <file relative to ~/.config>
@@ -246,21 +248,23 @@ if skip_step 4; then info "done earlier"
 else
     # remember the current look first, so prime-uninstall can put it back (it matters
     # when GNOME is installed too: it reads the same settings)
-    if command -v gsettings >/dev/null && ! grep -q '^gsetting ' "$MANIFEST" 2>/dev/null; then
+    if [ $DRY = 0 ] && command -v gsettings >/dev/null && ! grep -q '^gsetting ' "$MANIFEST" 2>/dev/null; then
         for k in gtk-theme color-scheme icon-theme cursor-theme font-name monospace-font-name accent-color; do
             v="$(gsettings get org.gnome.desktop.interface "$k" 2>/dev/null || true)"
             [ -n "$v" ] && note "gsetting org.gnome.desktop.interface $k $v"
         done
     fi
-    old_dir="$(xdg-mime query default inode/directory 2>/dev/null || true)"
-    grep -q '^mime ' "$MANIFEST" 2>/dev/null || note "mime inode/directory ${old_dir:--}"
+    if [ $DRY = 0 ] && ! grep -q '^mime ' "$MANIFEST" 2>/dev/null; then
+        old_dir="$(xdg-mime query default inode/directory 2>/dev/null || true)"
+        note "mime inode/directory ${old_dir:--}"
+    fi
     run "$LAYER/bin/prime-theme" --apply
     gs() { run gsettings set org.gnome.desktop.interface "$1" "$2" 2>/dev/null || true; }
     gs gtk-theme adw-gtk3-dark; gs color-scheme prefer-dark; gs icon-theme Papirus-Dark
     gs cursor-theme Breeze_Light; gs font-name 'Inter 10'; gs monospace-font-name 'JetBrainsMono Nerd Font 11'
     run gsettings set org.cinnamon.desktop.default-applications.terminal exec kitty 2>/dev/null || true
     run xdg-mime default nemo.desktop inode/directory
-    [ ${#have_desktops[@]} -gt 0 ] && info "(GTK apps in ${have_desktops[*]} may pick up the dark theme too — prime-uninstall puts it back)"
+    [ ${#have_desktops[@]} -gt 0 ] && info "(GTK apps in $desk_list may pick up the dark theme too — prime-uninstall puts it back)"
     ok "Dark theme, Papirus icons, Inter font, $(sed -n 's/^ACCENT=/accent #/p' "$HOME/.config/prime/theme.conf" 2>/dev/null)"
     done_step 4
 fi
@@ -298,7 +302,7 @@ step "System settings (login screen, Bluetooth, printing, backups)"
 enable_svc() {   # enable_svc <unit> <what it is> — enable a system service if it isn't already
     systemctl cat "$1" >/dev/null 2>&1 || return 0
     if systemctl is-enabled "$1" >/dev/null 2>&1; then ok "$2: on"; return 0; fi
-    run sudo systemctl enable "$1" >/dev/null 2>&1 && note "service $1"
+    if [ $DRY = 1 ]; then run sudo systemctl enable "$1"; else sudo systemctl enable "$1" >/dev/null 2>&1 && note "service $1"; fi
     run sudo systemctl start "$1" 2>/dev/null || true
     ok "$2: switched on"
 }

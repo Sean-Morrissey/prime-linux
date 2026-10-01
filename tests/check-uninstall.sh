@@ -18,6 +18,7 @@ ck "nm-applet is no longer hidden"           "[ ! -e ~/.config/autostart/nm-appl
 ck "GTK theme/icons/fonts restored"          "for k in gtk-theme icon-theme font-name; do [ \"\$(gsettings get org.gnome.desktop.interface \$k)\" = \"\$(grep \"^\$k \" /tmp/gsettings-before | cut -d' ' -f2-)\" ] || exit 1; done"
 ck "Prime settings kept in backups"          "ls -d ~/.config-backups/prime-settings-*"
 ck "update hook removed"                     "[ ! -e /etc/pacman.d/hooks/zz-prime-desktop-backup.hook ]"
+ck "Prime is off the login screen"           "[ ! -e /usr/share/wayland-sessions/prime.desktop ]"
 ck "login screen Prime enabled is off again" "[ ! -L /etc/systemd/system/display-manager.service ]"
 ck "install record cleared"                  "[ ! -e ~/.local/state/prime/install.manifest ]"
 echo; [ $fail = 0 ] && echo "UNINSTALL: ALL PASSED" || echo "UNINSTALL: $fail FAILED"; exit $fail

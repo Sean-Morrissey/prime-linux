@@ -29,11 +29,12 @@ say()  { printf '\e[1m==>\e[0m %s\n' "$*"; }
 die()  { printf '\e[31m✗\e[0m %s\n' "$*" >&2; exit 1; }
 accel() { [ -w /dev/kvm ] && echo kvm || echo tcg; }
 ovmf() {
-    for c in /usr/share/edk2/x64/OVMF_CODE.4m.fd /usr/share/edk2-ovmf/x64/OVMF_CODE.fd /usr/share/OVMF/OVMF_CODE.fd; do
+    for c in /usr/share/edk2/x64/OVMF_CODE.4m.fd /usr/share/edk2-ovmf/x64/OVMF_CODE.fd /usr/share/OVMF/OVMF_CODE.fd \
+             /usr/share/OVMF/OVMF_CODE_4M.fd; do   # Arch, Fedora, older Debian/Ubuntu, Ubuntu 24.04+
         [ -r "$c" ] && { echo "$c"; return; }
     done; die "no OVMF firmware (install edk2-ovmf)"
 }
-ovmf_vars() { local v; v="$(dirname "$(ovmf)")/OVMF_VARS$( [[ "$(ovmf)" == *4m* ]] && echo .4m).fd"; [ -r "$v" ] || die "no OVMF vars"; echo "$v"; }
+ovmf_vars() { local c v; c="$(ovmf)"; v="$(dirname "$c")/$(basename "$c" | sed 's/CODE/VARS/')"; [ -r "$v" ] || die "no OVMF vars ($v)"; echo "$v"; }
 iso() { ls -1 "$WORK"/cachyos-desktop-linux-*.iso 2>/dev/null | sort | tail -1; }
 ssh_vm() { ssh -q -i "$KEY" -p "$PORT" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 alex@127.0.0.1 "$@"; }
 scp_vm() { scp -q -i "$KEY" -P "$PORT" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$@"; }
@@ -65,7 +66,7 @@ cmd_fetch() {
     say "downloading (~3 GB)…"
     curl -fL --progress-bar -C - -o "$WORK/$name" "$MIRROR/$latest/$name" || die "download failed"
     (cd "$WORK" && sha256sum -c "$name.sha256") || { rm -f "$WORK/$name"; die "checksum mismatch — deleted the download"; }
-    ls "$WORK"/cachyos-desktop-linux-*.iso | grep -v "$name" | xargs -r rm -f
+    ls "$WORK"/cachyos-desktop-linux-*.iso | grep -v "$name" | xargs -r rm -f || true   # nothing older: fine
 }
 
 cmd_base() {
@@ -133,18 +134,20 @@ cmd_prime() {
     say "copying this checkout in (as boot.sh would clone it)"
     git -C "$REPO" bundle create "$WORK/prime.bundle" HEAD >/dev/null 2>&1 || die "git bundle failed"
     scp_vm "$WORK/prime.bundle" alex@127.0.0.1:/tmp/prime.bundle
-    ssh_vm 'rm -rf ~/prime-src && git --version >/dev/null 2>&1 || sudo pacman -S --needed --noconfirm git >/dev/null' || die "no git in VM"
-    ssh_vm 'git clone -q /tmp/prime.bundle ~/prime-src'
-    say "running install.sh in the VM (log: install.log)"
-    ssh_vm 'bash ~/prime-src/install.sh --yes' > "$WORK/install.log" 2>&1
+    ssh_vm 'rm -rf ~/prime-linux && git --version >/dev/null 2>&1 || sudo pacman -S --needed --noconfirm git >/dev/null' || die "no git in VM"
+    # README "private repo" steps, word for word, except that `gh repo clone
+    # Sean-Morrissey/prime-linux` (which needs a GitHub login) is this bundle
+    ssh_vm 'git clone -q /tmp/prime.bundle ~/prime-linux'
+    say "running the README's install command in the VM (log: install.log)"
+    ssh_vm 'bash ~/prime-linux/install.sh' > "$WORK/install.log" 2>&1
     local rc=$?; tail -12 "$WORK/install.log"
     [ $rc = 0 ] || die "install.sh failed in the VM (exit $rc) — see $WORK/install.log"
     ssh_vm 'cat ~/.cache/prime-hyprpm.log 2>/dev/null' > "$WORK/hyprpm.log"
     say "dry-run on the installed system must change nothing"
     ssh_vm 'h=$(mktemp -d); HOME=$h XDG_STATE_HOME= bash ~/.local/share/prime-linux/install.sh --dry-run >/dev/null; w=$(cd $h && find . -mindepth 1 | head -20); [ -z "$w" ] || { echo "$w" | sed "s/^/      wrote: /"; exit 1; }' \
         && echo "    ✓ dry run left nothing behind" || echo "    ✗ dry run wrote files (listed above)"
-    # test VM only: log straight into Prime's session (a person would pick Hyprland on the login screen)
-    ssh_vm 'sudo mkdir -p /etc/sddm.conf.d && printf "[Autologin]\nUser=alex\nSession=hyprland\n" | sudo tee /etc/sddm.conf.d/zz-prime-vm-autologin.conf >/dev/null'
+    # test VM only: log straight into the "Prime" session (what a person picks on the login screen)
+    ssh_vm 'sudo mkdir -p /etc/sddm.conf.d && printf "[Autologin]\nUser=alex\nSession=prime\n" | sudo tee /etc/sddm.conf.d/zz-prime-vm-autologin.conf >/dev/null'
     say "rebooting into the desktop"
     stop_vm
     boot_disk prime2; wait_ssh 300
@@ -169,15 +172,21 @@ cmd_prime() {
         ck 'prime-session.target active' 'systemctl --user is-active prime-session.target'
         ck 'volume popups (swayosd)'     'pgrep -x swayosd-server'
         ck 'notifications (swaync)'      'pgrep -x swaync'
-        ck 'wallpaper (hyprpaper)'       'pgrep -x hyprpaper'
+        if [ ${PRIME_VM_GL:-1} = 1 ]; then ck 'wallpaper (hyprpaper)' 'pgrep -x hyprpaper'
+        else echo '    · wallpaper (hyprpaper): not checked: it needs a GPU render node and this VM has none (software rendering)'; fi
         ck 'window title bars (built at first login)' 'for i in \$(seq 48); do hyprctl plugin list | grep -qi hyprbars && exit 0; sleep 5; done; exit 1'
         ck 'keyboard layout applied'     'hyprctl -j devices | jq -e \".keyboards[] | select(.main) | .layout\"'
         ck 'binds have descriptions'     '[ \$(hyprctl -j binds | jq \"[.[] | select(.has_description | not)] | length\") = 0 ]'
         ck 'login health check clean'    '~/.local/share/prime-linux/layer/bin/prime-doctor --login'
         grim /tmp/desktop.png" | tee "$WORK/session-checks.log"
     scp_vm alex@127.0.0.1:/tmp/desktop.png "$WORK/desktop.png" && say "screenshot: $WORK/desktop.png"
+    say "opening what a friend sees first: bar, Start menu, Spotlight, Prime menu, terminal greeting"
+    scp_vm "$HERE/desktop-checks.sh" alex@127.0.0.1:/tmp/desktop-checks.sh
+    ssh_vm "$E; export XDG_RUNTIME_DIR WAYLAND_DISPLAY HYPRLAND_INSTANCE_SIGNATURE; bash /tmp/desktop-checks.sh" \
+        | tee -a "$WORK/session-checks.log"
+    for p in start-menu spotlight prime-menu terminal; do scp_vm "alex@127.0.0.1:/tmp/$p.png" "$WORK/$p.png" 2>/dev/null; done
     # an empty desktop is one flat colour in the middle; a wallpaper is thousands
-    local colours; colours="$(magick "$WORK/desktop.png" -gravity center -crop 40%x40%+0+0 -format %k info: 2>/dev/null || echo 0)"
+    local colours; colours="$("$(command -v magick || echo convert)" "$WORK/desktop.png" -gravity center -crop 40%x40%+0+0 -format %k info: 2>/dev/null || echo 0)"
     if [ "${colours:-0}" -gt 200 ]; then echo "    ✓ wallpaper visible ($colours colours mid-screen)" | tee -a "$WORK/session-checks.log"
     else echo "    ✗ no wallpaper on screen ($colours colours mid-screen)" | tee -a "$WORK/session-checks.log"; fi
     say "uninstall in the VM, then check the account is back"

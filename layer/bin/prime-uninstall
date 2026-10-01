@@ -97,7 +97,8 @@ fi
 need_sudo=0
 others="$(ls -d /home/*/.local/share/prime-linux 2>/dev/null | grep -v "^$PRIME_HOME\$" || true)"
 if [ -f "$MANIFEST" ] && grep -q '^service ' "$MANIFEST"; then need_sudo=1; fi
-[ -z "$others" ] && { [ -f /etc/pacman.d/hooks/zz-prime-desktop-backup.hook ] || [ -d /usr/local/lib/prime-linux ]; } && need_sudo=1
+[ -z "$others" ] && { [ -f /etc/pacman.d/hooks/zz-prime-desktop-backup.hook ] || [ -d /usr/local/lib/prime-linux ] \
+                      || [ -f /usr/share/wayland-sessions/prime.desktop ]; } && need_sudo=1
 [ $PKGS = 1 ] && need_sudo=1
 if [ $need_sudo = 1 ] && [ $DRY = 0 ]; then sudo -v || { echo "sudo is needed for the system parts — run again when you can."; exit 1; }; fi
 if [ -z "$others" ]; then
@@ -108,6 +109,9 @@ if [ -z "$others" ]; then
     fi
     [ -f /etc/pacman.d/hooks/zz-prime-desktop-backup.hook ] && \
         run sudo rm -f /etc/pacman.d/hooks/zz-prime-desktop-backup.hook /usr/share/libalpm/scripts/prime-desktop-backup-all
+    # the "Prime" entry on the login screen (Hyprland's own entry stays)
+    [ -f /usr/share/wayland-sessions/prime.desktop ] && run sudo rm -f /usr/share/wayland-sessions/prime.desktop \
+        && say "Prime removed from the login screen"
     if [ -f "$MANIFEST" ]; then
         while read -r _ svc; do
             run sudo systemctl disable "$svc" >/dev/null 2>&1 && say "Switched $svc back off (Prime had turned it on)"

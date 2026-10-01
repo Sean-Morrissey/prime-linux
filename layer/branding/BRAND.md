@@ -1,5 +1,9 @@
 # Prime Linux brand
 
+**PRIME = Please Relax, I'll Manage Everything.** (Owner, 2026-10-01.) It's the promise
+the whole product makes: you say what you want, Prime sets it up, keeps it updated and fixes it.
+Use the full line as the tagline under the wordmark, in the installer, the welcome app and About.
+
 **Decided 2026-10-01 by the owner:** the emblem is **concept D, "Orbit P"** (a ring + stem P),
 and the official brand colour is the **Sunset gradient**: `#fbbf24` (amber) → `#f472b6` (pink),
 diagonal top-left to bottom-right.

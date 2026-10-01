@@ -8,6 +8,7 @@ ver="$(git -C "$REPO" describe --tags --always 2>/dev/null || echo unknown)"
 when="$(git -C "$REPO" log -1 --format=%cd --date=short 2>/dev/null)"
 
 printf '\n  %s%sPrime Linux%s  %s%s · %s%s\n' "$B" "$A" "$R" "$D" "$ver" "$when" "$R"
+printf '  %sPlease Relax, I'"'"'ll Manage Everything%s\n' "$A" "$R"
 printf '  %sCachyOS speed · Hyprland power · a desktop that explains itself%s\n\n' "$D" "$R"
 row() { printf '  %s%-16s%s %s\n' "$A" "$1" "$R" "$2"; }
 row "Search"        "Super+Space"

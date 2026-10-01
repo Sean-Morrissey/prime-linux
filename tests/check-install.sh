@@ -64,6 +64,7 @@ ck "services linked"                        "[ -L ~/.config/systemd/user/prime-b
 ck "commands on PATH dir"                   "[ -L ~/.local/bin/prime-update ] && [ -L ~/.local/bin/prime-migrate ]"
 ck "pacman backup hook installed"           "[ -f /etc/pacman.d/hooks/zz-prime-desktop-backup.hook ]"
 ck "a login screen is enabled"              "[ -L /etc/systemd/system/display-manager.service ]"
+ck "the login screen offers Prime"          "cmp $L/system/wayland-sessions/prime.desktop /usr/share/wayland-sessions/prime.desktop"
 ck "desktop backup works"                   "$L/bin/prime-desktop-backup save test && ls ~/.config-backups/desktop/*_test.tar.gz"
 ck "accent switch rewrites colours"         "$L/bin/prime-theme --set-accent 60a5fa && grep -q 60a5fa ~/.config/prime/theme/colors.css"
 ck "add-on enable (no setup) + bar merge"   "echo ai >> ~/.config/prime/addons && $L/bin/prime-addon --relink && grep -q addons/ai ~/.config/hypr/addons.conf && $L/bin/prime-bar --print top | jq -e '.\"modules-left\" | index(\"custom/ask\")'"

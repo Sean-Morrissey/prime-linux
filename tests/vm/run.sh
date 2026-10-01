@@ -146,8 +146,8 @@ cmd_prime() {
     say "dry-run on the installed system must change nothing"
     ssh_vm 'h=$(mktemp -d); HOME=$h XDG_STATE_HOME= bash ~/.local/share/prime-linux/install.sh --dry-run >/dev/null; w=$(cd $h && find . -mindepth 1 | head -20); [ -z "$w" ] || { echo "$w" | sed "s/^/      wrote: /"; exit 1; }' \
         && echo "    ✓ dry run left nothing behind" || echo "    ✗ dry run wrote files (listed above)"
-    # test VM only: log straight into Prime's session (a person would pick Hyprland on the login screen)
-    ssh_vm 'sudo mkdir -p /etc/sddm.conf.d && printf "[Autologin]\nUser=alex\nSession=hyprland\n" | sudo tee /etc/sddm.conf.d/zz-prime-vm-autologin.conf >/dev/null'
+    # test VM only: log straight into the "Prime" session (what a person picks on the login screen)
+    ssh_vm 'sudo mkdir -p /etc/sddm.conf.d && printf "[Autologin]\nUser=alex\nSession=prime\n" | sudo tee /etc/sddm.conf.d/zz-prime-vm-autologin.conf >/dev/null'
     say "rebooting into the desktop"
     stop_vm
     boot_disk prime2; wait_ssh 300

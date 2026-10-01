@@ -139,6 +139,7 @@ cmd_prime() {
     ssh_vm 'bash ~/prime-src/install.sh --yes' > "$WORK/install.log" 2>&1
     local rc=$?; tail -12 "$WORK/install.log"
     [ $rc = 0 ] || die "install.sh failed in the VM (exit $rc) — see $WORK/install.log"
+    ssh_vm 'cat ~/.cache/prime-hyprpm.log 2>/dev/null' > "$WORK/hyprpm.log"
     say "dry-run on the installed system must change nothing"
     ssh_vm 'h=$(mktemp -d); HOME=$h XDG_STATE_HOME= bash ~/.local/share/prime-linux/install.sh --dry-run >/dev/null && [ -z "$(ls -A $h)" ]' \
         && echo "    ✓ dry run left nothing behind" || echo "    ✗ dry run wrote files"
@@ -169,6 +170,8 @@ cmd_prime() {
         ck 'volume popups (swayosd)'     'pgrep -x swayosd-server'
         ck 'notifications (swaync)'      'pgrep -x swaync'
         ck 'wallpaper (hyprpaper)'       'pgrep -x hyprpaper'
+        ck 'wallpaper shown'             'hyprctl hyprpaper listactive | grep -q /'
+        ck 'window title bars (hyprbars)' 'hyprctl plugin list | grep -qi hyprbars'
         ck 'keyboard layout applied'     'hyprctl -j devices | jq -e \".keyboards[] | select(.main) | .layout\"'
         ck 'binds have descriptions'     '[ \$(hyprctl -j binds | jq \"[.[] | select(.has_description | not)] | length\") = 0 ]'
         ck 'login health check clean'    '~/.local/share/prime-linux/layer/bin/prime-doctor --login'
@@ -177,9 +180,11 @@ cmd_prime() {
     say "uninstall in the VM, then check the account is back"
     ssh_vm 'bash ~/.local/share/prime-linux/layer/bin/prime-uninstall --yes' > "$WORK/uninstall.log" 2>&1 \
         && echo "    ✓ prime-uninstall ran (log: uninstall.log)" || echo "    ✗ prime-uninstall failed"
-    ssh_vm '[ ! -e ~/.local/share/prime-linux ] && [ ! -e ~/.config/hypr/hyprland.conf ]' && echo "    ✓ Prime removed" || echo "    ✗ leftovers"
+    left="$(ssh_vm 'ls -d ~/.local/share/prime-linux ~/.config/hypr/*.conf ~/.config/prime ~/.config/systemd/user/prime-* ~/.local/bin/prime-* ~/.local/share/applications/prime-* /etc/pacman.d/hooks/zz-prime-* 2>/dev/null')"
+    if [ -z "$left" ]; then echo "    ✓ nothing of Prime left" | tee -a "$WORK/session-checks.log"
+    else echo "    ✗ left behind: $(echo $left)" | tee -a "$WORK/session-checks.log"; fi
     stop_vm
-    grep -q '✗' "$WORK/session-checks.log" && die "some session checks failed (session-checks.log)"
+    grep -q '✗' "$WORK/session-checks.log" && die "some checks failed (session-checks.log)"
     say "real-boot test passed"
 }
 

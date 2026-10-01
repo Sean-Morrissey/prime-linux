@@ -89,6 +89,22 @@ layer/addons/<name>/
   *.desktop           app-list entries; @LAYER@ is replaced with the install path
 ```
 
+### Personal add-ons
+
+The same folder shape works in **`~/.config/prime/addons.d/<name>/`**: your own
+shortcuts, bar items, menu rows, right-click rows, Spotlight snip actions and
+background services, kept apart from Prime's. They are never shipped and never
+touched by `prime-update`; `prime-addon list` shows them marked *(personal)*, and
+`prime-addon enable/disable/check <name>` work on them like on any other. A
+shipped add-on wins over a personal one with the same name (the list says so).
+`prime-import` builds one from a desktop you set up before Prime — see
+[MIGRATING.md](MIGRATING.md).
+
+An add-on may also carry `systemd/` with user units (`.service`, `.timer`…):
+enabling it links them into `~/.config/systemd/user` and starts the ones named in
+`UNITS=`; disabling stops them and removes only those links. A unit file of your
+own with the same name and different contents is never replaced.
+
 ### addon.conf
 
 | Field | Meaning |
@@ -102,6 +118,7 @@ layer/addons/<name>/
 | `NEEDS_MULTILIB=1` | Offer to switch on 32-bit packages first (backup kept, full system update after). |
 | `SETUP` | Runs after the packages, e.g. `"bin/prime-<name> setup"`. Must be safe to run again. A failure leaves the pack off. |
 | `TEARDOWN` | Runs on disable: undo runtime state and anything written outside the pack (shell lines, bookmarks). Don't delete the user's files or settings. |
+| `UNITS` | User units from the add-on's `systemd/` folder to enable and start when it is switched on (stopped and unlinked when it is switched off). |
 | `CHECK` | Prints health lines `ok<TAB>text`, `warn<TAB>text` or `bad<TAB>text` (helpers `ck_ok`/`ck_warn`/`ck_bad`). Say what's wrong and the one command or menu row that fixes it. prime-addon already checks the packages and Flatpaks. |
 
 ### Rules of thumb

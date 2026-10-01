@@ -38,11 +38,11 @@ ver="$(git -C "$REPO" describe --tags --always 2>/dev/null || echo unknown)"
 when="$(git -C "$REPO" log -1 --format=%cd --date=format:'%-d %B %Y' 2>/dev/null)"
 base="$(. /etc/os-release 2>/dev/null; echo "${NAME:-}")"
 addons=""
-while read -r a; do
-    [ -f "$LAYER/addons/$a/addon.conf" ] || continue
-    DESCRIPTION=""; . "$LAYER/addons/$a/addon.conf"
+. "$LAYER/addons/_lib/resolve.sh"
+while read -r d; do
+    DESCRIPTION=""; . "$d/addon.conf"
     addons+="${addons:+, }${DESCRIPTION%% — *}"
-done < <(grep -v '^#' "$HOME/.config/prime/addons" 2>/dev/null)
+done < <(enabled_addon_dirs)
 
 row "Version"       "Prime $ver${when:+ · $when}"
 row "Prime means"   "Please Relax, I'll Manage Everything"

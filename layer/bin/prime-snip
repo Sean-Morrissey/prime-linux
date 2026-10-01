@@ -16,6 +16,7 @@ set -u
 
 BIN="$(dirname "$(readlink -f "$0")")"
 LAYER="$(readlink -f "$BIN/..")"
+. "$LAYER/addons/_lib/resolve.sh"     # shipped + personal (~/.config/prime/addons.d) add-ons
 MODE="area"
 NO_MENU=0
 ACTION=""
@@ -31,10 +32,10 @@ done
 # add-on actions: each enabled add-on may ship bin/prime-snip-actions, which
 # prints one menu row per line for `--list` and runs `<row> <file>`
 addon_actions() {
-  local a
-  while read -r a; do
-    [ -x "$LAYER/addons/$a/bin/prime-snip-actions" ] && echo "$LAYER/addons/$a/bin/prime-snip-actions"
-  done < <(grep -v '^#' "$HOME/.config/prime/addons" 2>/dev/null)
+  local d
+  while read -r d; do
+    [ -x "$d/bin/prime-snip-actions" ] && echo "$d/bin/prime-snip-actions"
+  done < <(enabled_addon_dirs)
 }
 
 RUNTIME="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"

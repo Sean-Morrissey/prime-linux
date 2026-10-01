@@ -39,6 +39,7 @@ fi
 
 BIN="$(dirname "$(readlink -f "$0")")"
 LAYER="$(readlink -f "$BIN/..")"
+. "$LAYER/addons/_lib/resolve.sh"     # shipped + personal (~/.config/prime/addons.d) add-ons
 THEME="$LAYER/default/rofi/menu.rasi"
 LOG="$RUNTIME/prime-context.log"
 
@@ -48,10 +49,10 @@ REGISTRY="${PRIME_ELEMENTS:-}"
 if [ -z "$REGISTRY" ]; then
     REGISTRY="$RUNTIME/prime-elements.json"
     frags=("$LAYER/default/elements.json")
-    while read -r a; do
-        [ -f "$LAYER/addons/$a/elements.json" ] && frags+=("$LAYER/addons/$a/elements.json")
-        [ -z "$ASKER" ] && [ -x "$LAYER/addons/$a/bin/prime-ask" ] && ASKER="$LAYER/addons/$a/bin/prime-ask"
-    done < <(grep -v '^#' "$HOME/.config/prime/addons" 2>/dev/null)
+    while read -r d; do
+        [ -f "$d/elements.json" ] && frags+=("$d/elements.json")
+        [ -z "$ASKER" ] && [ -x "$d/bin/prime-ask" ] && ASKER="$d/bin/prime-ask"
+    done < <(enabled_addon_dirs)
     jq -s 'reduce .[1:][] as $f (.[0];
              .generic_items = ((.generic_items // []) + ($f.generic_items // []))
            | .utility_items = ((.utility_items // []) + ($f.utility_items // []))

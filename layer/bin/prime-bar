@@ -40,12 +40,25 @@ def jsonc(path):
     return data[0] if isinstance(data, list) else data
 
 
+PERSONAL = os.environ.get("PRIME_PERSONAL_ADDONS") or os.path.join(HOME, ".config/prime/addons.d")
+
+
+def addon_dir(n):
+    """Shipped add-on first, then a personal one (~/.config/prime/addons.d) — same rule as resolve.sh."""
+    if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,40}", n):
+        return None
+    for root in (os.path.join(LAYER, "addons"), PERSONAL):
+        if os.path.isfile(os.path.join(root, n, "addon.conf")):
+            return os.path.join(root, n)
+    return None
+
+
 def addons():
     try:
         names = [l.strip() for l in open(os.path.join(HOME, ".config/prime/addons")) if l.strip() and not l.startswith("#")]
     except OSError:
         return []
-    return [os.path.join(LAYER, "addons", n) for n in names if os.path.isdir(os.path.join(LAYER, "addons", n))]
+    return [d for d in map(addon_dir, names) if d]
 
 
 def build(which):

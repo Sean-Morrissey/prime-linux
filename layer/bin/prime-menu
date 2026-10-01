@@ -49,6 +49,7 @@ fi
 
 BIN="$(dirname "$(readlink -f "$0")")"
 LAYER="$(readlink -f "$BIN/..")"
+. "$LAYER/addons/_lib/resolve.sh"     # shipped + personal (~/.config/prime/addons.d) add-ons
 THEME="$LAYER/default/rofi/menu.rasi"
 LOG="$RUNTIME/prime-menu.log"
 
@@ -60,9 +61,9 @@ REGISTRY="${PRIME_MENU:-}"
 if [ -z "$REGISTRY" ]; then
     REGISTRY="$RUNTIME/prime-menu.json"
     frags=("$LAYER/default/menu.json")
-    while read -r a; do
-        [ -f "$LAYER/addons/$a/menu.json" ] && frags+=("$LAYER/addons/$a/menu.json")
-    done < <(grep -v '^#' "$HOME/.config/prime/addons" 2>/dev/null)
+    while read -r d; do
+        [ -f "$d/menu.json" ] && frags+=("$d/menu.json")
+    done < <(enabled_addon_dirs)
     [ -f "$HOME/.config/prime/menu.json" ] && frags+=("$HOME/.config/prime/menu.json")
     jq -s 'reduce .[1:][] as $f (.[0];
              reduce ($f.sections // [])[] as $s (.;

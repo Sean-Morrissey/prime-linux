@@ -1,19 +1,52 @@
 #!/usr/bin/env bash
-# prime-addon — optional extras for Prime Linux.
+# prime-addon — packs and optional extras for Prime Linux.
 #
-#   prime-addon                 list add-ons and whether they're on
-#   prime-addon enable <name>   install what it needs, set it up, switch it on
-#   prime-addon disable <name>  switch it off (its packages and settings stay)
-#   prime-addon --relink        rebuild ~/.config/hypr/addons.conf (prime-update)
+#   prime-addon                    list packs and add-ons, and whether they're on
+#   prime-addon enable <name>      install what it needs, set it up, switch it on (safe to repeat)
+#   prime-addon disable <name>     switch it off: its menu, shortcuts and bar items go (apps stay)
+#   prime-addon info <name>        what it would install and add, before you turn it on
+#   prime-addon check [name]       health check for one, or for everything that's on
+#   prime-addon pick               choose from a menu (Prime menu → Settings → Add-ons)
+#   prime-addon toggle <name>      on if it's off, off if it's on
+#   prime-addon open <app|app2…> [args]  start an app a pack installs, or offer to install it
+#   prime-addon get <package|flatpak-id>…  install extra apps (the "Get more…" rows)
+#   prime-addon --relink           rebuild ~/.config/hypr/addons.conf (prime-update)
 #
-# An add-on is a folder in layer/addons/<name>/ with addon.conf (DESCRIPTION,
-# PACKAGES, SETUP) and any of: hypr.conf, waybar-top.json, waybar.css,
-# menu.json, elements.json, bin/.
+# An add-on is a folder layer/addons/<name>/ with addon.conf and any of: hypr.conf,
+# waybar-top.json, waybar.css, menu.json, elements.json, bin/, *.desktop.
+# A pack is an add-on with KIND=pack. docs/PACKS.md lists every addon.conf field.
+#
+# PRIME_NONINTERACTIVE=1     never ask; take the safe default (installer, tests)
+# PRIME_GPU="amd intel"      override graphics detection
+# PRIME_ADDON_PACKAGES=check resolve packages/Flatpaks without installing (tests); =skip
 set -u
 LAYER="$(readlink -f "$(dirname "$(readlink -f "$0")")/..")"
+. "$LAYER/addons/_lib/pack.sh"
+export LAYER PRIME_NONINTERACTIVE="${PRIME_NONINTERACTIVE:-0}"
+SELF="$LAYER/bin/prime-addon"
 LIST="$HOME/.config/prime/addons"
-mkdir -p "$(dirname "$LIST")"; [ -f "$LIST" ] || echo "# enabled add-ons, one per line — manage with: prime-addon" > "$LIST"
+PKG_MODE="${PRIME_ADDON_PACKAGES:-install}"
+FLATHUB="https://dl.flathub.org/repo/flathub.flatpakrepo"
+mkdir -p "$(dirname "$LIST")" "$HOME/.config/hypr"
+[ -f "$LIST" ] || echo "# enabled add-ons, one per line — manage with: prime-addon" > "$LIST"
 enabled() { grep -qx "$1" "$LIST"; }
+
+load() {   # load <dir> — read addon.conf into fresh variables
+    DESCRIPTION=""; KIND="addon"; TITLE=""; ICON=""; PACKAGES=""; PACKAGES_IF_AVAILABLE=""
+    PACKAGES_AMD=""; PACKAGES_INTEL=""; PACKAGES_NVIDIA=""; PACKAGES_NOUVEAU=""; PACKAGES_NONE=""
+    FLATPAKS=""; NEEDS_MULTILIB=0; SETUP=""; TEARDOWN=""; CHECK=""
+    . "$1/addon.conf"
+    [ -n "$TITLE" ] || TITLE="$(basename "$1")"
+}
+need() {   # need <name> — sets D to the add-on's folder, or explains and exits
+    D="$LAYER/addons/${1:-}"
+    [ -n "${1:-}" ] && [ -f "$D/addon.conf" ] || { echo "No pack or add-on called '${1:-}'. These exist:"; list_all; exit 1; }
+}
+hook() {   # hook <dir> "bin/script arg…" — run a setup/teardown/check script
+    local parts; read -r -a parts <<<"$2"
+    [ -x "$1/${parts[0]}" ] || { warn "missing ${parts[0]}"; return 1; }
+    "$1/${parts[0]}" "${parts[@]:1}"
+}
 
 relink() {
     { echo "# Written by prime-addon — the enabled add-ons' window-manager settings."
@@ -28,27 +61,311 @@ reload() {
     return 0
 }
 
-case "${1:-}" in
-    ""|list)
+# ── packages ─────────────────────────────────────────────────────────────────
+plan() {   # fills WANT (repo packages for this machine) and UNAVAILABLE
+    WANT=(); UNAVAILABLE=()
+    local p g v
+    for p in $PACKAGES; do WANT+=("$p"); done
+    for g in $(gpus); do
+        v="PACKAGES_${g^^}"
+        for p in ${!v:-}; do WANT+=("$p"); done
+    done
+    for p in $PACKAGES_IF_AVAILABLE; do
+        if pacman -Si "$p" >/dev/null 2>&1; then WANT+=("$p"); else UNAVAILABLE+=("$p"); fi
+    done
+    [ ${#WANT[@]} -gt 0 ] && mapfile -t WANT < <(printf '%s\n' "${WANT[@]}" | awk '!seen[$0]++')
+    return 0
+}
+multilib_on() { pacman-conf --repo-list 2>/dev/null | grep -qx multilib; }
+enable_multilib() {
+    say "Steam and Windows games need 32-bit libraries, which come from the"
+    say "\"multilib\" package repository. It's switched off on this computer."
+    ask "Switch it on now? (edits /etc/pacman.conf; a backup copy is kept)" y || return 1
+    sudo cp /etc/pacman.conf "/etc/pacman.conf.prime-$(date +%Y%m%d-%H%M%S)" || return 1
+    if grep -qE '^#[[:space:]]*\[multilib\]' /etc/pacman.conf; then
+        sudo sed -i -E '/^#[[:space:]]*\[multilib\]/,/^#[[:space:]]*Include/ s/^#[[:space:]]*//' /etc/pacman.conf
+    else
+        printf '\n[multilib]\nInclude = /etc/pacman.d/mirrorlist\n' | sudo tee -a /etc/pacman.conf >/dev/null
+    fi
+    multilib_on || { warn "Couldn't switch multilib on — /etc/pacman.conf looks unusual."; return 1; }
+    if [ "$PKG_MODE" = install ]; then
+        say "Bringing the system up to date (needed once after this change)…"
+        sudo pacman -Syu --noconfirm
+    else
+        sudo pacman -Sy >/dev/null
+    fi
+}
+is_flatpak() { [[ "$1" =~ ^[A-Za-z0-9_-]+\.[A-Za-z0-9_.-]+\.[A-Za-z0-9_-]+$ ]]; }
+flathub_ready() {
+    have flatpak || { warn "Flatpak isn't installed (it comes with Prime: run prime-update)."; return 1; }
+    flatpak remote-add --user --if-not-exists flathub "$FLATHUB" >/dev/null 2>&1
+}
+record() { local f="$PACK_STATE/$1.installed"; shift; touch "$f"; for x in "$@"; do grep -qx "$x" "$f" || echo "$x" >> "$f"; done; }
+
+install_repo() {   # install_repo <name> — WANT must be planned
+    local missing=() p
+    for p in "${WANT[@]}"; do pacman -Qq "$p" >/dev/null 2>&1 || missing+=("$p"); done
+    if [ ${#missing[@]} -eq 0 ]; then say "Everything it needs is already installed."; return 0; fi
+    case "$PKG_MODE" in
+        skip)  note "(skipping ${#missing[@]} packages: PRIME_ADDON_PACKAGES=skip)"; return 0 ;;
+        check) note "checking ${#missing[@]} packages resolve: ${missing[*]}"
+               pacman -Sp --print-format '%n' "${missing[@]}" >/dev/null; return ;;
+    esac
+    say "Installing ${#missing[@]} packages: ${missing[*]}"
+    say "(this can take a few minutes; it asks for your password once)"
+    sudo pacman -S --needed --noconfirm "${missing[@]}" || return 1
+    record "$1" "${missing[@]/#/pacman }"
+}
+install_flatpaks() {   # install_flatpaks <name> <ids…> — returns 1 if any failed
+    local n="$1" id bad=0; shift
+    [ $# -gt 0 ] || return 0
+    flathub_ready || return 1
+    for id in "$@"; do
+        if flatpak info "$id" >/dev/null 2>&1; then say "$id — already installed"; continue; fi
+        case "$PKG_MODE" in
+            skip)  note "(skipping $id)" ;;
+            check) if flatpak remote-info --user flathub "$id" >/dev/null 2>&1; then say "$id — found on Flathub"
+                   else warn "$id — not found on Flathub (or no internet)"; bad=1; fi ;;
+            *)     say "Downloading $id from Flathub…"
+                   if flatpak install --user -y --noninteractive flathub "$id" >/dev/null 2>&1; then record "$n" "flatpak $id"
+                   else warn "$id couldn't be downloaded — check the internet connection; enabling again resumes"; bad=1; fi ;;
+        esac
+    done
+    return $bad
+}
+
+# ── what it adds ─────────────────────────────────────────────────────────────
+binds_of() {   # "Super+Alt+G   Gaming menu" for each bindd line
+    [ -f "$1/hypr.conf" ] || return 0
+    grep -E '^bind[a-z]*d[a-z]* *=' "$1/hypr.conf" | sed -E 's/^[^=]*= *//' | awk -F', *' '{
+        m=tolower($1); n=split(m, w, " "); keys="";
+        for (i=1;i<=n;i++) keys = keys toupper(substr(w[i],1,1)) substr(w[i],2) "+";
+        k=$2; if (length(k)==1) k=toupper(k);
+        printf "      %-18s %s\n", keys k, $3 }'
+}
+menu_of() { [ -f "$1/menu.json" ] && jq -r '.sections[] | "      \(.icon // "") \(.label): \([.items[].label] | join(" · "))"' "$1/menu.json" 2>/dev/null; return 0; }
+
+# ── list / pick ──────────────────────────────────────────────────────────────
+list_all() {
+    local d n kinds k shown
+    for k in pack addon; do
+        shown=0
         for d in "$LAYER"/addons/*/; do
-            n="$(basename "$d")"; DESCRIPTION=""; . "$d/addon.conf"
-            printf '  %-6s %-10s %s\n' "$(enabled "$n" && echo '[on]' || echo '[off]')" "$n" "$DESCRIPTION"
+            [ -f "$d/addon.conf" ] || continue
+            n="$(basename "$d")"; load "$d"; [ "$KIND" = "$k" ] || continue
+            if [ $shown = 0 ]; then
+                [ $k = pack ] && printf '\n  %sPacks%s — set this computer up for something, in one step\n' "$_B" "$_R" \
+                              || printf '\n  %sAdd-ons%s\n' "$_B" "$_R"
+                shown=1
+            fi
+            printf '  %-6s %-9s %s\n' "$(enabled "$n" && echo '[on]' || echo '[off]')" "$n" "$DESCRIPTION"
         done
-        echo; echo "  prime-addon enable <name>  ·  prime-addon disable <name>" ;;
-    enable)
-        n="${2:?which add-on? (prime-addon list)}"; d="$LAYER/addons/$n"
-        [ -f "$d/addon.conf" ] || { echo "no add-on called '$n'"; exit 1; }
-        PACKAGES=""; SETUP=""; . "$d/addon.conf"
-        if [ -n "$PACKAGES" ]; then sudo pacman -S --needed --noconfirm $PACKAGES || exit 1; fi
-        if [ -n "$SETUP" ]; then "$d/$SETUP" || { echo "setup didn't finish — '$n' left off"; exit 1; }; fi
-        enabled "$n" || echo "$n" >> "$LIST"
-        for f in "$d"/*.desktop; do [ -f "$f" ] && sed "s|@LAYER@|$LAYER|g" "$f" > "$HOME/.local/share/applications/$(basename "$f")"; done
-        reload; echo "'$n' is on." ;;
-    disable)
-        n="${2:?which add-on?}"
-        sed -i "/^$n\$/d" "$LIST"
-        for f in "$LAYER/addons/$n"/*.desktop; do [ -f "$f" ] && rm -f "$HOME/.local/share/applications/$(basename "$f")"; done
-        reload; echo "'$n' is off." ;;
-    --relink) relink ;;
-    *) sed -n '2,12p' "$0"; exit 2 ;;
+    done
+}
+rows_for_pick() {   # name<TAB>row text
+    local d n
+    for d in "$LAYER"/addons/*/; do
+        [ -f "$d/addon.conf" ] || continue
+        n="$(basename "$d")"; load "$d"
+        printf '%s\t%s %s%s — %s\n' "$n" "${ICON:-󰏗}" "$TITLE" "$(enabled "$n" && echo '  ✓ on' || echo '')" "$DESCRIPTION"
+    done
+}
+
+# ── commands ─────────────────────────────────────────────────────────────────
+cmd_enable() {
+    local n="${1:-}" d; need "$n"; d="$D"
+    load "$d"; plan
+    local total=3 i=0 f
+    [ "$NEEDS_MULTILIB" = 1 ] && ! multilib_on && total=$((total+1))
+    [ -n "$FLATPAKS" ] && total=$((total+1))
+    [ -n "$SETUP" ] && total=$((total+1))
+    step() { i=$((i+1)); printf '\n  %s[%s/%s]%s %s%s%s\n' "$_A" "$i" "$total" "$_R" "$_B" "$*" "$_R"; }
+
+    printf '\n  %s%s %s%s — %s\n' "$_B" "${ICON:-}" "$TITLE" "$_R" "$DESCRIPTION"
+    enabled "$n" && note "(already on — checking everything is in place)"
+
+    step "Checking this computer"
+    say "Graphics: $(gpus | paste -sd' ' | sed 's/nouveau/NVIDIA (open driver)/;s/nvidia/NVIDIA/;s/amd/AMD/;s/intel/Intel/;s/none/not detected/')"
+    [ ${#UNAVAILABLE[@]} -gt 0 ] && note "Not in your package repositories, skipped: ${UNAVAILABLE[*]}"
+
+    if [ "$NEEDS_MULTILIB" = 1 ] && ! multilib_on; then
+        step "Switching on 32-bit software"
+        enable_multilib || { echo; warn "'$n' needs 32-bit software to work — nothing was switched on."; exit 1; }
+    fi
+
+    step "Installing apps"
+    install_repo "$n" || { echo; warn "The apps couldn't be installed — nothing was switched on."
+                          warn "Check the internet connection, then run again: prime-addon enable $n"; exit 1; }
+
+    if [ -n "$FLATPAKS" ]; then
+        step "Installing apps from Flathub"
+        # shellcheck disable=SC2086
+        install_flatpaks "$n" $FLATPAKS || warn "Some Flathub apps are missing — the rest of '$n' works without them."
+    fi
+
+    if [ -n "$SETUP" ]; then
+        step "Setting things up"
+        hook "$d" "$SETUP" || { echo; warn "Setup didn't finish — '$n' left off. Run again to retry: prime-addon enable $n"; exit 1; }
+    fi
+
+    step "Switching it on"
+    enabled "$n" || echo "$n" >> "$LIST"
+    mkdir -p "$HOME/.local/share/applications"
+    for f in "$d"/*.desktop; do [ -f "$f" ] && sed "s|@LAYER@|$LAYER|g" "$f" > "$HOME/.local/share/applications/$(basename "$f")"; done
+    reload
+    say "Menu, shortcuts and bar updated."
+
+    printf '\n  %s✓ %s is on.%s\n' "$_B" "$TITLE" "$_R"
+    if [ -f "$d/menu.json" ]; then echo "    In the Prime menu (Super+Alt+Space):"; menu_of "$d"; fi
+    if [ -f "$d/hypr.conf" ] && grep -qE '^bind' "$d/hypr.conf"; then echo "    Shortcuts:"; binds_of "$d"; fi
+    [ -n "$CHECK" ] && note "Health check any time: prime-addon check $n"
+    notify "$TITLE is ready — find it in the Prime menu."
+    return 0
+}
+
+cmd_disable() {
+    local n="${1:-}" d f kept=() fl=() line; need "$n"; d="$D"
+    load "$d"
+    enabled "$n" || note "'$n' wasn't on — tidying up anyway."
+    [ -n "$TEARDOWN" ] && { hook "$d" "$TEARDOWN" || warn "its clean-up step reported a problem (continuing)"; }
+    sed -i "/^$n\$/d" "$LIST"
+    for f in "$d"/*.desktop; do [ -f "$f" ] && rm -f "$HOME/.local/share/applications/$(basename "$f")"; done
+    reload
+    printf '\n  %s%s is off.%s Its menu, shortcuts and bar items are gone.\n' "$_B" "$TITLE" "$_R"
+    if [ -f "$PACK_STATE/$n.installed" ]; then
+        while read -r line; do
+            case "$line" in
+                "pacman "*)  pacman -Qq "${line#pacman }" >/dev/null 2>&1 && kept+=("${line#pacman }") ;;
+                "flatpak "*) flatpak info "${line#flatpak }" >/dev/null 2>&1 && fl+=("${line#flatpak }") ;;
+            esac
+        done < "$PACK_STATE/$n.installed"
+    fi
+    if [ $((${#kept[@]} + ${#fl[@]})) -gt 0 ]; then
+        echo "    The apps it installed are still on your computer (nothing you made is lost):"
+        echo "${kept[*]} ${fl[*]}" | fold -s -w 70 | sed 's/^/      /'
+        echo "    To remove them as well:"
+        [ ${#kept[@]} -gt 0 ] && echo "      sudo pacman -Rns ${kept[*]}"
+        [ ${#fl[@]} -gt 0 ]   && echo "      flatpak uninstall --user ${fl[*]}"
+    fi
+    echo "    Turn it back on any time: prime-addon enable $n"
+}
+
+cmd_info() {
+    local n="${1:-}" d p; need "$n"; d="$D"
+    load "$d"; plan
+    printf '\n  %s%s %s%s — %s\n' "$_B" "${ICON:-}" "$TITLE" "$_R" "$DESCRIPTION"
+    echo "    Status: $(enabled "$n" && echo on || echo off)"
+    if [ ${#WANT[@]} -gt 0 ]; then
+        echo "    Packages for this computer:"
+        for p in "${WANT[@]}"; do printf '      %-28s %s\n' "$p" "$(pacman -Qq "$p" >/dev/null 2>&1 && echo installed || echo '')"; done
+    fi
+    [ ${#UNAVAILABLE[@]} -gt 0 ] && echo "    Skipped here (not in your repositories): ${UNAVAILABLE[*]}"
+    [ -n "$FLATPAKS" ] && echo "    From Flathub: $FLATPAKS"
+    [ "$NEEDS_MULTILIB" = 1 ] && echo "    Needs 32-bit packages (multilib): $(multilib_on && echo 'on already' || echo 'will offer to switch it on')"
+    [ -f "$d/menu.json" ] && { echo "    Menu:"; menu_of "$d"; }
+    [ -f "$d/hypr.conf" ] && grep -qE '^bind' "$d/hypr.conf" && { echo "    Shortcuts:"; binds_of "$d"; }
+    return 0
+}
+
+cmd_check() {   # check [name] — exit 1 if anything is broken
+    local names=() n d bad=0 lvl msg p id
+    if [ -n "${1:-}" ]; then need "$1"; names=("$1"); else mapfile -t names < <(grep -v '^#' "$LIST" | grep .); fi
+    [ ${#names[@]} -gt 0 ] || { echo "No packs or add-ons are on. See them with: prime-addon"; return 0; }
+    for n in "${names[@]}"; do
+        d="$LAYER/addons/$n"; [ -f "$d/addon.conf" ] || continue
+        load "$d"; plan
+        printf '\n  %s%s %s%s%s\n' "$_B" "${ICON:-}" "$TITLE" "$_R" "$(enabled "$n" || echo '  (off)')"
+        while IFS=$'\t' read -r lvl msg; do
+            case "$lvl" in
+                ok)   printf '    \e[32m✓\e[0m %s\n' "$msg" ;;
+                warn) printf '    \e[33m!\e[0m %s\n' "$msg" ;;
+                bad)  printf '    \e[31m✗\e[0m %s\n' "$msg"; bad=1 ;;
+                *)    printf '      %s\n' "$lvl${msg:+ $msg}" ;;
+            esac
+        done < <(
+            miss=()
+            for p in "${WANT[@]}"; do pacman -Qq "$p" >/dev/null 2>&1 || miss+=("$p"); done
+            [ ${#miss[@]} -eq 0 ] && ck_ok "All its packages are installed" \
+                                  || ck_bad "Not installed: ${miss[*]} — fix: prime-addon enable $n"
+            for id in $FLATPAKS; do
+                flatpak info "$id" >/dev/null 2>&1 && ck_ok "$id installed (Flathub)" \
+                                                   || ck_warn "$id not installed — fix: prime-addon enable $n"
+            done
+            [ -n "$CHECK" ] && hook "$d" "$CHECK"
+        )
+    done
+    echo; [ $bad = 0 ] && echo "  Everything checks out." || echo "  Some things need attention (✗ above)."
+    return $bad
+}
+
+cmd_toggle() {
+    local n="${1:-}" d; need "$n"; d="$D"
+    if enabled "$n"; then
+        load "$d"
+        ask "$TITLE is on. Switch it off? (apps stay installed)" n && cmd_disable "$n"
+    else
+        cmd_enable "$n"
+    fi
+}
+
+cmd_pick() {
+    local choice n rows
+    rows="$(rows_for_pick)"
+    if [ -n "${WAYLAND_DISPLAY:-}" ] && have rofi && ! [ -t 0 ]; then
+        choice="$(cut -f2 <<<"$rows" | ROFI_HINT="Enter: switch on/off  ·  Esc: close" \
+            "$LAYER/bin/prime-rofi" -dmenu -i -no-custom -p "Packs & add-ons" -theme menu)" || exit 0
+        n="$(awk -F'\t' -v c="$choice" '$2 == c {print $1; exit}' <<<"$rows")"
+        [ -n "$n" ] && exec "$LAYER/bin/prime-float" "$SELF" toggle "$n"
+        exit 0
+    fi
+    list_all; echo
+    local names; mapfile -t names < <(cut -f1 <<<"$rows")
+    local i=1; for n in "${names[@]}"; do printf '  %d) %s\n' "$i" "$n"; i=$((i+1)); done
+    nonint && return 0
+    printf '\n  Number to switch on/off (Enter to close): '; read -r choice || return 0
+    [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le ${#names[@]} ] && cmd_toggle "${names[$((choice-1))]}"
+    return 0
+}
+
+cmd_open() {   # open "app|flatpak.id" [args…]
+    local cands c; IFS='|' read -r -a cands <<<"${1:?open what?}"; shift
+    for c in "${cands[@]}"; do
+        if is_flatpak "$c"; then flatpak info "$c" >/dev/null 2>&1 && exec flatpak run "$c" "$@"
+        elif have "$c"; then exec "$c" "$@"; fi
+    done
+    notify "${cands[0]} isn't installed yet — opening the installer."
+    if [ -n "${WAYLAND_DISPLAY:-}" ] && have kitty; then exec "$LAYER/bin/prime-float" "$SELF" get "${cands[-1]}"; fi
+    echo "${cands[0]} isn't installed. Install it with: prime-addon get ${cands[-1]}"; exit 1
+}
+
+cmd_get() {   # get <package|flatpak-id>…
+    [ $# -gt 0 ] || { echo "get what? e.g. prime-addon get ardour"; exit 2; }
+    local repo=() fps=() x
+    for x in "$@"; do
+        if pacman -Qq "$x" >/dev/null 2>&1 || flatpak info "$x" >/dev/null 2>&1; then say "$x is already installed."; continue; fi
+        if is_flatpak "$x" && ! pacman -Si "$x" >/dev/null 2>&1; then fps+=("$x"); else repo+=("$x"); fi
+    done
+    [ $((${#repo[@]} + ${#fps[@]})) -gt 0 ] || return 0
+    ask "Install ${repo[*]} ${fps[*]}?" y || return 0
+    if [ ${#repo[@]} -gt 0 ]; then
+        if [ "$PKG_MODE" = check ]; then pacman -Sp --print-format '%n' "${repo[@]}" >/dev/null || return 1
+        else sudo pacman -S --needed --noconfirm "${repo[@]}" || { warn "Couldn't install ${repo[*]}."; return 1; }; fi
+    fi
+    install_flatpaks extras "${fps[@]}" || return 1
+    say "Done."
+}
+
+case "${1:-}" in
+    ""|list)   list_all; echo; echo "  prime-addon enable <name>  ·  disable <name>  ·  info <name>  ·  check" ;;
+    enable)    cmd_enable "${2:-}" ;;
+    disable)   cmd_disable "${2:-}" ;;
+    info)      cmd_info "${2:-}" ;;
+    check)     cmd_check "${2:-}" ;;
+    toggle)    cmd_toggle "${2:-}" ;;
+    pick)      cmd_pick ;;
+    open)      shift; cmd_open "$@" ;;
+    get)       shift; cmd_get "$@" ;;
+    --relink)  relink ;;
+    -h|--help|help) sed -n '2,23p' "$0" ;;
+    *)         sed -n '2,23p' "$0"; exit 2 ;;
 esac

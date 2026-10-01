@@ -1,0 +1,18 @@
+{
+  "sections": [
+    {
+      "id": "coding", "label": "Coding", "icon": "󰅩",
+      "items": [
+        {"id": "code.editor", "label": "Code", "hint": "Super+Alt+E · opens ~/Projects", "kind": "run", "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-addon open code ~/Projects"},
+        {"id": "code.new", "label": "New project…", "hint": "a folder in ~/Projects, with git", "kind": "term", "cmd": "~/.local/share/prime-linux/layer/addons/coding/bin/prime-coding new"},
+        {"id": "code.projects", "label": "Projects folder", "kind": "run", "cmd": "exec nemo ~/Projects"},
+        {"id": "code.lang", "label": "Add a programming language…", "hint": "Python, JavaScript, Go, Rust, Java", "kind": "term", "cmd": "~/.local/share/prime-linux/layer/addons/coding/bin/prime-coding lang"},
+        {"id": "code.git", "label": "Set up git", "hint": "your name and email", "kind": "term", "cmd": "~/.local/share/prime-linux/layer/addons/coding/bin/prime-coding git"},
+        {"id": "code.github", "label": "Sign in to GitHub", "kind": "term", "cmd": "~/.local/share/prime-linux/layer/addons/coding/bin/prime-coding github"},
+        {"id": "code.docker", "label": "Docker too (advanced)", "hint": "Podman is already set up", "kind": "term", "cmd": "~/.local/share/prime-linux/layer/addons/coding/bin/prime-coding docker"},
+        {"id": "code.zed", "label": "Get Zed", "hint": "a fast, simpler editor", "kind": "run", "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-addon open 'zeditor|zed'"},
+        {"id": "code.check", "label": "Check my coding setup", "kind": "term", "cmd": "~/.local/share/prime-linux/layer/bin/prime-addon check coding"}
+      ]
+    }
+  ]
+}

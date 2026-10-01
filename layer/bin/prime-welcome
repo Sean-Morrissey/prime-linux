@@ -472,7 +472,7 @@ def gui(screenshots=None):
             body.append(sw)
 
             body.append(Gtk.Label(label="Wallpaper", xalign=0, css_classes=["heading"]))
-            wf = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, max_children_per_line=4, min_children_per_line=2,
+            wf = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, max_children_per_line=4, min_children_per_line=4,
                              column_spacing=10, row_spacing=10, homogeneous=True)
             group = None
             for path in wallpapers():
@@ -692,6 +692,8 @@ def gui(screenshots=None):
             body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
             self.scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0, 2, 1)
             self.scale.set_draw_value(False)
+            self.scale.set_margin_start(36)
+            self.scale.set_margin_end(36)
             self.scale.set_round_digits(0)
             for i, (_, title, _) in enumerate(AUTONOMY):
                 self.scale.add_mark(i, Gtk.PositionType.BOTTOM, title)
@@ -722,14 +724,17 @@ def gui(screenshots=None):
             self.done_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
             self.spinner = Adw.Spinner() if hasattr(Adw, "Spinner") else Gtk.Spinner(spinning=True)
             self.done_box.append(self.spinner)
-            return "done", self.page("You're all set", "Setting things up…", self.done_box, icon="emblem-ok-symbolic")
+            self.done_sub = Gtk.Label(label="Setting things up…", xalign=0, wrap=True, css_classes=["step-sub"])
+            self.done_box.append(self.done_sub)
+            return "done", self.page("You're all set", None, self.done_box, icon="prime-linux")
 
         def fill_done(self, rows):
             self.spinner.set_visible(False)
+            self.done_sub.set_text("Here's what Prime set up. You can change any of it later — or just ask Prime.")
             grp = Adw.PreferencesGroup()
             for title, value, ok in rows:
                 r = Adw.ActionRow(title=title, subtitle=value)
-                r.add_prefix(Gtk.Image(icon_name="emblem-ok-symbolic" if ok else "dialog-warning-symbolic",
+                r.add_prefix(Gtk.Image(icon_name="object-select-symbolic" if ok else "dialog-warning-symbolic",
                                        css_classes=["done-row-icon"] if ok else []))
                 grp.add(r)
             self.done_box.append(grp)
@@ -822,13 +827,18 @@ def gui(screenshots=None):
                                ("Gaming pack", "installing in a window (asks for your password)", True)])
             win.update_nav()
 
+            tries = [0]
+
             def snap():
                 w, h = win.get_width(), win.get_height()
                 paintable = Gtk.WidgetPaintable.new(win)
                 snapshot = Gtk.Snapshot()
                 paintable.snapshot(snapshot, w, h)
                 node = snapshot.to_node()
-                print(f"shot {idx} {names[idx]} {w}x{h} node={bool(node)}", file=sys.stderr)
+                if not node and tries[0] < 10:       # this step hasn't been drawn yet
+                    tries[0] += 1
+                    win.queue_draw()
+                    return True
                 if node:
                     tex = win.get_renderer().render_texture(node, None)
                     tex.save_to_png(os.path.join(outdir, f"{idx + 1:02d}-{names[idx]}.png"))

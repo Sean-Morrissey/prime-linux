@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Prime Tutor
+Comment=Learn step by step — a patient study partner
+Exec=@LAYER@/addons/ai/bin/prime-ask --tutor --box
+Icon=prime-linux
+Categories=Education;Utility;
+Keywords=tutor;study;learn;homework;school;teach;

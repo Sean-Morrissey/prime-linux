@@ -44,7 +44,7 @@ echo "== checks"
 docker cp "$REPO/tests/check-install.sh" "$NAME":/tmp/check-install.sh
 docker cp "$REPO/tests/check-uninstall.sh" "$NAME":/tmp/check-uninstall.sh
 rc=0
-"${AS_ALEX[@]}" bash /tmp/check-install.sh || rc=$?
+"${AS_ALEX[@]}" env PRIME_TEST_PLANTED_CONFIG=1 bash /tmp/check-install.sh || rc=$?
 
 echo "== uninstall"
 "${AS_ALEX[@]}" bash /tmp/check-uninstall.sh || rc=$((rc + $?))

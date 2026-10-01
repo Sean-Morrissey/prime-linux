@@ -11,7 +11,7 @@
         {"id": "study.zotero", "label": "Citations", "hint": "Zotero — collect sources, cite in Writer", "kind": "run", "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-addon open 'zotero|org.zotero.Zotero'"},
         {"id": "study.pdfarrange", "label": "Merge or split PDFs", "hint": "PDF Arranger", "kind": "run", "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-addon open pdfarranger"},
         {"id": "study.folder", "label": "Study folder", "kind": "run", "cmd": "exec nemo ~/Study"},
-        {"id": "study.check", "label": "Check my study setup", "kind": "term", "cmd": "~/.local/share/prime-linux/layer/bin/prime-addon check student"}
+        {"id": "study.check", "label": "Check my study setup", "kind": "panel", "cmd": "~/.local/share/prime-linux/layer/bin/prime-addon check student"}
       ]
     }
   ]

@@ -29,7 +29,7 @@ ck "text size: default ladder"                "grep -q 'prime-font-body: *\"Inte
 ck "text size: Larger scales every surface"   "bash $L/bin/prime-theme --set-text larger && grep -q 'prime-font-body: *\"Inter 16.9\"' \$HOME/.config/prime/theme/fonts.rasi && grep -q 'prime_font_clock = 94' \$HOME/.config/prime/theme/hyprlock.conf && grep -q 'prime_titlebar_text = 14' \$HOME/.config/prime/theme/hyprland.conf && grep -q '^TEXT=larger' \$HOME/.config/prime/theme.conf"
 ck "text size: a wrong value changes nothing" "! bash $L/bin/prime-theme --set-text huge && grep -q '^TEXT=larger' \$HOME/.config/prime/theme.conf"
 ck "text size survives an accent change"      "bash $L/bin/prime-theme --set-accent 60a5fa && grep -q '^TEXT=larger' \$HOME/.config/prime/theme.conf && grep -q 60a5fa \$HOME/.config/prime/theme/colors.css"
-ck "health check speaks the window's language" "PRIME_PANEL=1 bash $L/bin/prime-doctor > \$HOME/doc && ! grep -vqE '^@(ok|fix|bad|action|summary) ' \$HOME/doc && grep -q '^@summary ' \$HOME/doc"
+ck "health check speaks the window's language" "PRIME_PANEL=1 bash $L/bin/prime-doctor > \$HOME/doc && ! grep -vqE '^@(ok|fix|bad|note|step|action|summary) ' \$HOME/doc && grep -q '^@summary ' \$HOME/doc"
 ck "health check offers a button, not a command" "PRIME_PANEL=1 bash $L/bin/prime-doctor | grep '^@bad' | grep -vqiE 'run |prime-|systemctl|journalctl' || ! PRIME_PANEL=1 bash $L/bin/prime-doctor | grep -q '^@bad'"
 ck "About lists facts as rows"                "PRIME_PANEL=1 bash $L/bin/prime-about | grep -q '^@row Version	Prime ' && PRIME_PANEL=1 bash $L/bin/prime-about --computer | grep -q '^@row Memory	'"
 ck "add-on list says on/off and where to change it" "bash $L/bin/prime-addon | grep -q 'Prime menu → Settings → Add-ons'"

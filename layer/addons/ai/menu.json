@@ -8,8 +8,8 @@
         {"id": "ai.snip", "label": "Snip the screen and ask", "hint": "Super+Alt+A", "kind": "run", "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-snip area --action 'Ask Prime'"},
         {"id": "ai.last", "label": "Last answer", "kind": "run", "cmd": "exec ~/.local/share/prime-linux/layer/addons/ai/bin/prime-ask --last"},
         {"id": "ai.new", "label": "Start a new conversation", "kind": "run", "cmd": "rm -f ~/.cache/prime/conversation.json ~/.cache/prime/tutor.json && notify-send -a Prime 'New conversation'"},
-        {"id": "ai.undo", "label": "Undo Prime's last change", "kind": "term", "cmd": "~/.local/share/prime-linux/layer/bin/prime-settings undo"},
-        {"id": "ai.log", "label": "What Prime changed", "hint": "every change, in plain words", "kind": "term", "cmd": "~/.local/share/prime-linux/layer/bin/prime-settings log"},
+        {"id": "ai.undo", "label": "Undo Prime's last change", "kind": "panel", "cmd": "~/.local/share/prime-linux/layer/bin/prime-settings undo"},
+        {"id": "ai.log", "label": "What Prime changed", "hint": "every change, in plain words", "kind": "panel", "cmd": "~/.local/share/prime-linux/layer/bin/prime-settings log"},
         {"id": "ai.setup", "label": "Change the model", "hint": "local, network, OpenRouter, OpenAI…", "kind": "run", "cmd": "exec ~/.local/share/prime-linux/layer/addons/ai/bin/prime-ai-setup"}
       ]
     }

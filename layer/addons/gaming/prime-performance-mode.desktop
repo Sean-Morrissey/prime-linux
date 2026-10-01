@@ -1,7 +1,7 @@
 [Desktop Entry]
 Type=Application
 Name=Performance Mode
-Comment=Switch full CPU speed on or off (Super+Alt+P)
+Comment=Switch full processor speed on or off (Super+Alt+P)
 Exec=@LAYER@/addons/gaming/bin/prime-gaming perf toggle
 Icon=preferences-system-power
 Categories=Game;Settings;

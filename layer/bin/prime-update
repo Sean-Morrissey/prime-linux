@@ -150,12 +150,12 @@ if [ "$ONLY_PRIME" = 0 ]; then
   fi
 
   # ── 4. AUR (never unattended) ──────────────────────────────────────────────
-  step "Apps from the AUR"
+  step "Community apps"
   if command -v paru >/dev/null && aur="$(paru -Qua 2>/dev/null)" && [ -n "$aur" ]; then
     printf '%s\n' "$aur" | sed 's/^/      · /'
-    note "These come from the AUR: made by volunteers and not checked by CachyOS."
+    note "These come from the community collection: made by volunteers and not checked by CachyOS."
     if confirm "Update them too?" y; then
-      paru -Sua --skipreview || warn "some AUR apps didn't update — they keep working as they are"
+      paru -Sua --skipreview || warn "some community apps didn't update — they keep working as they are"
     else note "skipped — they keep working as they are"; fi
   else ok "nothing to update"; fi
 
@@ -174,7 +174,7 @@ systemctl --user daemon-reload 2>/dev/null
 "$BIN/prime-addon" --relink >/dev/null 2>&1
 "$BIN/prime-theme" --apply >/dev/null 2>&1
 if [ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]; then
-    "$BIN/prime-titlebars" --rebuild >/dev/null 2>&1 && ok "window title bars rebuilt for this Hyprland" \
+    "$BIN/prime-titlebars" --rebuild >/dev/null 2>&1 && ok "window title bars rebuilt for this version" \
         || warn "window title bars couldn't be rebuilt now (the next login retries)"
 fi
 if [ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]; then

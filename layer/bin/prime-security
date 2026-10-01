@@ -230,7 +230,7 @@ disk_status() {
 
 sig_status() {
   if grep -Eq '^\s*SigLevel\s*=.*(Never|TrustAll)' /etc/pacman.conf 2>/dev/null; then
-    row bad "Package signature checks are switched off in /etc/pacman.conf" "set SigLevel = Required DatabaseOptional"
+    row bad "Checking that updates really come from CachyOS is switched off (package settings file)" "set SigLevel = Required DatabaseOptional"
   else row ok "Every package is checked for a valid signature before it is installed"; fi
 }
 

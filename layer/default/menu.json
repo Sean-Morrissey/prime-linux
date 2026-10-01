@@ -163,7 +163,7 @@
           "id": "set.autonomy",
           "label": "How much Prime may do on its own",
           "hint": "ask every time · small stuff · just do it",
-          "kind": "term",
+          "kind": "panel",
           "cmd": "~/.local/share/prime-linux/layer/bin/prime-settings autonomy"
         }
       ]
@@ -368,13 +368,13 @@
           "id": "upd.undo",
           "label": "Undo last update",
           "hint": "go back to the snapshot taken before it",
-          "kind": "term",
+          "kind": "panel",
           "cmd": "~/.local/share/prime-linux/layer/bin/prime-update --undo"
         },
         {
           "id": "upd.security",
           "label": "Security check",
-          "kind": "term",
+          "kind": "panel",
           "cmd": "~/.local/share/prime-linux/layer/bin/prime-security"
         },
         {

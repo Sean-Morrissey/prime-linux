@@ -68,7 +68,7 @@ if [ $INSTALLED = 0 ]; then
     in_session=0
 fi
 [ $QUIET = 1 ] && sleep 3      # let the session settle before judging it
-need_update=0 need_restore=0
+need_update=0 need_restore=0 need_undo=0 need_addons=0
 
 # 1 — theme files (everything else reads its colours and text sizes from them)
 T="$HOME/.config/prime/theme"
@@ -143,12 +143,14 @@ fi
 tip()  { say tip "$1"; }   # worth knowing, never nags at login
 row()  { # row <ok|warn|bad|info> <text> [fix]  — the TSV rows prime-system-update/prime-security print
     local t="$2${3:+ — $3}"
+    # in the Prime window the fix is a note under the problem (the buttons below do the work)
+    if [ -n "${PRIME_PANEL:-}" ] && [ "$1" = bad ]; then bad "$2"; [ -n "${3:-}" ] && say note "$3"; return; fi
     case "$1" in ok) ok "$2" ;; bad) bad "$t" ;; warn) tip "$t" ;; *) say note "$2" ;; esac
 }
 
 # 8 — the undo button for system updates: snapshots, and the boot menu that lists them
 if findmnt -no OPTIONS / 2>/dev/null | grep -q 'subvol=[^,]*\.snapshots/[0-9]'; then
-    bad "This computer started from a snapshot (the version before an update) — keep it or go back: prime-update --undo"
+    bad "This computer started from a saved state from before an update — Undo an update keeps it or goes back"; need_undo=1
 fi
 while IFS=$'\t' read -r lvl msg fix; do [ -n "$lvl" ] && row "$lvl" "$msg" "$fix"; done < <("$ENGINE" snapshots --tsv 2>/dev/null)
 
@@ -158,20 +160,20 @@ if [ -x "$ENGINE" ] && j="$("$ENGINE" status --json 2>/dev/null)"; then
     st="$(jq -r '.last_run.status // ""' <<<"$j")"
     if ! systemctl is-enabled prime-system-update.timer >/dev/null 2>&1; then
         [ "$pol" = off ] && tip "Automatic updates are off — Prime menu → Update → Update settings" \
-                         || bad "The automatic update service isn't running — run prime-update once to set it up"
-    elif [ "${fails:-0}" -ge 2 ]; then bad "Automatic updates stopped after $fails failed tries — run prime-update to see why"
-    elif [ "$st" = broken ]; then bad "The last update didn't finish — run prime-update (or prime-update --undo)"
+                         || { bad "Automatic updates aren't running — Update everything sets them up"; need_update=1; }
+    elif [ "${fails:-0}" -ge 2 ]; then bad "Automatic updates stopped after $fails failed tries — Update everything shows why"; need_update=1
+    elif [ "$st" = broken ]; then bad "The last update didn't finish — Update everything finishes it (or Undo an update goes back)"; need_update=1; need_undo=1
     else ok "Automatic updates: $pol"; fi
     if [ "${last:-0}" -gt 0 ]; then
         days=$(( ( $(date +%s) - last ) / 86400 ))
-        [ "$days" -ge 21 ] && bad "Last system update was $days days ago — run prime-update" || ok "Last system update: $([ $days = 0 ] && echo today || echo "$days day(s) ago")"
+        [ "$days" -ge 21 ] && { bad "The last system update was $days days ago — Update everything catches up"; need_update=1; } || ok "Last system update: $([ $days = 0 ] && echo today || echo "$days day(s) ago")"
     fi
 else
-    tip "Prime's update service isn't installed — run prime-update once"
+    tip "Automatic updates aren't set up yet — Update everything sets them up"
 fi
 if [ -e /var/lib/pacman/db.lck ] && ! pgrep -x 'pacman|paru|yay|pamac|packagekitd' >/dev/null; then
     [ $(( $(date +%s) - $(stat -c %Y /var/lib/pacman/db.lck) )) -gt 600 ] \
-        && bad "A crashed update left the package lock behind — prime-update removes it safely"
+        && { bad "An update that crashed left a lock behind — Update everything clears it safely"; need_update=1; }
 fi
 pn="$(find /etc -name '*.pacnew' 2>/dev/null | wc -l)"
 [ "$pn" -gt 0 ] && tip "$pn settings file(s) have a newer version from an update (*.pacnew) — not urgent; compare with: sudo DIFFPROG=meld pacdiff"
@@ -191,7 +193,7 @@ if [ $QUIET = 0 ] && [ -x "$BIN/prime-addon" ]; then
     "$BIN/prime-addon" check >>"$LOG" 2>&1; rc=$?
     case $rc in
         0) ok "Add-ons and packs: all fine" ;;
-        1) bad "An add-on or pack has a problem — details: prime-addon check" ;;
+        1) bad "An add-on or pack has a problem — Check the add-ons shows which"; need_addons=1 ;;
         *) : ;;   # an older prime-addon without 'check'
     esac
 fi
@@ -202,6 +204,8 @@ else bad "The login screen doesn't offer Prime yet — Update everything adds it
 
 [ $need_update = 1 ]  && action "Update everything" "$BIN/prime-update"
 [ $need_restore = 1 ] && action "Restore desktop settings" "$BIN/prime-desktop-backup restore"
+[ $need_undo = 1 ]    && action "Undo an update" "$BIN/prime-update --undo"
+[ $need_addons = 1 ]  && action "Check the add-ons" "$BIN/prime-panel --title 'Packs & add-ons' -- $BIN/prime-addon check"
 
 if [ $QUIET = 1 ]; then
     [ ${#left[@]} -gt 0 ] && notify-send -a Prime -u normal -t 15000 "Desktop check — something needs you" \

@@ -89,7 +89,7 @@ enable_multilib() {
     else
         printf '\n[multilib]\nInclude = /etc/pacman.d/mirrorlist\n' | sudo tee -a /etc/pacman.conf >/dev/null
     fi
-    multilib_on || { warn "Couldn't switch multilib on — /etc/pacman.conf looks unusual."; return 1; }
+    multilib_on || { warn "Couldn't switch 32-bit software on — the package settings file looks unusual."; return 1; }
     if [ "$PKG_MODE" = install ]; then
         say "Bringing the system up to date (needed once after this change)…"
         sudo pacman -Syu --noconfirm
@@ -99,7 +99,7 @@ enable_multilib() {
 }
 is_flatpak() { [[ "$1" =~ ^[A-Za-z0-9_-]+\.[A-Za-z0-9_.-]+\.[A-Za-z0-9_-]+$ ]]; }
 flathub_ready() {
-    have flatpak || { warn "Flatpak isn't installed (it comes with Prime: run prime-update)."; return 1; }
+    have flatpak || { warn "The App Store's app format isn't installed (it comes with Prime: Update everything puts it back)."; return 1; }
     flatpak remote-add --user --if-not-exists flathub "$FLATHUB" >/dev/null 2>&1
 }
 record() { local f="$PACK_STATE/$1.installed"; shift; touch "$f"; for x in "$@"; do grep -qx "$x" "$f" || echo "$x" >> "$f"; done; }
@@ -278,6 +278,11 @@ cmd_check() {   # check [name] — exit 1 if anything is broken
         load "$d"; plan
         printf '\n  %s%s %s%s%s\n' "$_B" "${ICON:-}" "$TITLE" "$_R" "$(enabled "$n" || echo '  (off)')"
         while IFS=$'\t' read -r lvl msg; do
+            if [ -n "${PRIME_PANEL:-}" ]; then
+                case "$lvl" in ok) echo "@ok $TITLE: $msg" ;; warn) echo "@note $TITLE: $msg" ;;
+                               bad) echo "@bad $TITLE: $msg"; bad=1 ;; *) echo "$lvl${msg:+ $msg}" ;; esac
+                continue
+            fi
             case "$lvl" in
                 ok)   printf '    %s✓%s %s\n' "$_G" "$_R" "$msg" ;;
                 warn) printf '    %s!%s %s\n' "$_Y" "$_R" "$msg" ;;
@@ -296,7 +301,11 @@ cmd_check() {   # check [name] — exit 1 if anything is broken
             [ -n "$CHECK" ] && hook "$d" "$CHECK"
         )
     done
-    echo; [ $bad = 0 ] && echo "  Everything works. (! lines are suggestions, not problems.)" || echo "  Some things need attention (✗ above)."
+    if [ -n "${PRIME_PANEL:-}" ]; then
+        [ $bad = 0 ] && echo "@summary Everything works. (Notes are suggestions, not problems.)" || echo "@summary Some things need attention (marked “Needs you”)."
+    else
+        echo; [ $bad = 0 ] && echo "  Everything works. (! lines are suggestions, not problems.)" || echo "  Some things need attention (✗ above)."
+    fi
     return $bad
 }
 
@@ -359,7 +368,8 @@ cmd_get() {   # get <package|flatpak-id>…
 }
 
 case "${1:-}" in
-    ""|list)   list_all; echo; echo "  prime-addon enable <name>  ·  disable <name>  ·  info <name>  ·  check" ;;
+    ""|list)   list_all; echo; echo "  Switch them on or off in the Prime menu → Settings → Add-ons"
+               echo "  (or: prime-addon enable <name>  ·  disable <name>  ·  info <name>  ·  check)" ;;
     enable)    cmd_enable "${2:-}" ;;
     disable)   cmd_disable "${2:-}" ;;
     info)      cmd_info "${2:-}" ;;

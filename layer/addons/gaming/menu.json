@@ -9,8 +9,8 @@
         {"id": "game.perf", "label": "Performance mode on/off", "hint": "Super+Alt+P", "kind": "run", "cmd": "exec ~/.local/share/prime-linux/layer/addons/gaming/bin/prime-gaming perf toggle"},
         {"id": "game.hud", "label": "FPS overlay on/off", "hint": "Super+Alt+H · in a game: Right Shift+F12", "kind": "run", "cmd": "exec ~/.local/share/prime-linux/layer/addons/gaming/bin/prime-gaming hud toggle"},
         {"id": "game.proton", "label": "Proton versions", "hint": "add GE-Proton and others", "kind": "run", "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-addon open 'protonup-qt|net.davidotek.pupgui2'"},
-        {"id": "game.tips", "label": "Gaming tips", "hint": "Proton, launch options, controllers", "kind": "term", "cmd": "~/.local/share/prime-linux/layer/addons/gaming/bin/prime-gaming tips"},
-        {"id": "game.check", "label": "Check my gaming setup", "kind": "term", "cmd": "~/.local/share/prime-linux/layer/bin/prime-addon check gaming"}
+        {"id": "game.tips", "label": "Gaming tips", "hint": "Proton, launch options, controllers", "kind": "panel", "cmd": "~/.local/share/prime-linux/layer/addons/gaming/bin/prime-gaming tips"},
+        {"id": "game.check", "label": "Check my gaming setup", "kind": "panel", "cmd": "~/.local/share/prime-linux/layer/bin/prime-addon check gaming"}
       ]
     }
   ]

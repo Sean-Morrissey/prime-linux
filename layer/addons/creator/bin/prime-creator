@@ -95,8 +95,8 @@ extras() {
     else
         nonint && { cut -f1,3 <<<"$EXTRAS"; return 0; }
         echo; say "Which would you like? (numbers, e.g. 1 3)"
-        i=1; while IFS=$'\t' read -r l pkg desc; do printf '      %d) %-15s %s\n' $i "$l" "$desc"; i=$((i+1)); done <<<"$EXTRAS"
-        read -r -p "    > " sel
+        i=1; while IFS=$'\t' read -r l pkg desc; do say "$(printf '%d) %-15s %s' $i "$l" "$desc")"; i=$((i+1)); done <<<"$EXTRAS"
+        sel="$(ask_text "Numbers, e.g. 1 3")" || return 0
         for i in $sel; do pkg="$(sed -n "${i}p" <<<"$EXTRAS" | cut -f2)"; [ -n "$pkg" ] && picks+=($pkg); done
     fi
     [ ${#picks[@]} -gt 0 ] || return 0
@@ -129,7 +129,7 @@ setup() {
         [ "$lvl" = ok ] && [[ "$msg" == *encoding* ]] && { say "$msg"; enc=1; }
     done < <(hw_lines)
     [ $enc = 1 ] || note "Hardware video encoding wasn't confirmed yet — after logging in, check: Prime menu → Creator → Check my creator setup"
-    note "Blender renders on the CPU until you add GPU rendering (Prime menu → Creator)."
+    note "Blender renders on the processor until you add graphics-card rendering (Prime menu → Creator)."
     note "OBS: let its first-run wizard pick your graphics card's encoder."
 }
 

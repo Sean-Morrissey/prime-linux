@@ -25,6 +25,7 @@ import os
 import pwd
 import re
 import subprocess
+import shlex
 import sys
 import threading
 import urllib.request
@@ -239,10 +240,11 @@ def apply_answers(a, log=print, interactive=True):
                            stderr=subprocess.STDOUT, text=True)
         rows.append((f"{p.title()} pack", "on" if r.returncode == 0 else "couldn't switch it on", r.returncode == 0))
     if loud and interactive:
-        script = "; ".join(f"{os.path.join(BIN, 'prime-addon')} enable {p}" for p in loud)
-        subprocess.Popen(["kitty", "--class", "prime-float", "--title", "Installing your apps", "-e", "bash", "-c",
-                          "echo 'Prime is installing what you picked. It needs your password once.'; echo; "
-                          + script + "; printf '\\n\\e[2mDone — press any key to close\\e[0m'; read -rsn1"],
+        # one Prime window installs them in turn; the password is asked in a Prime box
+        script = "; ".join(f"{shlex.quote(os.path.join(BIN, 'prime-addon'))} enable {shlex.quote(p)}" for p in loud)
+        subprocess.Popen([os.path.join(BIN, "prime-panel"), "--title", "Installing your apps",
+                          "--subtitle", "Prime is installing what you picked. It asks for your password once.",
+                          "--", "bash", "-c", script],
                          start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         for p in loud:
             rows.append((f"{p.title()} pack", "installing in a window (asks for your password)", True))
@@ -294,8 +296,8 @@ def gui(screenshots=None):
     from gi.repository import Adw, Gdk, GdkPixbuf, Gio, GLib, Gtk
 
     CSS = """
-    window.prime-welcome { font-size: 15px; }
-    window.prime-welcome.large { font-size: 18px; }
+    window.prime-welcome { font-size: 1.1rem; }
+    window.prime-welcome.large { font-size: 1.35rem; }
     .welcome-title { font-size: 2em; font-weight: 800; }
     .step-title { font-size: 1.6em; font-weight: 700; }
     .step-sub { font-size: 1.05em; opacity: 0.8; }

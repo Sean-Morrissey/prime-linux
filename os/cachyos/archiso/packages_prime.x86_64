@@ -136,3 +136,33 @@ satty
 uwsm
 wl-clip-persist
 xdg-utils
+
+# --- added with the integrated layer (parity, updates & safety, packs) -------------
+# everything os/arch/packages.txt lists, so a fresh install needs no download for Prime
+arch-audit
+btrfs-assistant
+celluloid
+cups
+cups-filters
+file-roller
+gnome-calculator
+gnome-keyring
+gpu-screen-recorder
+gtk4
+gvfs-mtp
+gvfs-smb
+hyprpicker
+hyprsunset
+libadwaita
+libsecret
+loupe
+nm-connection-editor
+papers
+rofimoji
+swayosd
+system-config-printer
+udisks2
+ufw
+upower
+wf-recorder
+wtype

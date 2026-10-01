@@ -2,7 +2,7 @@
 Type=Application
 Name=New Project
 Comment=Start a coding project in ~/Projects and open it in Code
-Exec=@LAYER@/bin/prime-float @LAYER@/addons/coding/bin/prime-coding new
+Exec=@LAYER@/bin/prime-panel --title "New project" -- @LAYER@/addons/coding/bin/prime-coding new
 Icon=folder-development
 Categories=Development;
 Keywords=code;project;git;repository;programming;

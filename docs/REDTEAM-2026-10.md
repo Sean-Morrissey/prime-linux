@@ -31,6 +31,8 @@ commit on this branch **and** a test that fails without it.
 | G3 | **P1** | Gates | None of the installer tests ran in CI: `tests/check-*.sh`, the container install and the VM test were run by hand only | **Fixed**: `.github/workflows/desktop-layer.yml` |
 | G4 | **P1** | Gates | `tests/vm/run.sh all` stopped after a first ISO download (pipefail on an empty `grep -v`); OVMF and ImageMagick paths only matched Arch | **Fixed** |
 | J2 | **P1** | Jobs | The VM test installed with its own commands, not the README's; it never opened the Start menu, Spotlight, Prime menu or greeting | **Fixed**: `tests/vm/desktop-checks.sh` |
+| J4 | **P1** | Jobs | No "Prime" entry on the login screen until the first update, so the first-login health check flagged a problem on every fresh install | **Fixed** + container install/uninstall checks |
+| J5 | P2 | Jobs | `prime-uninstall`, `prime-update`… gave "command not found" in a Prime terminal on bash (`~/.local/bin` not on PATH) | **Fixed** + `tests/check-greeting.sh` |
 | G5 | P2 | Gates | `integrate/prime-layer`'s `install.sh` lacks main's three installer fixes (GPU by vendor id, `hardware.conf` kept, backup pointer) | Fixed in the main merge (step 4), not here |
 | G6 | P2 | Gates | Add-on packs pick GPU drivers by name (`amd\|ati \|radeon`, `intel`), not PCI vendor id | Deferred: no real device string found that it gets wrong |
 | L4 | P2 | Linus | `boot.sh` is `curl \| bash` from a moving branch, no signature or pin | Deferred: HTTPS from GitHub only; pinning to a tag needs releases (docs/RELEASE.md) |
@@ -160,6 +162,19 @@ its manifest (uninstall restores from the oldest backup that holds each file).
   menu from the P logo's command, Spotlight, the Prime menu, the greeting and a kitty
   window, checks each is on screen, and screenshots them.
 
+### J4 · P1 · The first login opened with a "something needs you" notification
+- **Where:** `install.sh` never installed `layer/system/wayland-sessions/prime.desktop`;
+  only `prime-update` did. `prime-doctor --login` checks for it and reports *bad*.
+- **Scenario:** every fresh install. The friend picks "Hyprland" (the only Prime-ish
+  entry), logs in, and is told the login screen doesn't offer Prime yet.
+- **Fix:** step 6 installs the session (recorded in the manifest; `prime-uninstall`
+  removes it), the closing message says to pick **Prime**, and the VM test logs into
+  that session through SDDM.
+
+### J5 · P2 · Prime's commands weren't on PATH in its own terminal
+- **Where:** commands are linked into `~/.local/bin`; Arch's bash login doesn't add it.
+- **Fix:** `prime-terminal-shell` adds it before starting your shell.
+
 ### Checked, no change
 - The install flow is one command, asks for the password once, resumes after an
   interruption, and `--dry-run` writes nothing (the VM test checks the last one).
@@ -181,5 +196,15 @@ prime-security                                                         # the rep
 
 ## Test results
 
-See the pull request for this branch: the `desktop layer` workflow runs every suite
-above, and the `bluebuild` workflow runs the supervisor tests and the image build.
+From GitHub Actions on this branch (this sandbox can't reach the Arch mirrors):
+
+| Suite | Result |
+|---|---|
+| Desktop layer tests (syntax, static suite with GTK self-tests, menus, greeting, import, add-ons, SSH, updater/security, portability, private-repo update) | pass |
+| Clean install in a fresh Arch container, then `prime-uninstall` | pass, every check |
+| Real boot: newest CachyOS ISO → minimal install → README commands → reboot into the Prime session → bar, Start menu, Spotlight, Prime menu, greeting, kitty, title bars, health check → `prime-uninstall` | pass |
+| Supervisor policy tests and the image build (`bluebuild`) | pass |
+
+The VM runs without a GPU (GitHub's runners have none), so it renders in software and
+hyprpaper, which needs a GPU render node, can't start there; that one check is
+reported as not checked. Real PCs and VMs with virgl have a render node.

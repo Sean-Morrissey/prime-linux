@@ -10,12 +10,12 @@
     }
   ],
   "fallback": {
-    "label": "Bar element",
+    "label": "This item",
     "state": ""
   },
   "elements": {
     "bar.logo": {
-      "label": "Launcher",
+      "label": "Prime menu",
       "state": "printf '%s on %s · workspace %s' \"$XDG_CURRENT_DESKTOP\" \"$(uname -r)\" \"$(hyprctl -j activeworkspace 2>/dev/null | jq -r .name)\"",
       "ask": "The logo element in my bar is my app launcher. My session: {state}. What should I know about this setup?",
       "items": [
@@ -24,8 +24,8 @@
           "cmd": "~/.local/share/prime-linux/layer/bin/prime-spotlight"
         },
         {
-          "label": "󰆍  Open a terminal",
-          "cmd": "kitty"
+          "label": "󰍜  Open the Prime menu",
+          "cmd": "~/.local/share/prime-linux/layer/bin/prime-menu"
         },
         {
           "label": "󰒓  Open the power menu",
@@ -61,7 +61,7 @@
       ]
     },
     "bar.tray": {
-      "label": "System tray",
+      "label": "Tray icons",
       "state": "busctl --user list 2>/dev/null | awk '/StatusNotifierItem/ {print $1}' | sed 's/org.kde.//' | head -8 | paste -sd', ' - | cut -c1-140",
       "ask": "These apps are registered in my tray: {state}. Anything here I should clean up?",
       "items": [
@@ -83,12 +83,12 @@
       ]
     },
     "bar.audio": {
-      "label": "Volume",
+      "label": "Sound",
       "state": "~/.local/share/prime-linux/layer/bin/prime-audio-pill 2>/dev/null | jq -r '.tooltip // .text' 2>/dev/null || echo 'unknown'",
       "ask": "My audio state: {state}. Is the output device and level sensible?",
       "items": [
         {
-          "label": "󰕾  Open the mixer",
+          "label": "󰕾  Sound settings",
           "cmd": "pavucontrol"
         },
         {
@@ -111,15 +111,15 @@
       "ask": "My network state: {state}. Is the connection healthy, and what is my IP?",
       "items": [
         {
-          "label": "󰈀  Open network settings",
-          "cmd": "nm-connection-editor"
+          "label": "󰈀  Wi-Fi & networks",
+          "cmd": "~/.local/share/prime-linux/layer/bin/prime-wifi"
         },
         {
-          "label": "󰤨  Toggle Wi-Fi radio",
+          "label": "󰤨  Turn Wi-Fi on or off",
           "cmd": "nmcli radio wifi toggle"
         },
         {
-          "label": "󰆏  Copy my IP address",
+          "label": "󰆏  Copy this computer's network address",
           "cmd": "ip -brief addr show | awk '/^[a-z]/ && $1!=\"lo\" && $2==\"UP\" {print $1, $3}' | wl-copy"
         }
       ]
@@ -130,26 +130,26 @@
       "ask": "My bluetooth state: {state}. Anything wrong, or anything I should pair?",
       "items": [
         {
-          "label": "󰂯  Open blueman",
+          "label": "󰂯  Bluetooth settings",
           "cmd": "blueman-manager"
         },
         {
-          "label": "󰂲  Toggle the adapter",
+          "label": "󰂲  Turn Bluetooth on or off",
           "cmd": "bluetoothctl power off 2>/dev/null || bluetoothctl power on"
         }
       ]
     },
     "bar.cpu": {
-      "label": "CPU",
+      "label": "Processor",
       "state": "printf 'load %s · top: ' \"$(cut -d' ' -f1-3 /proc/loadavg)\"; ps -eo pcpu,comm --sort=-pcpu 2>/dev/null | tail -n +2 | head -3 | awk '{printf \"%s %s%%; \", $2, $1}'",
       "ask": "My CPU element shows {state}. What is eating it, and should I care?",
       "items": [
         {
-          "label": "󰻠  Open btop",
-          "cmd": "~/.local/share/prime-linux/layer/bin/prime-float btop"
+          "label": "󰻠  Open Activity",
+          "cmd": "~/.local/share/prime-linux/layer/bin/prime-activity"
         },
         {
-          "label": "󰈈  Top processes — ask the assistant",
+          "label": "󰈈  What's keeping it busy — ask Prime",
           "cmd": "__ask_state__"
         }
       ]
@@ -160,38 +160,42 @@
       "ask": "My memory element shows {state}. Is anything leaking or overloaded?",
       "items": [
         {
-          "label": "󰍛  Open btop",
-          "cmd": "~/.local/share/prime-linux/layer/bin/prime-float btop"
+          "label": "󰍛  Open Activity",
+          "cmd": "~/.local/share/prime-linux/layer/bin/prime-activity"
         },
         {
-          "label": "󰈈  Memory hogs — ask the assistant",
+          "label": "󰈈  What's using memory — ask Prime",
           "cmd": "__ask_state__"
         }
       ]
     },
     "bar.gpu": {
-      "label": "GPU",
+      "label": "Graphics",
       "state": "printf 'busy %s%% · %s°C · vram %s GiB' \"$(cat /sys/class/drm/card1/device/gpu_busy_percent 2>/dev/null)\" \"$(awk '{printf \"%.0f\", $1/1000}' /sys/class/drm/card1/device/hwmon/hwmon1/temp1_input 2>/dev/null)\" \"$(awk '{printf \"%.1f\", $1/1073741824}' /sys/class/drm/card1/device/mem_info_vram_used 2>/dev/null)\"",
       "ask": "My GPU element shows {state}. Is that healthy for an RX 9060 XT, and is anything using it that shouldn't be?",
       "items": [
         {
-          "label": "󰢮  Open btop",
-          "cmd": "~/.local/share/prime-linux/layer/bin/prime-float btop"
+          "label": "󰢮  Open Activity",
+          "cmd": "~/.local/share/prime-linux/layer/bin/prime-activity"
         },
         {
-          "label": "󰈈  GPU detail — ask the assistant",
+          "label": "󰈈  Graphics in detail — ask Prime",
           "cmd": "__ask_state__"
         }
       ]
     },
     "bar.updates": {
-      "label": "System updates",
+      "label": "Updates",
       "state": "jq -r '(.tooltip // .text) | split(\"\\n\")[0]' \"${XDG_RUNTIME_DIR:-/run/user/1000}/waybar-updates.json\" 2>/dev/null || echo 'not counted yet'",
       "ask": "My update counter says: {state}. What should I do about it, and is a CachyOS update risky right now?",
       "items": [
         {
           "label": "󰚰  Update everything",
-          "cmd": "~/.local/share/prime-linux/layer/bin/prime-float ~/.local/share/prime-linux/layer/bin/prime-update"
+          "cmd": "~/.local/share/prime-linux/layer/bin/prime-update"
+        },
+        {
+          "label": "󰋚  See what's waiting",
+          "cmd": "~/.local/share/prime-linux/layer/bin/prime-updates-count --list"
         },
         {
           "label": "󰏗  App Store",
@@ -209,7 +213,7 @@
       "ask": "My wallpaper element shows {state}. What should I know about how my wallpapers are set?",
       "items": [
         {
-          "label": "󰸉  Theme — wallpaper + accent",
+          "label": "󰸉  Theme — wallpaper, accent, text size",
           "cmd": "~/.local/share/prime-linux/layer/bin/prime-theme"
         }
       ]
@@ -224,7 +228,7 @@
           "cmd": "swaync-client -t -sw"
         },
         {
-          "label": "󰂛  Toggle do-not-disturb",
+          "label": "󰂛  Do not disturb — on or off",
           "cmd": "swaync-client -d -sw"
         },
         {

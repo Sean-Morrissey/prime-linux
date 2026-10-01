@@ -7,12 +7,18 @@
 # window borders, lock screen, terminal, GTK/libadwaita apps. Esc on either
 # step keeps what you already have.
 #
-#   prime-theme                     pick wallpaper, then accent
+# Text size is the third setting, and the ONLY font size in Prime: the system
+# font (GTK: bar, notifications, Spotlight and apps are all sized in rem) and
+# the generated rofi / lock screen / title bar / terminal sizes derive from it.
+#
+#   prime-theme                     pick wallpaper, then accent, then text size
 #   prime-theme --wallpaper         wallpaper only
 #   prime-theme --accent            accent only
+#   prime-theme --text              text size only
 #   prime-theme --set-wall <file>   set a wallpaper without asking
 #   prime-theme --set-accent <hex>  set an accent without asking (e.g. 60a5fa)
-#   prime-theme --apply             regenerate the colour files (installer, update)
+#   prime-theme --set-text <size>   small | default | large | larger
+#   prime-theme --apply             regenerate the theme files (installer, update)
 #
 # Wallpapers come from Prime Linux's own set and from ~/Pictures/Wallpapers —
 # drop images there and they show up in the picker.
@@ -23,11 +29,19 @@ STATE="$HOME/.config/prime/theme.conf"
 OUT="$HOME/.config/prime/theme"
 WALLDIRS=("$LAYER/wallpapers" "$HOME/Pictures/Wallpapers")
 
-WALL="$LAYER/wallpapers/prime-emblem.jpg"; ACCENT="f87171"
+WALL="$LAYER/wallpapers/prime-emblem.jpg"; ACCENT="f87171"; TEXT="default"
 [ -f "$STATE" ] && . "$STATE"
 [ -f "$WALL" ] || WALL="$(ls "$LAYER"/wallpapers/*.jpg 2>/dev/null | head -1)"
 
-save()   { mkdir -p "$(dirname "$STATE")"; printf 'WALL=%q\nACCENT=%s\n' "$WALL" "$ACCENT" > "$STATE"; }
+# text size → the base point size; every other size is a multiple of it
+TEXT_NAMES=(small default large larger)
+TEXT_LABELS=("Small" "Default" "Large" "Larger")
+base_pt() { case "$1" in small) echo 9;; large) echo 11.5;; larger) echo 13;; *) echo 10;; esac; }
+# size <tenths of the base> → points, one decimal ("size 13" is 1.3× the base)
+size()  { awk -v b="$(base_pt "$TEXT")" -v k="$1" 'BEGIN { s = sprintf("%.1f", b * k / 10); sub(/\.0$/, "", s); print s }'; }
+isize() { awk -v b="$(base_pt "$TEXT")" -v k="$1" 'BEGIN { printf "%d", b * k / 10 + 0.5 }'; }
+
+save()   { mkdir -p "$(dirname "$STATE")"; printf 'WALL=%q\nACCENT=%s\nTEXT=%s\n' "$WALL" "$ACCENT" "$TEXT" > "$STATE"; }
 notify() { notify-send -a Prime -t 4000 ${2:+-i "$2"} "Theme" "$1" >/dev/null 2>&1 || true; }
 # only touch the running desktop when this is the real session's own home —
 # never from a test or a second HOME (that once swapped a live wallpaper)
@@ -52,15 +66,35 @@ EOF
     border-focus: rgba($r, $g, $b, 0.50);
 }
 EOF
+  # every rofi font, as a step on the one text-size ladder (menus, pickers)
+  cat > "$OUT/fonts.rasi" <<EOF
+/* written by prime-theme from the text size ($TEXT) — change it in Theme → Text size */
+* {
+    prime-font-s:        "Inter $(size 11)";
+    prime-font-m:        "Inter Medium $(size 12)";
+    prime-font-body:     "Inter $(size 13)";
+    prime-font-body-m:   "Inter Medium $(size 13)";
+    prime-font-l:        "Inter $(size 14)";
+    prime-font-l-bold:   "Inter Bold $(size 14)";
+    prime-font-xl:       "Inter $(size 15)";
+    prime-font-xl-bold:  "Inter Bold $(size 15)";
+    prime-font-mono-s:   "JetBrainsMono Nerd Font $(size 10)";
+}
+EOF
   cat > "$OUT/hyprland.conf" <<EOF
 # written by prime-theme
 \$accent = rgb($a)
 \$accent_border = rgba(${a}66)
+\$prime_titlebar_text = $(isize 11)
 EOF
   cat > "$OUT/hyprlock.conf" <<EOF
 # written by prime-theme
 \$wallpaper = $WALL
 \$accent = rgb($r, $g, $b)
+\$prime_font_clock = $(isize 72)
+\$prime_font_date = $(isize 22)
+\$prime_font_name = $(isize 15)
+\$prime_font_hint = $(isize 12)
 EOF
   cat > "$OUT/hyprpaper.conf" <<EOF
 # written by prime-theme
@@ -76,6 +110,7 @@ url_color            #$a
 active_tab_background #$a
 active_tab_foreground #0a0a0e
 active_border_color  #$a
+font_size            $(size 12)
 EOF
   # the emblem in the accent colour: bar logo, lock screen, notifications, app icon
   sed "s/#f87171/#$a/g" "$LAYER/branding/mark.svg" > "$OUT/mark.svg"
@@ -90,8 +125,12 @@ EOF
 EOF
   [ -f "$HOME/.config/swaync/user.css" ] && echo "@import url(\"file://$HOME/.config/swaync/user.css\");" >> "$OUT/swaync.css"
 
+  # the system font: GTK apps, the bar, notifications and Spotlight all size from it
+  { live || [ -z "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]; } && [ -z "${PRIME_NO_GSETTINGS:-}" ] &&
+    gsettings set org.gnome.desktop.interface font-name "Inter $(size 10)" 2>/dev/null
+
   # GTK 4 / libadwaita apps take one of nine named accents: the nearest hue
-  live || [ -z "${HYPRLAND_INSTANCE_SIGNATURE:-}" ] && [ -z "${PRIME_NO_GSETTINGS:-}" ] && gsettings set org.gnome.desktop.interface accent-color "$(python3 - "$a" <<'PY'
+  { live || [ -z "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]; } && [ -z "${PRIME_NO_GSETTINGS:-}" ] && gsettings set org.gnome.desktop.interface accent-color "$(python3 - "$a" <<'PY'
 import colorsys, sys
 h = sys.argv[1]
 r, g, b = (int(h[i:i + 2], 16) / 255 for i in (0, 2, 4))
@@ -127,6 +166,9 @@ apply_wall() {
 
 set_wall()   { [ -f "$1" ] || { echo "no such file: $1" >&2; return 1; }
                WALL="$(readlink -f "$1")"; save; generate; apply_wall; }
+set_text()   { local t="${1,,}" n
+               for n in "${TEXT_NAMES[@]}"; do [ "$n" = "$t" ] && { TEXT="$t"; save; generate; reload_live; return 0; }; done
+               echo "not a text size: $1 (small, default, large or larger)" >&2; return 1; }
 set_accent() { local n="${1#\#}"; n="${n,,}"
                [[ "$n" =~ ^[0-9a-f]{6}$ ]] || { echo "not a colour: $1 (use 6 hex digits)" >&2; return 1; }
                ACCENT="$n"; save; generate; reload_live; }
@@ -175,7 +217,7 @@ pick_accent() {
     rows+="<span color='#${hexes[$i]}'>●</span>  ${names[$i]}$([ "${hexes[$i]}" = "$ACCENT" ] && echo '   (current)')"$'\n'
   done
   rows+="<span color='#888888'>●</span>  Match the wallpaper"
-  choice="$(printf '%s\n' "$rows" | ROFI_HINT="the colour used across the bar, menus, borders, terminal  ·  Esc keeps it" \
+  choice="$(printf '%s\n' "$rows" | ROFI_HINT="the colour used across the bar, menus, windows and lock screen  ·  Esc keeps it" \
     "$BIN/prime-rofi" -dmenu -i -markup-rows -no-custom -p "󰏘 Accent" -theme spotlight)" || return 0
   choice="$(printf '%s' "$choice" | sed 's/<[^>]*>//g; s/^[● ]*//; s/ *(current)$//')"
   if [ "$choice" = "Match the wallpaper" ]; then
@@ -186,12 +228,26 @@ pick_accent() {
   for i in "${!names[@]}"; do [ "${names[$i]}" = "$choice" ] && set_accent "${hexes[$i]}"; done
 }
 
+pick_text() {
+  local rows="" i choice
+  for i in "${!TEXT_NAMES[@]}"; do
+    rows+="${TEXT_LABELS[$i]}$([ "${TEXT_NAMES[$i]}" = "$TEXT" ] && echo '   (current)')"$'\n'
+  done
+  choice="$(printf '%s' "$rows" | ROFI_HINT="one size for the whole desktop: bar, menus, notifications, lock screen, apps  ·  Esc keeps it" \
+    "$BIN/prime-rofi" -dmenu -i -no-custom -p "󰛖 Text size" -theme spotlight)" || return 0
+  choice="${choice%%   (current)}"
+  for i in "${!TEXT_LABELS[@]}"; do [ "${TEXT_LABELS[$i]}" = "$choice" ] && set_text "${TEXT_NAMES[$i]}"; done
+  return 0
+}
+
 case "${1:-}" in
   --apply)      save; generate ;;
+  --set-text)   set_text "${2:?size}" ;;
+  --text)       pick_text ;;
   --set-wall)   set_wall "${2:?file}" ;;
   --set-accent) set_accent "${2:?hex}" ;;
   --wallpaper)  pick_wall ;;
   --accent)     pick_accent ;;
-  "")           pick_wall; pick_accent; notify "Theme applied" "$WALL" ;;
-  *)            sed -n '2,18p' "$0"; exit 2 ;;
+  "")           pick_wall; pick_accent; pick_text; notify "Theme applied" "$WALL" ;;
+  *)            sed -n '2,24p' "$0"; exit 2 ;;
 esac

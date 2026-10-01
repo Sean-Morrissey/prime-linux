@@ -195,8 +195,10 @@ def main() -> int:
     if action == "transport":
         return transport_line()
     if action == "button":
-        glyph = {"prev": "\U000f04ae", "next": "\U000f04ad"}.get(sys.argv[2] if len(sys.argv) > 2 else "", "")
-        emit(glyph if pick_player() else "", "button", "")
+        which = sys.argv[2] if len(sys.argv) > 2 else ""
+        glyph = {"prev": "\U000f04ae", "next": "\U000f04ad"}.get(which, "")
+        name = {"prev": "Previous track", "next": "Next track"}.get(which, "")
+        emit(glyph if pick_player() else "", "button", name)   # the tooltip names the button
         return 0
     return do_action(action)
 

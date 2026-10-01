@@ -1,7 +1,7 @@
 [Desktop Entry]
 Type=Application
 Name=Theme
-Comment=Wallpaper and accent colour for the whole desktop
+Comment=Wallpaper, accent colour and text size for the whole desktop
 Exec=@LAYER@/bin/prime-theme
 Icon=preferences-desktop-theme
 Categories=Settings;DesktopSettings;

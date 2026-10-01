@@ -1,0 +1,597 @@
+#!/usr/bin/python3
+"""Prime Panel — the window Prime's own tasks run in. No terminal, ever.
+
+The health check, updates, About, add-ons and the update list all run here: a
+Prime-branded window shows what the task is doing, line by line, in words.
+A task talks to the panel with a tiny line protocol on its standard output:
+
+    @ok <text>              something checked out          (row: "OK")
+    @fix <text>             something was repaired          (row: "Fixed")
+    @bad <text>             something needs the person      (row: "Needs you")
+    @step <text>            a stage started                 (row: "Step")
+    @note <text>            plain information               (row: "Note")
+    @row <label>\t<value>   a two-column fact (About, update lists)
+    @action <label>\t<cmd>  a button that runs <cmd> when pressed
+    @text <text>            a line of prose (answers, explanations)
+    @summary <text>         the closing sentence (replaces "Done")
+
+Every other line is raw detail: kept under "Details", never shown as a row.
+State is always a word ("OK", "Needs you", "Done"), never colour alone.
+
+When a task needs the password (sudo), the panel asks in its own dialog: it
+sets SUDO_ASKPASS to prime-askpass, which calls `prime-panel --askpass`.
+
+  prime-panel --title T [--subtitle S] -- <command…>   run a task in the window
+  prime-panel --askpass [prompt]                       ask for the password (sudo)
+  prime-panel --selftest                               protocol + window, headless
+  prime-panel --screenshot F --title T -- <command…>   render the finished window to a PNG
+"""
+from __future__ import annotations
+
+import argparse
+import os
+import re
+import subprocess
+import sys
+import threading
+import time
+
+# Importing GTK runs gtk_init on sys.argv, which deletes the first "--" — the very
+# separator between the panel's options and the task's command. Keep the real one.
+ARGV = list(sys.argv)
+
+import gi  # noqa: E402
+
+gi.require_version("Gtk", "3.0")
+gi.require_version("Gdk", "3.0")
+from gi.repository import Gdk, GLib, Gtk, Pango  # noqa: E402
+
+GLib.set_prgname("prime-panel")          # the window's app id: Hyprland floats and centres it
+
+HOME = os.path.expanduser("~")
+BIN = os.path.dirname(os.path.realpath(__file__))
+LAYER = os.path.realpath(os.path.join(BIN, ".."))
+ANSI = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07]*\x07|\r")
+
+# kind → (the word shown, the symbol beside it). The word is what carries state.
+BADGES = {
+    "ok":   ("OK", "✓"),
+    "fix":  ("Fixed", "↻"),
+    "bad":  ("Needs you", "!"),
+    "step": ("Step", "›"),
+    "note": ("Note", "·"),
+}
+
+
+def theme_accent() -> str:
+    try:
+        for line in open(os.path.join(HOME, ".config/prime/theme.conf")):
+            if line.startswith("ACCENT="):
+                v = line.split("=", 1)[1].strip().strip("'\"").lstrip("#")
+                if re.fullmatch(r"[0-9a-fA-F]{6}", v):
+                    return "#" + v.lower()
+    except OSError:
+        pass
+    return "#f87171"
+
+
+def mark_path() -> str:
+    for p in (os.path.join(HOME, ".config/prime/theme/mark.svg"), os.path.join(LAYER, "branding/mark.svg")):
+        if os.path.exists(p):
+            return p
+    return ""
+
+
+# Every size is rem: it follows the system font, which Theme → Text size sets.
+CSS = """
+window, .background { background: transparent; }
+#card {
+    background-color: rgba(22, 22, 28, 0.96);
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    border-radius: 18px;
+    font-family: "Inter", "Noto Sans", sans-serif;
+    color: #f4f4f6;
+}
+#header { padding: 18px 22px 14px 22px; }
+#title { font-size: 1.35rem; font-weight: 700; }
+#subtitle { font-size: 0.9rem; color: rgba(255, 255, 255, 0.55); }
+#divider { background-color: rgba(255, 255, 255, 0.07); min-height: 1px; }
+#rows { background: transparent; padding: 6px 0; }
+#rows row { padding: 6px 22px; border-radius: 0; background: transparent; outline: none; }
+#rows row:focus { background-color: alpha(@ACCENT@, 0.14); }
+.badge {
+    font-size: 0.75rem; font-weight: 700; border-radius: 6px; padding: 2px 8px;
+    min-width: 5.6rem; background-color: rgba(255, 255, 255, 0.08); color: rgba(255, 255, 255, 0.80);
+}
+#rows label.badge { color: rgba(255, 255, 255, 0.80); }
+#rows label.badge.ok   { background-color: rgba(52, 211, 153, 0.16); color: #6ee7b7; }
+#rows label.badge.fix  { background-color: rgba(96, 165, 250, 0.16); color: #93c5fd; }
+#rows label.badge.bad  { background-color: rgba(251, 191, 36, 0.18); color: #fcd34d; }
+#rows label.badge.step { background-color: alpha(@ACCENT@, 0.18); color: @ACCENT@; }
+#rows label, #details label, expander arrow { color: #f4f4f6; }
+.rowtext { font-size: 1rem; }
+.prose { font-size: 1.05rem; }
+#rows label.rowlabel { font-size: 0.95rem; color: rgba(255, 255, 255, 0.60); min-width: 9rem; }
+.rowvalue { font-size: 1rem; }
+#details { padding: 0 22px 6px 22px; }
+#details textview, #details text {
+    background-color: rgba(0, 0, 0, 0.35); color: rgba(255, 255, 255, 0.70);
+    font-family: "JetBrainsMono Nerd Font", monospace; font-size: 0.8rem;
+}
+#footer { padding: 12px 22px 16px 22px; border-top: 1px solid rgba(255, 255, 255, 0.06); }
+#status { font-size: 0.95rem; color: rgba(255, 255, 255, 0.75); }
+button {
+    font-size: 0.95rem; font-weight: 600; border-radius: 10px; padding: 6px 16px;
+    background-image: none; background-color: rgba(255, 255, 255, 0.08);
+    color: #f4f4f6; border: 1px solid rgba(255, 255, 255, 0.10); box-shadow: none; text-shadow: none;
+}
+button:hover { background-color: rgba(255, 255, 255, 0.14); }
+button:focus { border-color: @ACCENT@; }
+button.suggested { background-color: @ACCENT@; color: #0a0a0e; border-color: @ACCENT@; }
+button:disabled { opacity: 0.5; }
+#capslock { font-size: 0.9rem; font-weight: 600; color: #fcd34d; }
+entry {
+    font-size: 1.05rem; border-radius: 10px; padding: 6px 10px; color: #f4f4f6;
+    background-color: rgba(0, 0, 0, 0.35); border: 1px solid rgba(255, 255, 255, 0.12);
+}
+entry:focus { border-color: @ACCENT@; }
+"""
+
+
+def install_css():
+    settings = Gtk.Settings.get_default()
+    if settings is not None:                  # Prime's windows are dark glass, whatever the app theme
+        settings.set_property("gtk-application-prefer-dark-theme", True)
+    style = Gtk.CssProvider()
+    style.load_from_data(CSS.replace("@ACCENT@", theme_accent()).encode())
+    Gtk.StyleContext.add_provider_for_screen(
+        Gdk.Screen.get_default(), style, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+
+
+def parse(line: str):
+    """One line of task output → (kind, payload). kind is a BADGES key, "row",
+    "action", "summary", or "raw" (detail only)."""
+    line = ANSI.sub("", line.rstrip("\n"))
+    m = re.match(r"^@text(?: (.*))?$", line)
+    if m:
+        return "text", m.group(1) or ""
+    m = re.match(r"^@(ok|fix|bad|step|note|summary)\s+(.*)$", line)
+    if m:
+        return m.group(1), m.group(2).strip()
+    m = re.match(r"^@(row|action)\s+([^\t]+)\t(.*)$", line)
+    if m:
+        return m.group(1), (m.group(2).strip(), m.group(3).strip())
+    return "raw", line
+
+
+def labelled(widget, name: str):
+    """Give a widget the accessible name a screen reader announces."""
+    acc = widget.get_accessible()
+    if acc is not None:
+        acc.set_name(name)
+    return widget
+
+
+def card_window(title: str) -> tuple:
+    win = Gtk.Window(type=Gtk.WindowType.TOPLEVEL)
+    win.set_title(title)
+    win.set_decorated(False)
+    win.set_app_paintable(True)
+    screen = win.get_screen()
+    if screen is not None and screen.get_rgba_visual() is not None:
+        win.set_visual(screen.get_rgba_visual())
+    card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+    card.set_name("card")
+    win.add(card)
+    return win, card
+
+
+def header(card, title: str, subtitle: str):
+    head = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=14)
+    head.set_name("header")
+    mp = mark_path()
+    if mp:
+        try:
+            from gi.repository import GdkPixbuf
+            img = Gtk.Image.new_from_pixbuf(GdkPixbuf.Pixbuf.new_from_file_at_size(mp, 40, 40))
+            labelled(img, "Prime")
+            head.pack_start(img, False, False, 0)
+        except GLib.Error:
+            pass
+    text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+    text.set_valign(Gtk.Align.CENTER)
+    t = Gtk.Label(label=title, xalign=0.0)
+    t.set_name("title")
+    text.pack_start(t, False, False, 0)
+    sub = Gtk.Label(label=subtitle, xalign=0.0)
+    sub.set_name("subtitle")
+    sub.set_line_wrap(True)
+    sub.set_no_show_all(not subtitle)
+    text.pack_start(sub, False, False, 0)
+    head.pack_start(text, True, True, 0)
+    card.pack_start(head, False, False, 0)
+    div = Gtk.Box()
+    div.set_name("divider")
+    card.pack_start(div, False, False, 0)
+    return sub
+
+
+class Panel:
+    WIDTH, HEIGHT = 720, 520
+
+    def __init__(self, title: str, subtitle: str, cmd: list, offscreen: bool = False):
+        self.cmd, self.proc, self.running = cmd, None, False
+        self.offscreen = offscreen
+        self.win, card = card_window(f"{title} — Prime")
+        self.win.set_default_size(self.WIDTH, self.HEIGHT)
+        self.win.connect("delete-event", self.on_delete)
+        self.win.connect("key-press-event", self.on_key)
+        self.subtitle = header(card, title, subtitle)
+
+        scroll = Gtk.ScrolledWindow()
+        scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        self.rows = Gtk.ListBox()
+        self.rows.set_name("rows")
+        self.rows.set_selection_mode(Gtk.SelectionMode.NONE)
+        labelled(self.rows, f"{title}: results")
+        scroll.add(self.rows)
+        card.pack_start(scroll, True, True, 0)
+        self.scroll = scroll
+
+        self.details = Gtk.Expander(label="Details")
+        self.details.set_name("details")
+        labelled(self.details, "Details: the full output")
+        dscroll = Gtk.ScrolledWindow()
+        dscroll.set_min_content_height(140)
+        self.buffer = Gtk.TextBuffer()
+        view = Gtk.TextView(buffer=self.buffer)
+        view.set_editable(False)
+        view.set_cursor_visible(False)
+        view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+        labelled(view, "Full output")
+        dscroll.add(view)
+        self.details.add(dscroll)
+        self.details.set_no_show_all(True)       # shown once there is raw output to see
+        card.pack_start(self.details, False, False, 0)
+
+        foot = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        foot.set_name("footer")
+        self.spinner = Gtk.Spinner()
+        labelled(self.spinner, "Working")
+        foot.pack_start(self.spinner, False, False, 0)
+        self.status = Gtk.Label(label="Starting…", xalign=0.0)
+        self.status.set_name("status")
+        self.status.set_line_wrap(True)
+        self.status.set_max_width_chars(60)
+        foot.pack_start(self.status, True, True, 0)
+        self.actions = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        foot.pack_start(self.actions, False, False, 0)
+        self.close = Gtk.Button(label="Close")
+        labelled(self.close, "Close this window")
+        self.close.get_style_context().add_class("suggested")
+        self.close.connect("clicked", lambda *_: self.quit())
+        foot.pack_end(self.close, False, False, 0)
+        card.pack_end(foot, False, False, 0)
+        self.summary = ""
+        self.counts = {"bad": 0, "fix": 0, "ok": 0}
+
+    # ── rows ──────────────────────────────────────────────────────────────────
+    def add_row(self, kind: str, payload):
+        row = Gtk.ListBoxRow()
+        row.set_can_focus(True)
+        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        if kind == "text":
+            t = Gtk.Label(label=payload, xalign=0.0)
+            t.get_style_context().add_class("prose")
+            t.set_line_wrap(True)
+            t.set_selectable(True)
+            box.pack_start(t, True, True, 0)
+            labelled(row, payload or "blank line")
+        elif kind == "row":
+            label, value = payload
+            a = Gtk.Label(label=label, xalign=0.0)
+            a.get_style_context().add_class("rowlabel")
+            b = Gtk.Label(label=value, xalign=0.0)
+            b.get_style_context().add_class("rowvalue")
+            b.set_line_wrap(True)
+            b.set_selectable(True)
+            box.pack_start(a, False, False, 0)
+            box.pack_start(b, True, True, 0)
+            labelled(row, f"{label}: {value}")
+        else:
+            word, sym = BADGES[kind]
+            badge = Gtk.Label(label=f"{sym}  {word}")
+            badge.get_style_context().add_class("badge")
+            badge.get_style_context().add_class(kind)
+            badge.set_valign(Gtk.Align.START)
+            text = Gtk.Label(label=payload, xalign=0.0)
+            text.get_style_context().add_class("rowtext")
+            text.set_line_wrap(True)
+            box.pack_start(badge, False, False, 0)
+            box.pack_start(text, True, True, 0)
+            labelled(row, f"{word}: {payload}")
+            if kind in self.counts:
+                self.counts[kind] += 1
+        row.add(box)
+        row.show_all()
+        self.rows.add(row)
+        adj = self.scroll.get_vadjustment()
+        GLib.idle_add(lambda: adj.set_value(adj.get_upper()) and False)
+
+    def add_action(self, label: str, cmd: str):
+        btn = Gtk.Button(label=label)
+        labelled(btn, label)
+        btn.connect("clicked", lambda *_: detached(["bash", "-c", cmd]))
+        btn.show()
+        self.actions.pack_start(btn, False, False, 0)
+
+    def feed(self, line: str):
+        kind, payload = parse(line)
+        end = self.buffer.get_end_iter()
+        self.buffer.insert(end, ANSI.sub("", line.rstrip("\n")) + "\n")
+        if kind == "raw":
+            if payload.strip():
+                self.status.set_text(payload.strip()[:120])
+                if not self.details.get_visible():
+                    self.details.show()
+                    self.details.get_child().show_all()
+            return
+        if kind == "summary":
+            self.summary = payload
+        elif kind == "action":
+            self.add_action(*payload)
+        else:
+            self.add_row(kind, payload)
+            if kind == "step":
+                self.status.set_text(payload)
+
+    # ── the task ──────────────────────────────────────────────────────────────
+    def start(self):
+        env = dict(os.environ, PRIME_PANEL="1", SUDO_ASKPASS=os.path.join(BIN, "prime-askpass"),
+                   TERM="dumb", NO_COLOR="1", PACMAN_COLOR="never")
+        try:
+            self.proc = subprocess.Popen(self.cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                         stdin=subprocess.DEVNULL, env=env, text=True, bufsize=1,
+                                         errors="replace", start_new_session=True)
+        except OSError as e:
+            self.feed(f"@bad Couldn't start this task: {e.strerror}")
+            self.finish(127)
+            return
+        self.running = True
+        self.close.set_sensitive(False)
+        self.close.set_label("Working…")
+        self.spinner.start()
+        self.status.set_text("Working…")
+        threading.Thread(target=self._pump, daemon=True).start()
+
+    def _pump(self):
+        for line in self.proc.stdout:
+            GLib.idle_add(self.feed, line)
+        code = self.proc.wait()
+        GLib.idle_add(self.finish, code)
+
+    def finish(self, code: int):
+        self.running = False
+        self.spinner.stop()
+        self.spinner.hide()
+        self.close.set_sensitive(True)
+        self.close.set_label("Close")
+        if self.summary:
+            text = self.summary
+        elif code == 0 and self.counts["bad"] == 0:
+            text = "Done — everything finished."
+        elif self.counts["bad"]:
+            n = self.counts["bad"]
+            text = f"Done — {n} thing{'s' if n != 1 else ''} need{'' if n != 1 else 's'} you (marked “Needs you”)."
+        else:
+            text = "Stopped — it didn't finish. Details below show what happened."
+            self.details.show()
+            self.details.get_child().show_all()
+            self.details.set_expanded(True)
+        self.status.set_text(text)
+        labelled(self.status, text)
+        if not self.offscreen:
+            self.close.grab_focus()
+        return False
+
+    def on_delete(self, *_a) -> bool:
+        if self.running:
+            self.status.set_text("Still working — this window can close when it has finished.")
+            return True
+        Gtk.main_quit()
+        return False
+
+    def on_key(self, _w, event) -> bool:
+        if event.keyval == Gdk.KEY_Escape:
+            self.quit()
+            return True
+        return False
+
+    def quit(self):
+        if self.running:
+            self.status.set_text("Still working — this window can close when it has finished.")
+            return
+        Gtk.main_quit()
+
+
+def detached(cmd: list):
+    subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                     stderr=subprocess.DEVNULL, start_new_session=True)
+
+
+# ── the password dialog (sudo calls this through prime-askpass) ───────────────
+
+def askpass(prompt: str) -> int:
+    if not Gtk.init_check(sys.argv)[0]:
+        return 1
+    install_css()
+    reason = os.environ.get("PRIME_ASKPASS_REASON", "").strip() or \
+        "Prime needs your password to make a change to the system."
+    win, card = card_window("Password — Prime")
+    win.set_default_size(460, -1)
+    win.set_keep_above(True)
+    header(card, "Your password, please", reason)
+    body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+    body.set_name("header")
+    entry = Gtk.Entry()
+    entry.set_visibility(False)
+    entry.set_input_purpose(Gtk.InputPurpose.PASSWORD)
+    entry.set_placeholder_text("Password")
+    labelled(entry, "Password")
+    body.pack_start(entry, False, False, 0)
+    caps = Gtk.Label(label="", xalign=0.0)
+    caps.set_name("capslock")
+    body.pack_start(caps, False, False, 0)
+    card.pack_start(body, False, False, 0)
+    foot = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+    foot.set_name("footer")
+    cancel = Gtk.Button(label="Cancel")
+    ok = Gtk.Button(label="Continue")
+    ok.get_style_context().add_class("suggested")
+    foot.pack_end(ok, False, False, 0)
+    foot.pack_end(cancel, False, False, 0)
+    card.pack_end(foot, False, False, 0)
+    result = {"code": 1}
+
+    def done(code):
+        result["code"] = code
+        Gtk.main_quit()
+
+    def submit(*_a):
+        sys.stdout.write(entry.get_text() + "\n")
+        sys.stdout.flush()
+        done(0)
+
+    keymap = Gdk.Keymap.get_for_display(Gdk.Display.get_default())
+
+    def sync_caps(*_a):
+        caps.set_text("Caps Lock is on" if keymap.get_caps_lock_state() else "")
+    keymap.connect("state-changed", sync_caps)
+    sync_caps()
+    entry.connect("activate", submit)
+    ok.connect("clicked", submit)
+    cancel.connect("clicked", lambda *_: done(1))
+    win.connect("delete-event", lambda *_: done(1) or True)
+    win.connect("key-press-event", lambda _w, e: (done(1) or True) if e.keyval == Gdk.KEY_Escape else False)
+    win.set_position(Gtk.WindowPosition.CENTER)
+    win.show_all()
+    entry.grab_focus()
+    Gtk.main()
+    return result["code"]
+
+
+# ── headless verification ──────────────────────────────────────────────────────
+
+def render(panel: Panel, path: str):
+    off = Gtk.OffscreenWindow()
+    screen = off.get_screen()
+    if screen.get_rgba_visual() is not None:
+        off.set_visual(screen.get_rgba_visual())
+    card = panel.win.get_child()
+    panel.win.remove(card)
+    card.set_size_request(Panel.WIDTH, Panel.HEIGHT)
+    off.add(card)
+    off.show_all()
+    panel.spinner.set_visible(panel.running)
+    for _ in range(40):
+        while Gtk.events_pending():
+            Gtk.main_iteration_do(False)
+        time.sleep(0.01)
+    off.get_pixbuf().savev(path, "png", [], [])
+    print(path)
+
+
+def screenshot(path: str, title: str, subtitle: str, cmd: list) -> int:
+    if not Gtk.init_check(sys.argv)[0]:
+        print("no display", file=sys.stderr)
+        return 1
+    install_css()
+    panel = Panel(title, subtitle, cmd, offscreen=True)
+    panel.start()
+    deadline = time.monotonic() + 120
+    while panel.running and time.monotonic() < deadline:
+        while Gtk.events_pending():
+            Gtk.main_iteration_do(False)
+        time.sleep(0.02)
+    render(panel, path)
+    return 0
+
+
+def selftest() -> int:
+    fails = 0
+
+    def check(name, ok, detail=""):
+        nonlocal fails
+        print(f"  {'PASS' if ok else 'FAIL'}  {name}{(' — ' + detail) if detail and not ok else ''}")
+        fails += 0 if ok else 1
+
+    check("ok line", parse("@ok Fonts installed\n") == ("ok", "Fonts installed"))
+    check("bad line", parse("@bad The bar won't start") == ("bad", "The bar won't start"))
+    r = subprocess.run([sys.executable, os.path.realpath(__file__), "--title", "t", "--", "true", "--flag"],
+                       capture_output=True, text=True, env=dict(os.environ, DISPLAY="", WAYLAND_DISPLAY=""))
+    check("a command after -- runs, flags and all", r.returncode == 0 and "unrecognized" not in r.stderr, r.stderr.strip())
+    check("text line", parse("@text Hello there") == ("text", "Hello there") and parse("@text") == ("text", ""))
+    check("row line", parse("@row Version\t2026.10") == ("row", ("Version", "2026.10")))
+    check("action line", parse("@action Update now\tprime-update") == ("action", ("Update now", "prime-update")))
+    check("colour codes stripped", parse("\x1b[32m✓\x1b[0m hello") == ("raw", "✓ hello"))
+    check("plain output is detail", parse("downloading foo...")[0] == "raw")
+    check("every badge has a word", all(w and w.isprintable() for w, _ in BADGES.values()))
+    check("stylesheet has no pixel font sizes", not re.search(r"font-size:\s*[0-9.]+px", CSS))
+    if Gtk.init_check(sys.argv)[0]:
+        install_css()
+        p = Panel("Self-test", "", ["bash", "-c", "echo '@ok one'; echo '@bad two'; echo raw; exit 0"], offscreen=True)
+        p.start()
+        t = time.monotonic() + 10
+        while p.running and time.monotonic() < t:
+            while Gtk.events_pending():
+                Gtk.main_iteration_do(False)
+            time.sleep(0.01)
+        check("task runs and finishes", not p.running)
+        check("rows counted", p.counts["ok"] == 1 and p.counts["bad"] == 1, str(p.counts))
+        check("status says it in words", "need" in p.status.get_text(), p.status.get_text())
+        names = [r.get_accessible().get_name() for r in p.rows.get_children()]
+        check("every row has an accessible name", all(names) and names[0] == "OK: one", str(names))
+        check("close button is named", bool(p.close.get_accessible().get_name()))
+    else:
+        print("  SKIP  window build — no display here (the logic above is what runs)")
+    print(f"\n{fails} failure(s)")
+    return 1 if fails else 0
+
+
+def main() -> int:
+    argv = ARGV[1:]
+    cmd = []
+    if "--" in argv:
+        i = argv.index("--")
+        argv, cmd = argv[:i], argv[i + 1:]
+    ap = argparse.ArgumentParser(prog="prime-panel", description="Run a Prime task in a window.")
+    ap.add_argument("--title", default="Prime")
+    ap.add_argument("--subtitle", default="")
+    ap.add_argument("--askpass", nargs="?", const="", default=None)
+    ap.add_argument("--selftest", action="store_true")
+    ap.add_argument("--screenshot", metavar="PNG")
+    a = ap.parse_args(argv)
+    if a.askpass is not None:
+        return askpass(a.askpass)
+    if a.selftest:
+        return selftest()
+    if not cmd:
+        ap.print_help()
+        return 2
+    if a.screenshot:
+        return screenshot(a.screenshot, a.title, a.subtitle, cmd)
+    if not Gtk.init_check(sys.argv)[0]:
+        # no display: run the task plainly so nothing is lost (and it can't re-open us)
+        return subprocess.call(cmd, env=dict(os.environ, PRIME_NO_PANEL="1"))
+    install_css()
+    panel = Panel(a.title, a.subtitle, cmd)
+    panel.win.set_position(Gtk.WindowPosition.CENTER)
+    panel.win.show_all()
+    panel.spinner.show()
+    panel.start()
+    Gtk.main()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

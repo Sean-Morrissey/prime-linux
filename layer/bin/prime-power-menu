@@ -19,11 +19,11 @@ confirm() {  # confirm "restart" → 0 if the user picked Yes
 
 choice=$(pick "󰐥 power" \
     "↑↓ move  ·  Enter pick  ·  Esc cancel  ·  nothing happens until you confirm" \
-    "Lock Screen" "Suspend" "Shut Down" "Restart" "Log Out" "Cancel") || exit 0
+    "Lock Screen" "Sleep" "Shut Down" "Restart" "Log Out" "Cancel") || exit 0
 
 case "$choice" in
     "Lock Screen") loginctl lock-session ;;
-    "Suspend")     systemctl suspend ;;
+    "Sleep")       systemctl suspend ;;
     "Shut Down")   confirm "shut down" && systemctl poweroff ;;
     "Restart")     confirm "restart"   && systemctl reboot ;;
     "Log Out")     confirm "log out"   && hyprctl dispatch exit ;;

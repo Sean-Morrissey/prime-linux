@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Wi-Fi
+Comment=Join a network, or turn Wi-Fi on or off
+Exec=@LAYER@/bin/prime-wifi
+Icon=network-wireless
+Categories=Settings;Network;
+Keywords=wifi;wireless;internet;network;password;

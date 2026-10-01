@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# prime-snapshots — the saved states of the system (taken before every update),
+# shown in a Prime window. To go back to one, restart and pick the earlier state
+# in the start-up menu; Prime keeps the one from before the last change there.
+set -u
+BIN="$(dirname "$(readlink -f "$0")")"
+if [ -z "${PRIME_PANEL:-}${PRIME_NO_PANEL:-}" ] && [ ! -t 1 ] && [ -n "${WAYLAND_DISPLAY:-}${DISPLAY:-}" ]; then
+    exec "$BIN/prime-panel" --title "Undo an update" \
+        --subtitle "Saved states of the system. To go back: restart, and pick the earlier state in the start-up menu." -- "$0"
+fi
+if ! command -v snapper >/dev/null; then
+    echo "@bad This computer doesn't keep saved states (its disk doesn't support snapshots)"
+    exit 0
+fi
+SUDO=(sudo); [ -n "${PRIME_PANEL:-}" ] && { SUDO=(sudo -A); export PRIME_ASKPASS_REASON="Prime needs your password to read the saved states of the system."; }
+json="$("${SUDO[@]}" snapper --jsonout list 2>/dev/null)" || { echo "@bad Couldn't read the saved states (the password was cancelled?)"; exit 0; }
+rows="$(jq -r '[.[] | .[]? | select(.number != 0)] | sort_by(.number) | reverse | .[:15][]
+          | [.date, (if .type == "pre" then "Before an update"
+                     elif .type == "post" then "After an update"
+                     else (.description // "Saved by hand") end)] | @tsv' <<<"$json" 2>/dev/null)"
+if [ -z "$rows" ]; then echo "@note No saved states yet — one is taken before the next update"; exit 0; fi
+while IFS=$'\t' read -r when what; do
+    printf '@row %s\t%s\n' "$(date -d "$when" '+%a %-d %b, %H:%M' 2>/dev/null || echo "$when")" "$what"
+done <<<"$rows"
+echo "@summary To go back: restart, and pick the earlier state in the start-up menu."

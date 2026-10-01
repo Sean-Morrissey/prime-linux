@@ -2,6 +2,7 @@
 # prime-addon — optional extras for Prime Linux.
 #
 #   prime-addon                 list add-ons and whether they're on
+#   prime-addon --choose        pick one to switch on or off (Prime menu → Add-ons)
 #   prime-addon enable <name>   install what it needs, set it up, switch it on
 #   prime-addon disable <name>  switch it off (its packages and settings stay)
 #   prime-addon --relink        rebuild ~/.config/hypr/addons.conf (prime-update)
@@ -14,6 +15,13 @@ LAYER="$(readlink -f "$(dirname "$(readlink -f "$0")")/..")"
 LIST="$HOME/.config/prime/addons"
 mkdir -p "$(dirname "$LIST")"; [ -f "$LIST" ] || echo "# enabled add-ons, one per line — manage with: prime-addon" > "$LIST"
 enabled() { grep -qx "$1" "$LIST"; }
+# in a Prime window: "@kind text" lines, and the password asked for in a Prime box
+if [ -n "${PRIME_PANEL:-}" ]; then
+    say() { echo "@$1 $2"; }; SUDO=(sudo -A)
+    export PRIME_ASKPASS_REASON="Prime needs your password to install what this add-on uses."
+else
+    say() { echo "$2"; }; SUDO=(sudo)
+fi
 
 relink() {
     { echo "# Written by prime-addon — the enabled add-ons' window-manager settings."
@@ -34,21 +42,40 @@ case "${1:-}" in
             n="$(basename "$d")"; DESCRIPTION=""; . "$d/addon.conf"
             printf '  %-6s %-10s %s\n' "$(enabled "$n" && echo '[on]' || echo '[off]')" "$n" "$DESCRIPTION"
         done
-        echo; echo "  prime-addon enable <name>  ·  prime-addon disable <name>" ;;
+        echo; echo "  Switch them on or off in the Prime menu → Settings → Add-ons" ;;
     enable)
         n="${2:?which add-on? (prime-addon list)}"; d="$LAYER/addons/$n"
-        [ -f "$d/addon.conf" ] || { echo "no add-on called '$n'"; exit 1; }
+        [ -f "$d/addon.conf" ] || { say bad "There's no add-on called '$n'"; exit 1; }
         PACKAGES=""; SETUP=""; . "$d/addon.conf"
-        if [ -n "$PACKAGES" ]; then sudo pacman -S --needed --noconfirm $PACKAGES || exit 1; fi
-        if [ -n "$SETUP" ]; then "$d/$SETUP" || { echo "setup didn't finish — '$n' left off"; exit 1; }; fi
+        if [ -n "$PACKAGES" ]; then
+            say step "Installing what it needs"
+            "${SUDO[@]}" pacman -S --needed --noconfirm $PACKAGES || { say bad "Couldn't install what it needs — it stays off"; exit 1; }
+        fi
+        if [ -n "$SETUP" ]; then
+            say step "Setting it up"
+            "$d/$SETUP" || { say bad "Setup didn't finish — it stays off"; exit 1; }
+        fi
         enabled "$n" || echo "$n" >> "$LIST"
         for f in "$d"/*.desktop; do [ -f "$f" ] && sed "s|@LAYER@|$LAYER|g" "$f" > "$HOME/.local/share/applications/$(basename "$f")"; done
-        reload; echo "'$n' is on." ;;
+        reload; say ok "${DESCRIPTION%% — *} is on" ;;
     disable)
-        n="${2:?which add-on?}"
+        n="${2:?which add-on?}"; DESCRIPTION="$n"
+        [ -f "$LAYER/addons/$n/addon.conf" ] && . "$LAYER/addons/$n/addon.conf"
         sed -i "/^$n\$/d" "$LIST"
         for f in "$LAYER/addons/$n"/*.desktop; do [ -f "$f" ] && rm -f "$HOME/.local/share/applications/$(basename "$f")"; done
-        reload; echo "'$n' is off." ;;
+        reload; say ok "${DESCRIPTION%% — *} is off — its settings are kept for next time" ;;
+    --choose)
+        rows=""; names=()
+        for d in "$LAYER"/addons/*/; do
+            n="$(basename "$d")"; DESCRIPTION="$n"; . "$d/addon.conf"
+            names+=("$n")
+            rows+="$(enabled "$n" && echo "On  ·" || echo "Off ·")  ${DESCRIPTION}"$'\n'
+        done
+        pick="$(printf '%s' "$rows" | ROFI_HINT="Enter switches it on or off  ·  Esc closes" \
+                "$LAYER/bin/prime-rofi" -dmenu -i -no-custom -format i -p "󰐱 Add-ons" -theme spotlight)" || exit 0
+        n="${names[$pick]:-}"; [ -n "$n" ] || exit 0
+        if enabled "$n"; then verb=disable; title="Switching an add-on off"; else verb=enable; title="Switching an add-on on"; fi
+        exec "$LAYER/bin/prime-panel" --title "$title" -- "$0" "$verb" "$n" ;;
     --relink) relink ;;
     *) sed -n '2,12p' "$0"; exit 2 ;;
 esac

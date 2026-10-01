@@ -23,7 +23,7 @@
     border: none;
     border-radius: 0;
     font-family: "Inter", "SF Pro Text", "Helvetica Neue", "JetBrainsMono Nerd Font", sans-serif;
-    font-size: 12px;
+    font-size: 0.9rem;
     font-weight: 500;
     min-height: 0;
     transition: background 160ms ease, color 160ms ease, opacity 160ms ease;
@@ -59,14 +59,14 @@ tooltip {
 tooltip label {
     color: @fg;
     padding: 8px 12px;
-    font-size: 11px;
+    font-size: 0.825rem;
     font-weight: 500;
     letter-spacing: 0.2px;
 }
 
 /* ─── Logo (opens the Prime menu) ──────────────────────────────────────────── */
 #image.logo {
-    font-size: 15px;
+    font-size: 1.125rem;
     color: @accent;
     padding: 0 10px 0 6px;
     margin: 2px 0;
@@ -88,7 +88,7 @@ tooltip label {
     margin: 2px 1px;
     color: @fg_faint;
     border-radius: 8px;
-    font-size: 9px;
+    font-size: 0.675rem;
     letter-spacing: 1px;
     min-width: 0;
     background: transparent;
@@ -99,7 +99,7 @@ tooltip label {
 }
 #workspaces button.active {
     color: @accent;
-    font-size: 11px;
+    font-size: 0.825rem;
     text-shadow: 0 0 8px alpha(@accent, 0.5);
 }
 #workspaces button.occupied { color: @fg_dim; }
@@ -155,7 +155,7 @@ tooltip label {
 /* ─── Clock ─────────────────────────────────────────────────── */
 #clock {
     font-family: "Inter", "SF Pro Display", sans-serif;
-    font-size: 13px;
+    font-size: 0.975rem;
     font-weight: 600;
     color: @fg;
     padding: 2px 16px;
@@ -212,7 +212,7 @@ tooltip label {
 /* ─── Mpris ─────────────────────────────────────────────────── */
 #mpris {
     color: @fg_dim;
-    font-size: 11px;
+    font-size: 0.825rem;
     font-weight: 400;
     padding: 2px 12px;
     letter-spacing: 0.1px;
@@ -239,7 +239,7 @@ tooltip label {
 /* ─── System Stats — mono numerals (audio % joins the strip) ── */
 #custom-audio, #cpu, #memory, #custom-gpu {
     font-family: "JetBrainsMono Nerd Font", "Geist Mono", "SF Mono", monospace;
-    font-size: 11px;
+    font-size: 0.825rem;
     font-weight: 600;
     letter-spacing: 0.4px;
     color: @fg_dim;
@@ -249,15 +249,15 @@ tooltip label {
 
 /* ─── Wallpaper ─────────────────────────────────────────────── */
 #custom-wallpaper {
-    font-size: 13px;
+    font-size: 0.975rem;
 }
 
 /* ─── Notification ──────────────────────────────────────────── */
-#custom-notification { font-size: 13px; }
+#custom-notification { font-size: 0.975rem; }
 
 /* ─── Power ─────────────────────────────────────────────────── */
 #custom-power {
-    font-size: 13px;
+    font-size: 0.975rem;
     color: @fg_faint;
     padding: 2px 10px 2px 8px;
 }
@@ -284,7 +284,7 @@ tooltip label {
 #custom-mediaPlay,
 #custom-mediaNext {
     padding: 0 7px;
-    font-size: 12px;
+    font-size: 0.9rem;
 }
 #custom-mediaPrev {
     margin-left: 12px;
@@ -297,7 +297,7 @@ tooltip label {
     padding: 0 12px 0 11px;
     border-radius: 0 8px 8px 0;
     box-shadow: inset 1px 0 0 0 @hairline;   /* divider: transport | title */
-    font-size: 11px;
+    font-size: 0.825rem;
     font-weight: 500;
     letter-spacing: 0.1px;
 }

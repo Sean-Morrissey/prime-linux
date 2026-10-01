@@ -24,13 +24,26 @@ bad()  { [ $QUIET = 1 ] || printf '\e[31m✗\e[0m %s\n' "$1"; echo "bad  $1" >>"
 
 in_session=0
 [ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ] && hyprctl version >/dev/null 2>&1 && in_session=1
+
+# Repairs only ever happen for an account that runs THIS copy of Prime Linux.
+# Run from a checkout, or on a machine/account without Prime installed, the
+# doctor only reports — it must never write to someone else's desktop.
+INSTALLED=0
+[ "$(readlink -f "$BIN/..")" = "$(readlink -f "$HOME/.local/share/prime-linux/layer" 2>/dev/null)" ] && INSTALLED=1
+[ -n "${PRIME_DOCTOR_FORCE:-}" ] && INSTALLED=1
+if [ $INSTALLED = 0 ]; then
+    [ $QUIET = 1 ] || printf '\e[2m(Prime Linux isn'"'"'t installed for this account from here — checking only, changing nothing)\e[0m\n'
+    in_session=0
+fi
 [ $QUIET = 1 ] && sleep 3      # let the session settle before judging it
 
 # 1 — theme files (everything else reads its colours from them)
 if [ -f "$HOME/.config/prime/theme/colors.css" ] && [ -f "$HOME/.config/prime/theme/hyprland.conf" ]; then
     ok "Theme files present"
-else
+elif [ $INSTALLED = 1 ]; then
     "$BIN/prime-theme" --apply && fixd "Theme files were missing — regenerated"
+else
+    bad "Theme files missing"
 fi
 
 # 2 — fonts the bar and menus are drawn with
@@ -122,7 +135,7 @@ pn="$(find /etc -name '*.pacnew' 2>/dev/null | wc -l)"
 [ "$pn" -gt 0 ] && tip "$pn settings file(s) have a newer version from an update (*.pacnew) — not urgent; compare with: sudo DIFFPROG=meld pacdiff"
 
 # 10 — safety: only real problems (firewall off, SSH open to everyone…); suggestions stay in prime-security
-if [ $QUIET = 1 ]; then
+if [ $QUIET = 1 ] && [ $INSTALLED = 1 ]; then
     "$BIN/prime-security" fix-permissions >/dev/null 2>&1          # private files stay private
     "$BIN/prime-updates-settings" --login-summary >/dev/null 2>&1  # what updated while you were away
 fi

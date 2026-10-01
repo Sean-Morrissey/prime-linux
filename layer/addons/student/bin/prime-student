@@ -53,8 +53,9 @@ focus() {
     esac
 }
 
-# ── the tutor: the AI add-on's prime-ask with a study framing ─────────────────
-TUTOR_PROMPT="You are a patient study tutor. Help me understand rather than handing me the answer: explain the idea step by step in plain words, use a small example, point out the usual mistake, and finish with one short question that checks I understood. If I'm doing graded work, guide me to the answer instead of writing it for me."
+# ── the tutor: the AI add-on's tutor mode (prime-ask --tutor) ─────────────────
+# One tutor for the whole system: the persona, rules (no graded work) and its own
+# conversation live in the AI add-on (addons/ai/personas/tutor.md).
 tutor() {
     local q="${*:-}"
     if ! grep -qx ai "$HOME/.config/prime/addons" 2>/dev/null || ! [ -x "$AI_ASK" ]; then
@@ -62,14 +63,8 @@ tutor() {
         [ -t 1 ] && echo "The tutor needs the AI add-on: prime-addon enable ai"
         return 1
     fi
-    if [ -z "$q" ] && [ -n "${WAYLAND_DISPLAY:-}" ] && have rofi; then
-        q="$(ROFI_HINT="Ask a study question — the tutor explains it step by step  ·  Esc cancels" \
-             "$LAYER/bin/prime-rofi" -dmenu -p "󰑴 Tutor" -theme spotlight < /dev/null)" || return 0
-    fi
-    [ -n "$q" ] || { exec "$AI_ASK" --box; }
-    exec "$AI_ASK" "$TUTOR_PROMPT
-
-My question: $q" --new
+    if [ -n "$q" ]; then exec "$AI_ASK" --tutor "$q"; fi
+    exec "$AI_ASK" --tutor --box
 }
 
 # ── setup ────────────────────────────────────────────────────────────────────

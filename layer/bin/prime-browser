@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Super+B — whatever browser the user chose as default (Settings → Default apps,
+# or `xdg-settings set default-web-browser firefox.desktop`).
+d="$(xdg-settings get default-web-browser 2>/dev/null)"
+[ -n "$d" ] && exec gtk-launch "$d" "$@"
+for b in firefox chromium google-chrome-stable brave zen-browser; do
+    command -v "$b" >/dev/null && exec "$b" "$@"
+done
+notify-send -a Prime "No browser installed" "Open the App Store (Super+Alt+Space → Settings) to get one."

@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Run by the pacman hook before every package change: each user who has
+# Prime Linux gets their desktop settings saved, as themselves (not root).
+for d in /home/*/.local/share/prime-linux/layer/bin/prime-desktop-backup; do
+    [ -x "$d" ] || continue
+    u="$(stat -c %U "$d")"
+    runuser -u "$u" -- "$d" save before-update >/dev/null 2>&1 || true
+done
+exit 0

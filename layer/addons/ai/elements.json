@@ -1,0 +1,51 @@
+{
+  "_comment": "Prime AI add-on: the Ask rows added to every right-click menu (handled by bin/prime-ask).",
+  "generic_items": [
+    {
+      "id": "ask",
+      "label": "󰚩  Ask Prime about this",
+      "kind": "ask"
+    },
+    {
+      "id": "ask_area",
+      "label": "󰄄  Ask Prime about this area",
+      "kind": "ask_area"
+    },
+    {
+      "id": "ask_explain",
+      "label": "󰋼  What does this do?",
+      "kind": "ask_explain"
+    },
+    {
+      "id": "ask_custom",
+      "label": "󰭹  Ask my own question…",
+      "kind": "ask_custom"
+    }
+  ],
+  "utility_items": [
+    {
+      "id": "last",
+      "label": "󰑭  Show Prime's last reply",
+      "kind": "last"
+    }
+  ],
+  "fallback": {
+    "ask": "This is a waybar element on my desktop. I right-clicked it. What does it normally show, and is anything about it worth acting on?"
+  },
+  "elements": {
+    "bar.ask": {
+      "label": "Ask Prime",
+      "state": "sed -n 's/^MODEL=//p' ~/.config/prime/ai.conf",
+      "items": [
+        {
+          "label": "󰚩  Ask Prime anything…",
+          "cmd": "~/.local/share/prime-linux/layer/addons/ai/bin/prime-ask --box"
+        },
+        {
+          "label": "󰒓  Change the model",
+          "cmd": "~/.local/share/prime-linux/layer/bin/prime-float ~/.local/share/prime-linux/layer/addons/ai/bin/prime-ai-setup"
+        }
+      ]
+    }
+  }
+}

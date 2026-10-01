@@ -1,0 +1,142 @@
+/*
+ * Prime Linux notification centre — frosted glass. @accent comes from the
+ * theme switcher; prime-theme writes the wrapper that imports both.
+ */
+
+* {
+    font-family: "Inter", "JetBrainsMono Nerd Font", sans-serif;
+    font-weight: 500;
+}
+
+.control-center {
+    background: rgba(10, 10, 14, 0.85);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 16px;
+    margin: 10px 12px;
+    padding: 12px;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+}
+
+.control-center-list {
+    background: transparent;
+}
+
+.notification {
+    background: rgba(30, 30, 38, 0.75);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 14px;
+    margin: 6px 0;
+    padding: 12px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+
+.notification:hover {
+    background: rgba(40, 40, 50, 0.85);
+    border-color: alpha(@accent, 0.40);
+}
+
+.notification-content {
+    color: #e4e4e7;
+    font-size: 13px;
+}
+
+.notification-summary {
+    color: @accent;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.notification-time {
+    color: #8e8e93;
+    font-size: 11px;
+}
+
+/* Control Center Widgets */
+.widget-title {
+    color: #f5f5f7;
+    font-size: 15px;
+    font-weight: 600;
+    margin: 8px 6px;
+}
+
+.widget-title > button {
+    background: alpha(@accent, 0.12);
+    color: @accent;
+    border: 1px solid alpha(@accent, 0.30);
+    border-radius: 10px;
+    padding: 4px 12px;
+    font-size: 12px;
+    font-weight: 500;
+    transition: all 0.2s ease;
+}
+
+.widget-title > button:hover {
+    background: @accent;
+    color: #0a0a0e;
+}
+
+/* Quick Settings Buttons Grid */
+.widget-buttons-grid {
+    padding: 4px;
+}
+
+.widget-buttons-grid > button {
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 14px;
+    margin: 4px;
+    padding: 14px;
+    color: #e4e4e7;
+    font-size: 18px;
+    transition: all 0.2s ease;
+}
+
+.widget-buttons-grid > button:hover {
+    background: rgba(255, 255, 255, 0.12);
+    border-color: rgba(255, 255, 255, 0.18);
+}
+
+.widget-buttons-grid > button:checked {
+    background: @accent;
+    color: #0a0a0e;
+    border-color: alpha(@accent, 0.60);
+    box-shadow: 0 4px 12px alpha(@accent, 0.35);
+}
+
+/* DND Switch */
+.widget-dnd {
+    margin: 8px 4px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 14px;
+    padding: 8px 12px;
+}
+
+.widget-dnd > switch {
+    background: rgba(255, 255, 255, 0.15);
+    border-radius: 14px;
+}
+
+.widget-dnd > switch:checked {
+    background: #c084fc;
+}
+
+/* MPRIS Media Player Widget */
+.widget-mpris {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 16px;
+    padding: 12px;
+    margin: 8px 4px;
+}
+
+.widget-mpris-title {
+    color: #ffffff;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.widget-mpris-subtitle {
+    color: #a1a1a6;
+    font-size: 12px;
+}

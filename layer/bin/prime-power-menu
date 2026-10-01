@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# prime-power-menu — the bar's power button: lock, suspend, restart, shut down,
+# log out. Anything that ends the session asks Yes/No first; nothing is killed
+# by force, so apps get to save.
+set -u
+
+BIN="$(dirname "$(readlink -f "$0")")"
+
+pick() {  # pick <prompt> <hint> <item>...
+    local prompt="$1" hint="$2"; shift 2
+    printf '%s\n' "$@" | ROFI_HINT="$hint" "$BIN/prime-rofi" -dmenu -i -no-custom -theme bar -p "$prompt"
+}
+
+confirm() {  # confirm "restart" → 0 if the user picked Yes
+    local what="$1" ans
+    ans=$(pick "Really $what?" "↑↓ move  ·  Enter confirm  ·  Esc cancel" "Yes" "No")
+    [ "$ans" = "Yes" ]
+}
+
+choice=$(pick "󰐥 power" \
+    "↑↓ move  ·  Enter pick  ·  Esc cancel  ·  nothing happens until you confirm" \
+    "Lock Screen" "Suspend" "Shut Down" "Restart" "Log Out" "Cancel") || exit 0
+
+case "$choice" in
+    "Lock Screen") loginctl lock-session ;;
+    "Suspend")     systemctl suspend ;;
+    "Shut Down")   confirm "shut down" && systemctl poweroff ;;
+    "Restart")     confirm "restart"   && systemctl reboot ;;
+    "Log Out")     confirm "log out"   && hyprctl dispatch exit ;;
+    *)             exit 0 ;;
+esac

@@ -1,0 +1,84 @@
+#!/usr/bin/env bash
+# prime-doctor — check the desktop and repair what it safely can.
+#
+#   prime-doctor          full report in the terminal (Super+H, Prime menu → Style)
+#   prime-doctor --login  quiet: runs at every login, notifies only about
+#                         problems it couldn't fix itself
+#
+# It never edits your own config files and never needs your password. Things it
+# can't fix come with the one command or menu item that does.
+set -u
+BIN="$(dirname "$(readlink -f "$0")")"
+QUIET=0; [ "${1:-}" = "--login" ] && QUIET=1
+LOG="${XDG_RUNTIME_DIR:-/tmp}/prime-doctor.log"; : > "$LOG"
+left=()
+
+ok()   { [ $QUIET = 1 ] || printf '\e[32m✓\e[0m %s\n' "$1"; echo "ok   $1" >>"$LOG"; }
+fixd() { [ $QUIET = 1 ] || printf '\e[33m→\e[0m %s\n' "$1"; echo "fix  $1" >>"$LOG"; }
+bad()  { [ $QUIET = 1 ] || printf '\e[31m✗\e[0m %s\n' "$1"; echo "bad  $1" >>"$LOG"; left+=("$1"); }
+
+in_session=0
+[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ] && hyprctl version >/dev/null 2>&1 && in_session=1
+[ $QUIET = 1 ] && sleep 3      # let the session settle before judging it
+
+# 1 — theme files (everything else reads its colours from them)
+if [ -f "$HOME/.config/prime/theme/colors.css" ] && [ -f "$HOME/.config/prime/theme/hyprland.conf" ]; then
+    ok "Theme files present"
+else
+    "$BIN/prime-theme" --apply && fixd "Theme files were missing — regenerated"
+fi
+
+# 2 — fonts the bar and menus are drawn with
+for f in "Inter" "JetBrainsMono Nerd Font"; do
+    if fc-list : family | grep -qi "^$f"; then ok "Font: $f"
+    else bad "Font missing: $f — run prime-update to reinstall it"; fi
+done
+
+if [ $in_session = 1 ]; then
+    # 3 — bars and clipboard history are supervised services
+    for u in prime-bar@top prime-bar@side prime-cliphist-text prime-cliphist-image prime-clip-persist; do
+        if systemctl --user is-active --quiet "$u"; then ok "Running: $u"
+        else
+            systemctl --user reset-failed "$u" 2>/dev/null
+            if systemctl --user restart "$u" 2>>"$LOG" && sleep 1 && systemctl --user is-active --quiet "$u"; then
+                fixd "Restarted $u"
+            else bad "$u won't start — details: journalctl --user -u $u"; fi
+        fi
+    done
+
+    # 4 — the tray: whoever owns the watcher is where tray icons go
+    owner=$(busctl --user list 2>/dev/null | awk '$1=="org.kde.StatusNotifierWatcher"{print $3; exit}')
+    if [ "$owner" = waybar ] || [ -z "$owner" ]; then ok "Tray icons go to the bar"
+    else
+        pkill -x kded6 2>/dev/null; "$BIN/prime-bar" restart
+        fixd "Tray was taken by $owner — handed back to the bar (restart tray-only apps)"
+    fi
+
+    # 5 — window title bars (hyprbars, managed by hyprpm)
+    if hyprctl plugin list 2>/dev/null | grep -q hyprbars; then ok "Title bars loaded"
+    else
+        hyprpm reload -n >>"$LOG" 2>&1
+        if hyprctl plugin list 2>/dev/null | grep -q hyprbars; then fixd "Title bars loaded"
+        else bad "Title bars need rebuilding for this Hyprland version — run prime-update"; fi
+    fi
+
+    # 6 — config errors (reported, never auto-edited: the file is yours)
+    errs="$(hyprctl configerrors 2>/dev/null | grep -v '^\s*$')"
+    if [ -z "$errs" ]; then ok "Window settings: no errors"
+    else bad "Window settings error: $(echo "$errs" | head -1) — Prime menu → Style → Restore desktop settings"; fi
+
+    # 7 — a second network icon from nm-applet (report only)
+    pgrep -x nm-applet >/dev/null && bad "nm-applet is running — the bar already shows the network; close it with: pkill nm-applet"
+fi
+
+# 8 — snapshots: the undo button for system updates
+if [ -d /.snapshots ] || command -v snapper >/dev/null; then ok "System snapshots available"
+else bad "No system snapshots — updates can't be rolled back from the boot menu"; fi
+
+if [ $QUIET = 1 ]; then
+    [ ${#left[@]} -gt 0 ] && notify-send -a Prime -u normal -t 15000 "Desktop check" "$(printf '%s\n' "${left[@]}")"
+else
+    echo
+    [ ${#left[@]} -eq 0 ] && echo "Everything looks healthy." || echo "${#left[@]} thing(s) need you — see the ✗ lines above."
+fi
+exit 0

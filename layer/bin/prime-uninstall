@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# prime-uninstall — remove Prime Linux from this account.
+#
+# Puts back the config files the installer replaced (from its backup), removes
+# Prime's services, commands and update hook, and deletes ~/.local/share/prime-linux.
+# Packages stay installed (other things may use them); your desktop-settings
+# backups in ~/.config-backups stay too.
+set -u
+PRIME_HOME="$HOME/.local/share/prime-linux"
+BACKUP=""; [ -f "$HOME/.config/prime/install.conf" ] && . "$HOME/.config/prime/install.conf"
+
+echo "This removes Prime Linux from your account (packages stay installed)."
+read -rp "Continue? [y/N] " ok; [ "${ok,,}" = y ] || exit 0
+
+systemctl --user stop prime-session.target prime-bar@top prime-bar@side prime-cliphist-text \
+    prime-cliphist-image prime-clip-persist 2>/dev/null
+for u in "$HOME"/.config/systemd/user/prime-*; do
+    [ -L "$u" ] && [[ "$(readlink "$u")" == "$PRIME_HOME"/* ]] && rm -f "$u"
+done
+systemctl --user daemon-reload
+for c in "$HOME"/.local/bin/prime-*; do
+    [ -L "$c" ] && [[ "$(readlink "$c")" == "$PRIME_HOME"/* ]] && rm -f "$c"
+done
+
+if [ -n "$BACKUP" ] && [ -d "$BACKUP" ]; then
+    cp -a "$BACKUP"/. "$HOME/.config/" && echo "Restored your previous configs from $BACKUP"
+else
+    echo "No earlier configs to restore — ~/.config/hypr/hyprland.conf and ~/.config/kitty/kitty.conf"
+    echo "still point at Prime Linux; edit or delete them."
+fi
+rm -f "$HOME/.config/autostart/nm-applet.desktop"
+
+# the update hook only acts for users who still have Prime Linux
+others="$(ls -d /home/*/.local/share/prime-linux 2>/dev/null | grep -v "^$PRIME_HOME\$")"
+if [ -z "$others" ]; then
+    sudo rm -f /etc/pacman.d/hooks/zz-prime-desktop-backup.hook /usr/share/libalpm/scripts/prime-desktop-backup-all
+fi
+rm -rf "$PRIME_HOME"
+echo "Prime Linux removed. Log out and back in."

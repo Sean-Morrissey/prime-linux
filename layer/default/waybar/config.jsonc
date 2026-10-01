@@ -1,0 +1,208 @@
+// Prime Linux — top bar. Don't edit this copy (prime-update replaces it):
+// put a full replacement at ~/.config/waybar/config.jsonc, or styling tweaks in
+// ~/.config/waybar/user.css. Add-ons insert their own modules at start-up.
+{
+  "layer": "top",
+  "position": "top",
+  "mod": "dock",
+  "height": 38,
+  "margin-top": 6,
+  "margin-left": 10,
+  "margin-right": 10,
+  "exclusive": true,
+  "passthrough": false,
+  "gtk-layer-shell": true,
+  "spacing": 0,
+  "modules-left": [
+    "custom/logo",
+    "custom/mediaPrev",
+    "custom/mediaPlay",
+    "custom/mediaNext",
+    "custom/media"
+  ],
+  "modules-center": [
+    "clock"
+  ],
+  "modules-right": [
+    "tray",
+    "custom/audio",
+    "network",
+    "bluetooth",
+    "cpu",
+    "memory",
+    "custom/gpu",
+    "custom/updates",
+    "custom/theme",
+    "custom/notification",
+    "custom/power"
+  ],
+  "custom/logo": {
+    "format": "<span size='x-large'>󰣇</span>",
+    "on-click": "~/.local/share/prime-linux/layer/bin/prime-menu",
+    "on-click-right": "~/.local/share/prime-linux/layer/bin/prime-context bar.logo",
+    "tooltip-format": "Prime Linux\nMenu · Super+Alt+Space   Search · Super+Space   Shortcuts · Super+/"
+  },
+  "tray": {
+    "icon-size": 16,
+    "spacing": 6
+  },
+  "clock": {
+    "format": "{:%a %b %d   %I:%M %p}",
+    "format-alt": "{:%A, %B %d, %Y  (%R)}",
+    "interval": 1,
+    "tooltip-format": "<tt><small>{calendar}</small></tt>",
+    "calendar": {
+      "mode": "month",
+      "format": {
+        "months": "<span color='#f5f5f7'><b>{}</b></span>",
+        "days": "<span color='#a1a1a6'>{}</span>",
+        "today": "<span color='#ffffff'><b><u>{}</u></b></span>"
+      }
+    },
+    "actions": {
+      "on-click": "shift_down",
+      "on-click-right": "mode"
+    },
+    "on-click-right": "~/.local/share/prime-linux/layer/bin/prime-context bar.clock"
+  },
+  "custom/mediaPrev": {
+    "tooltip": false,
+    "on-click": "~/.local/share/prime-linux/layer/bin/prime-media prev",
+    "on-click-right": "~/.local/share/prime-linux/layer/bin/prime-context bar.media",
+    "on-click-middle": "~/.local/share/prime-linux/layer/bin/prime-media toggle",
+    "exec": "~/.local/share/prime-linux/layer/bin/prime-media button prev",
+    "interval": 2,
+    "return-type": "json"
+  },
+  "custom/mediaPlay": {
+    "exec": "~/.local/share/prime-linux/layer/bin/prime-media transport",
+    "interval": 1,
+    "return-type": "json",
+    "tooltip": true,
+    "on-click": "~/.local/share/prime-linux/layer/bin/prime-media toggle",
+    "on-click-right": "~/.local/share/prime-linux/layer/bin/prime-context bar.media",
+    "on-click-middle": "~/.local/share/prime-linux/layer/bin/prime-media prev",
+    "on-scroll-up": "~/.local/share/prime-linux/layer/bin/prime-media volup",
+    "on-scroll-down": "~/.local/share/prime-linux/layer/bin/prime-media voldown"
+  },
+  "custom/mediaNext": {
+    "tooltip": false,
+    "on-click": "~/.local/share/prime-linux/layer/bin/prime-media next",
+    "on-click-right": "~/.local/share/prime-linux/layer/bin/prime-context bar.media",
+    "on-click-middle": "~/.local/share/prime-linux/layer/bin/prime-media toggle",
+    "exec": "~/.local/share/prime-linux/layer/bin/prime-media button next",
+    "interval": 2,
+    "return-type": "json"
+  },
+  "custom/media": {
+    "exec": "~/.local/share/prime-linux/layer/bin/prime-media",
+    "interval": 1,
+    "return-type": "json",
+    "tooltip": true,
+    "on-click": "~/.local/share/prime-linux/layer/bin/prime-media toggle",
+    "on-click-right": "~/.local/share/prime-linux/layer/bin/prime-context bar.media",
+    "on-click-middle": "~/.local/share/prime-linux/layer/bin/prime-media prev",
+    "on-scroll-up": "~/.local/share/prime-linux/layer/bin/prime-media volup",
+    "on-scroll-down": "~/.local/share/prime-linux/layer/bin/prime-media voldown"
+  },
+  "custom/audio": {
+    "exec": "~/.local/share/prime-linux/layer/bin/prime-audio-pill",
+    "return-type": "json",
+    "interval": 1,
+    "signal": 8,
+    "on-click": "pavucontrol",
+    "on-click-right": "~/.local/share/prime-linux/layer/bin/prime-context bar.audio",
+    "on-scroll-up": "wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%+",
+    "on-scroll-down": "wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-"
+  },
+  "network": {
+    "format-wifi": "󰤨",
+    "format-ethernet": "󰈀",
+    "format-disconnected": "󰤮",
+    "tooltip-format": "{essid} · {signalStrength}% · {ipaddr}",
+    "on-click": "~/.local/share/prime-linux/layer/bin/prime-float nmtui",
+    "on-click-right": "~/.local/share/prime-linux/layer/bin/prime-context bar.network"
+  },
+  "bluetooth": {
+    "format": "󰂯",
+    "format-disabled": "󰂲",
+    "format-connected": "󰂱  {device_alias}",
+    "tooltip-format": "{status} · {device_alias}",
+    "on-click": "blueman-manager",
+    "on-click-right": "~/.local/share/prime-linux/layer/bin/prime-context bar.bluetooth"
+  },
+  "cpu": {
+    "format": "󰻠  {usage}%",
+    "interval": 3,
+    "states": {
+      "warning": 70,
+      "critical": 90
+    },
+    "tooltip-format": "CPU: {usage}%  Load: {load}",
+    "on-click": "~/.local/share/prime-linux/layer/bin/prime-float btop",
+    "on-click-right": "~/.local/share/prime-linux/layer/bin/prime-context bar.cpu"
+  },
+  "memory": {
+    "format": "󰍛  {percentage}%",
+    "interval": 3,
+    "states": {
+      "warning": 75,
+      "critical": 90
+    },
+    "tooltip-format": "RAM: {used:0.1f}G / {total:0.1f}G  ({percentage}%)",
+    "on-click": "~/.local/share/prime-linux/layer/bin/prime-float btop",
+    "on-click-right": "~/.local/share/prime-linux/layer/bin/prime-context bar.memory"
+  },
+  "custom/gpu": {
+    "exec": "~/.local/share/prime-linux/layer/bin/prime-gpu-monitor",
+    "return-type": "json",
+    "interval": 2,
+    "format": "󰢮  {}",
+    "on-click": "~/.local/share/prime-linux/layer/bin/prime-float btop",
+    "on-click-right": "~/.local/share/prime-linux/layer/bin/prime-context bar.gpu",
+    "exec-if": "~/.local/share/prime-linux/layer/bin/prime-gpu-monitor | grep -q ."
+  },
+  "custom/updates": {
+    "exec": "~/.local/share/prime-linux/layer/bin/prime-updates-count",
+    "return-type": "json",
+    "interval": 60,
+    "escape": true,
+    "tooltip": true,
+    "format": "󰚰  {}",
+    "tooltip-format": "{} updates · click to update everything · right-click for more",
+    "on-click": "~/.local/share/prime-linux/layer/bin/prime-float ~/.local/share/prime-linux/layer/bin/prime-update",
+    "on-click-right": "~/.local/share/prime-linux/layer/bin/prime-context bar.updates"
+  },
+  "custom/theme": {
+    "format": "<span color='#a1a1a6'>󰸉</span>",
+    "on-click": "~/.local/share/prime-linux/layer/bin/prime-theme",
+    "tooltip-format": "Theme — wallpaper + accent colour (Super+Shift+W)",
+    "on-click-right": "~/.local/share/prime-linux/layer/bin/prime-context bar.theme"
+  },
+  "custom/notification": {
+    "tooltip": false,
+    "format": "{icon}",
+    "format-icons": {
+      "notification": "<span foreground='#fbbf24'>󰂚</span>",
+      "none": "<span foreground='#a1a1aa'>󰂜</span>",
+      "dnd-notification": "<span foreground='#fbbf24'>󰂛</span>",
+      "dnd-none": "<span foreground='#a1a1aa'>󰂛</span>",
+      "inhibited-notification": "<span foreground='#fbbf24'>󰂚</span>",
+      "inhibited-none": "<span foreground='#a1a1aa'>󰂜</span>",
+      "dnd-inhibited-notification": "<span foreground='#fbbf24'>󰂛</span>",
+      "dnd-inhibited-none": "<span foreground='#a1a1aa'>󰂛</span>"
+    },
+    "return-type": "json",
+    "exec-if": "which swaync-client",
+    "exec": "swaync-client -swb",
+    "on-click": "swaync-client -t -sw",
+    "on-click-right": "~/.local/share/prime-linux/layer/bin/prime-context bar.notification",
+    "escape": true
+  },
+  "custom/power": {
+    "format": "⏻",
+    "on-click": "~/.local/share/prime-linux/layer/bin/prime-power-menu",
+    "tooltip": false,
+    "on-click-right": "~/.local/share/prime-linux/layer/bin/prime-context bar.power"
+  }
+}

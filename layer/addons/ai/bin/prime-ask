@@ -1,0 +1,170 @@
+#!/usr/bin/env python3
+"""prime-ask — ask the assistant; the answer streams into a small floating window.
+
+  prime-ask "question"              ask (continues the current conversation)
+  prime-ask "question" --new        start a fresh conversation
+  prime-ask "question" --image F    include a picture (needs a vision model)
+  prime-ask --box                   type the question in a box first (Super+Shift+Space)
+  prime-ask --last                  show the last answer again
+  prime-ask --test                  check the connection (setup uses this)
+
+Talks to any OpenAI-compatible endpoint — llama-server or Ollama on this PC or
+your network, OpenRouter, OpenAI… — configured by prime-ai-setup in
+~/.config/prime/ai.conf (key, if any, in ~/.config/prime/ai.key, mode 600).
+Nothing is sent anywhere until you set it up.
+"""
+import base64, json, mimetypes, os, subprocess, sys, urllib.request
+
+HOME = os.path.expanduser("~")
+CONF = os.path.join(HOME, ".config/prime/ai.conf")
+KEY = os.path.join(HOME, ".config/prime/ai.key")
+CACHE = os.path.join(HOME, ".cache/prime")
+HIST = os.path.join(CACHE, "conversation.json")
+LAST = os.path.join(CACHE, "last-answer.md")
+HERE = os.path.dirname(os.path.realpath(__file__))
+LAYER = os.path.realpath(os.path.join(HERE, "../../.."))
+SYSTEM = ("You are Prime, the assistant built into Prime Linux (CachyOS + Hyprland). "
+          "Answer plainly and briefly for someone who is not a Linux expert. When a "
+          "command is needed, give the exact command. Keyboard: Super+Space search, "
+          "Super+Alt+Space settings menu, Super+/ all shortcuts.")
+KEEP_TURNS = 12
+
+
+def conf():
+    c = {"BASE_URL": "", "MODEL": ""}
+    try:
+        for line in open(CONF):
+            if "=" in line and not line.startswith("#"):
+                k, v = line.split("=", 1)
+                c[k.strip()] = v.strip().strip('"')
+    except OSError:
+        pass
+    try:
+        c["KEY"] = open(KEY).read().strip()
+    except OSError:
+        c["KEY"] = ""
+    return c
+
+
+def request(c, body, stream):
+    req = urllib.request.Request(c["BASE_URL"].rstrip("/") + "/chat/completions",
+                                 data=json.dumps(body).encode(), method="POST",
+                                 headers={"Content-Type": "application/json"})
+    if c["KEY"]:
+        req.add_header("Authorization", "Bearer " + c["KEY"])
+    return urllib.request.urlopen(req, timeout=120)
+
+
+def load_history(new):
+    if new:
+        return []
+    try:
+        return json.load(open(HIST))[-KEEP_TURNS * 2:]
+    except (OSError, ValueError):
+        return []
+
+
+def user_message(text, image):
+    if not image:
+        return {"role": "user", "content": text}
+    mime = mimetypes.guess_type(image)[0] or "image/png"
+    data = base64.b64encode(open(image, "rb").read()).decode()
+    return {"role": "user", "content": [
+        {"type": "text", "text": text or "What is in this picture? Explain anything that looks wrong."},
+        {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{data}"}}]}
+
+
+def answer(text, image=None, new=False):
+    """Runs inside the floating window: stream the reply to the terminal."""
+    c = conf()
+    if not c["BASE_URL"]:
+        print("The assistant isn't set up yet.\n\nRun:  prime-addon enable ai")
+        return 1
+    hist = load_history(new)
+    msgs = [{"role": "system", "content": SYSTEM}] + hist + [user_message(text, image)]
+    print(f"\033[2m{c['MODEL'] or 'assistant'} · {c['BASE_URL']}\033[0m\n")
+    print(f"\033[1m{text}\033[0m\n" if text else "", end="")
+    out = []
+    try:
+        with request(c, {"model": c["MODEL"], "messages": msgs, "stream": True}, True) as r:
+            for raw in r:
+                line = raw.decode("utf-8", "ignore").strip()
+                if not line.startswith("data:") or line == "data: [DONE]":
+                    continue
+                try:
+                    delta = json.loads(line[5:])["choices"][0].get("delta", {}).get("content") or ""
+                except (ValueError, KeyError, IndexError):
+                    continue
+                out.append(delta)
+                sys.stdout.write(delta); sys.stdout.flush()
+    except Exception as e:  # network, auth, model errors — say it plainly
+        print(f"\n\033[31mCouldn't reach the assistant:\033[0m {e}\n"
+              "Check it with:  prime-ask --test   ·   change it with: prime-addon enable ai")
+        return 1
+    reply = "".join(out)
+    os.makedirs(CACHE, exist_ok=True)
+    open(LAST, "w").write(reply)
+    stored = hist + [{"role": "user", "content": text + (" [with a picture]" if image else "")},
+                     {"role": "assistant", "content": reply}]
+    json.dump(stored[-KEEP_TURNS * 2:], open(HIST, "w"))
+    print()
+    return 0
+
+
+def window(args):
+    """Open the floating answer window running this script with --answer."""
+    subprocess.Popen(["kitty", "--class", "prime-float", "--title", "Prime",
+                      "-e", "bash", "-c", '"$@"; printf "\\n\\e[2mPress any key to close\\e[0m"; read -rsn1',
+                      "_", sys.executable, os.path.realpath(__file__), "--answer", *args],
+                     start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def box():
+    r = subprocess.run([os.path.join(LAYER, "bin/prime-rofi"), "-dmenu", "-theme", "bar",
+                        "-p", "󰚩 Ask Prime", "-theme-str", "listview { lines: 0; }",
+                        "-theme-str", 'entry { placeholder: "Ask anything…"; }'],
+                       input="", capture_output=True, text=True)
+    return r.stdout.strip()
+
+
+def test():
+    c = conf()
+    if not c["BASE_URL"]:
+        print("not set up"); return 1
+    try:
+        with request(c, {"model": c["MODEL"], "max_tokens": 8,
+                         "messages": [{"role": "user", "content": "Reply with: ok"}]}, False) as r:
+            json.loads(r.read())["choices"][0]
+        print("ok"); return 0
+    except Exception as e:
+        print(f"failed: {e}"); return 1
+
+
+def main(argv):
+    if not argv:
+        print(__doc__); return 2
+    if argv[0] == "--test":
+        return test()
+    if argv[0] == "--last":
+        if not os.path.exists(LAST):
+            subprocess.run(["notify-send", "-a", "Prime", "No answer yet"]); return 0
+        subprocess.Popen(["kitty", "--class", "prime-float", "--title", "Prime", "-e",
+                          "bash", "-c", 'cat "$1"; printf "\\n\\e[2mPress any key to close\\e[0m"; read -rsn1', "_", LAST],
+                         start_new_session=True)
+        return 0
+    if argv[0] == "--answer":
+        rest = argv[1:]
+        image = rest[rest.index("--image") + 1] if "--image" in rest else None
+        text = next((a for a in rest if not a.startswith("--") and a != image), "")
+        return answer(text, image, "--new" in rest)
+    if argv[0] == "--box":
+        q = box()
+        if q:
+            window([q])
+        return 0
+    window(argv)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

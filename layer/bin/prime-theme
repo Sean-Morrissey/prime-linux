@@ -1,0 +1,187 @@
+#!/usr/bin/env bash
+# prime-theme — one switch for the whole desktop look (Super+Shift+W).
+#
+# Step 1 picks a wallpaper (thumbnails), step 2 an accent colour. The choice is
+# saved in ~/.config/prime/theme.conf, and every app's colour file under
+# ~/.config/prime/theme/ is regenerated from it — bar, notifications, menus,
+# window borders, lock screen, terminal, GTK/libadwaita apps. Esc on either
+# step keeps what you already have.
+#
+#   prime-theme                     pick wallpaper, then accent
+#   prime-theme --wallpaper         wallpaper only
+#   prime-theme --accent            accent only
+#   prime-theme --set-wall <file>   set a wallpaper without asking
+#   prime-theme --set-accent <hex>  set an accent without asking (e.g. 60a5fa)
+#   prime-theme --apply             regenerate the colour files (installer, update)
+#
+# Wallpapers come from Prime Linux's own set and from ~/Pictures/Wallpapers —
+# drop images there and they show up in the picker.
+set -u
+BIN="$(dirname "$(readlink -f "$0")")"
+LAYER="$(readlink -f "$BIN/..")"
+STATE="$HOME/.config/prime/theme.conf"
+OUT="$HOME/.config/prime/theme"
+WALLDIRS=("$LAYER/wallpapers" "$HOME/Pictures/Wallpapers")
+
+WALL="$LAYER/wallpapers/prime-ember.jpg"; ACCENT="f87171"
+[ -f "$STATE" ] && . "$STATE"
+[ -f "$WALL" ] || WALL="$(ls "$LAYER"/wallpapers/*.jpg 2>/dev/null | head -1)"
+
+save()   { mkdir -p "$(dirname "$STATE")"; printf 'WALL=%q\nACCENT=%s\n' "$WALL" "$ACCENT" > "$STATE"; }
+notify() { notify-send -a Prime -t 4000 ${2:+-i "$2"} "Theme" "$1" >/dev/null 2>&1 || true; }
+live()   { [ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]; }
+
+# ── write every app's colour file from $WALL + $ACCENT ───────────────────────
+generate() {
+  local a="$ACCENT" r g b
+  r=$((16#${a:0:2})); g=$((16#${a:2:2})); b=$((16#${a:4:2}))
+  mkdir -p "$OUT"
+
+  cat > "$OUT/colors.css" <<EOF
+/* written by prime-theme — change it with Super+Shift+W */
+@define-color accent #$a;
+EOF
+  cat > "$OUT/colors.rasi" <<EOF
+/* written by prime-theme */
+* {
+    fg-accent:    #$a;
+    bg-selected:  rgba($r, $g, $b, 0.14);
+    border-focus: rgba($r, $g, $b, 0.50);
+}
+EOF
+  cat > "$OUT/hyprland.conf" <<EOF
+# written by prime-theme
+\$accent = rgb($a)
+\$accent_border = rgba(${a}66)
+EOF
+  cat > "$OUT/hyprlock.conf" <<EOF
+# written by prime-theme
+\$wallpaper = $WALL
+\$accent = rgb($r, $g, $b)
+EOF
+  cat > "$OUT/hyprpaper.conf" <<EOF
+# written by prime-theme
+preload = $WALL
+wallpaper = , $WALL
+splash = false
+EOF
+  cat > "$OUT/kitty.conf" <<EOF
+# written by prime-theme
+cursor               #$a
+selection_background #$a
+url_color            #$a
+active_tab_background #$a
+active_tab_foreground #0a0a0e
+active_border_color  #$a
+EOF
+  cat > "$OUT/swaync.css" <<EOF
+@import url("file://$OUT/colors.css");
+@import url("file://$LAYER/default/swaync/style.css");
+EOF
+  [ -f "$HOME/.config/swaync/user.css" ] && echo "@import url(\"file://$HOME/.config/swaync/user.css\");" >> "$OUT/swaync.css"
+
+  # GTK 4 / libadwaita apps take one of nine named accents: the nearest hue
+  [ -n "${PRIME_NO_GSETTINGS:-}" ] || gsettings set org.gnome.desktop.interface accent-color "$(python3 - "$a" <<'PY'
+import colorsys, sys
+h = sys.argv[1]
+r, g, b = (int(h[i:i + 2], 16) / 255 for i in (0, 2, 4))
+hue, sat, _ = colorsys.rgb_to_hsv(r, g, b)
+if sat < 0.2:
+    print("slate"); raise SystemExit
+names = {"red": 0, "orange": 30, "yellow": 48, "green": 140, "teal": 175,
+         "blue": 215, "purple": 275, "pink": 330}
+d = lambda x: min(abs(hue * 360 - x), 360 - abs(hue * 360 - x))
+print(min(names, key=lambda n: d(names[n])))
+PY
+)" 2>/dev/null || true
+}
+
+# ── push the new look into the running session ───────────────────────────────
+reload_live() {
+  live || return 0
+  hyprctl keyword general:col.active_border "rgba(ffffff44) rgba(${ACCENT}66) 45deg" >/dev/null 2>&1
+  swaync-client -rs >/dev/null 2>&1
+  pkill -USR1 -x kitty 2>/dev/null
+  "$BIN/prime-bar" restart >/dev/null 2>&1 &
+}
+
+apply_wall() {
+  live || return 0
+  hyprctl hyprpaper preload "$WALL" >/dev/null 2>&1
+  local m
+  for m in $(hyprctl monitors -j | jq -r '.[].name'); do
+    hyprctl hyprpaper wallpaper "$m,$WALL" >/dev/null 2>&1
+  done
+  hyprctl hyprpaper unload unused >/dev/null 2>&1
+}
+
+set_wall()   { [ -f "$1" ] || { echo "no such file: $1" >&2; return 1; }
+               WALL="$(readlink -f "$1")"; save; generate; apply_wall; }
+set_accent() { local n="${1#\#}"; n="${n,,}"
+               [[ "$n" =~ ^[0-9a-f]{6}$ ]] || { echo "not a colour: $1 (use 6 hex digits)" >&2; return 1; }
+               ACCENT="$n"; save; generate; reload_live; }
+
+# the most vivid colour in the wallpaper that is still readable on dark glass
+wall_accent() {
+  magick "$WALL" -resize 96x96 -colors 12 -depth 8 -format '%c' histogram:info:- 2>/dev/null |
+  python3 -c '
+import colorsys, re, sys
+best, score = None, -1
+for line in sys.stdin:
+    m = re.search(r"(\d+):.*#([0-9A-Fa-f]{6})", line)
+    if not m: continue
+    n, h = int(m.group(1)), m.group(2)
+    r, g, b = (int(h[i:i+2], 16) / 255 for i in (0, 2, 4))
+    hu, s, v = colorsys.rgb_to_hsv(r, g, b)
+    if v < 0.35 or s < 0.25: continue
+    sc = s * 0.6 + v * 0.4 + min(n, 400) / 4000
+    if sc > score:
+        score, best = sc, (hu, s, v)
+if best:
+    hu, s, v = best
+    r, g, b = colorsys.hsv_to_rgb(hu, max(s, 0.45), max(v, 0.85))
+    print("%02x%02x%02x" % (round(r * 255), round(g * 255), round(b * 255)))'
+}
+
+pick_wall() {
+  local rows choice f
+  rows="$(for d in "${WALLDIRS[@]}"; do
+            find "$d" -maxdepth 1 -type f \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.webp' \) 2>/dev/null
+          done | sort | while read -r f; do printf '%s\0icon\x1f%s\n' "$(basename "$f")" "$f"; done)"
+  [ -n "$rows" ] || { notify "No wallpapers found — put images in ~/Pictures/Wallpapers"; return 0; }
+  choice="$(printf '%s\n' "$rows" | ROFI_HINT="Enter sets it  ·  Esc keeps the current one  ·  add your own in ~/Pictures/Wallpapers" \
+    "$BIN/prime-rofi" -dmenu -i -show-icons -p "󰸉 Wallpaper" -theme spotlight \
+    -theme-str 'window { width: 900px; } listview { columns: 4; lines: 3; } element { orientation: vertical; } element-icon { size: 150px; } element-text { horizontal-align: 0.5; }')" || return 0
+  for d in "${WALLDIRS[@]}"; do
+    [ -f "$d/$choice" ] && { set_wall "$d/$choice"; return 0; }
+  done
+}
+
+pick_accent() {
+  local -a names=("Rose" "Ember" "Amber" "Emerald" "Teal" "Sapphire" "Amethyst" "Silver")
+  local -a hexes=("f87171" "fb923c" "fbbf24" "34d399" "2dd4bf" "60a5fa" "c084fc" "d4d4d8")
+  local rows="" i choice w
+  for i in "${!names[@]}"; do
+    rows+="<span color='#${hexes[$i]}'>●</span>  ${names[$i]}$([ "${hexes[$i]}" = "$ACCENT" ] && echo '   (current)')"$'\n'
+  done
+  rows+="<span color='#888888'>●</span>  Match the wallpaper"
+  choice="$(printf '%s\n' "$rows" | ROFI_HINT="the colour used across the bar, menus, borders, terminal  ·  Esc keeps it" \
+    "$BIN/prime-rofi" -dmenu -i -markup-rows -no-custom -p "󰏘 Accent" -theme spotlight)" || return 0
+  choice="$(printf '%s' "$choice" | sed 's/<[^>]*>//g; s/^[● ]*//; s/ *(current)$//')"
+  if [ "$choice" = "Match the wallpaper" ]; then
+    w="$(wall_accent)"
+    [ -n "$w" ] && set_accent "$w" || notify "Couldn't find a strong colour in this wallpaper"
+    return 0
+  fi
+  for i in "${!names[@]}"; do [ "${names[$i]}" = "$choice" ] && set_accent "${hexes[$i]}"; done
+}
+
+case "${1:-}" in
+  --apply)      save; generate ;;
+  --set-wall)   set_wall "${2:?file}" ;;
+  --set-accent) set_accent "${2:?hex}" ;;
+  --wallpaper)  pick_wall ;;
+  --accent)     pick_accent ;;
+  "")           pick_wall; pick_accent; notify "Theme applied" "$WALL" ;;
+  *)            sed -n '2,18p' "$0"; exit 2 ;;
+esac

@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+# prime-desktop-backup — save / restore the whole desktop's settings.
+#
+# System snapshots (snapper) cover /, not your home folder, so a bad bar or
+# window-manager setting can't be rolled back from the boot menu. This fills
+# that gap: every package update saves a copy first (pacman hook
+# /etc/pacman.d/hooks/zz-prime-desktop-backup.hook), keeping the newest 20.
+#
+#   prime-desktop-backup save [reason]   save a copy now
+#   prime-desktop-backup restore         pick a saved copy and put it back
+#   prime-desktop-backup list
+set -u
+BIN="$(dirname "$(readlink -f "$0")")"
+USER_HOME="$HOME"
+DIR="$USER_HOME/.config-backups/desktop"
+KEEP=20
+PATHS=(.config/hypr .config/waybar .config/prime .config/rofi .config/swaync .config/kitty
+       .config/gtk-3.0 .config/gtk-4.0 .config/autostart .config/nwg-displays)
+
+save() {
+  mkdir -p "$DIR"
+  local out="$DIR/$(date +%Y%m%d_%H%M%S)_${1:-manual}.tar.gz" have=()
+  for p in "${PATHS[@]}"; do [ -e "$USER_HOME/$p" ] && have+=("$p"); done
+  tar -C "$USER_HOME" --exclude='.config/hypr/wallpapers' -czf "$out" "${have[@]}" 2>/dev/null
+  # rotate: only this tool's own copies, newest $KEEP kept
+  ls -1t "$DIR"/*.tar.gz 2>/dev/null | tail -n +$((KEEP + 1)) | xargs -r rm -f
+  echo "$out"
+}
+
+restore() {
+  local rows pick f
+  rows="$(ls -1t "$DIR"/*.tar.gz 2>/dev/null | while read -r f; do
+            b="$(basename "$f" .tar.gz)"; d="${b:0:8}"; t="${b:9:6}"
+            printf '%s-%s-%s %s:%s   %s\n' "${d:0:4}" "${d:4:2}" "${d:6:2}" "${t:0:2}" "${t:2:2}" "${b:16}"; done)"
+  [ -n "$rows" ] || { notify-send -a Prime "Desktop backups" "No saved copies yet"; exit 0; }
+  pick="$(printf '%s\n' "$rows" | ROFI_HINT="puts the bar, menus, window + theme settings back as they were  ·  Esc cancels" \
+    "$BIN/prime-rofi" -dmenu -i -no-custom -format i -p "󰁯 Restore settings from" -theme spotlight)" || exit 0
+  f="$(ls -1t "$DIR"/*.tar.gz | sed -n "$((pick + 1))p")"
+  [ -f "$f" ] || exit 0
+  save before-restore >/dev/null            # so a restore can itself be undone
+  tar -C "$HOME" -xzf "$f"
+  hyprctl reload >/dev/null; swaync-client -rs >/dev/null 2>&1
+  "$BIN/prime-bar" restart >/dev/null 2>&1 &
+  notify-send -a Prime "Settings restored" "$(basename "$f" .tar.gz)"
+}
+
+case "${1:-}" in
+  save)    save "${2:-manual}" ;;
+  restore) restore ;;
+  list)    ls -1t "$DIR" 2>/dev/null ;;
+  *)       sed -n '2,13p' "$0" ;;
+esac

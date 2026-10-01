@@ -1,0 +1,12 @@
+[Unit]
+Description=Prime Linux bar (%i)
+PartOf=prime-session.target
+After=graphical-session.target
+
+[Service]
+# a KDE daemon can grab the tray before the bar does (empty tray) — move it aside
+ExecStartPre=-/usr/bin/pkill -x kded6
+ExecStart=%h/.local/share/prime-linux/layer/bin/prime-bar %i
+Restart=on-failure
+RestartSec=2
+

@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# prime-keys — searchable keyboard-shortcut cheat sheet (Super+/).
+#
+# Read live from Hyprland (`hyprctl binds`), so it always matches what the keys
+# actually do — Prime's defaults, add-ons and your own binds alike. A bind shows
+# its description when it has one (`bindd = MODS, key, description, …`) and its
+# command otherwise. Picking a row runs that shortcut.
+#
+#   prime-keys          show the sheet
+#   prime-keys --list   print the rows (tests)
+set -u
+BIN="$(dirname "$(readlink -f "$0")")"
+
+rows() {
+  hyprctl binds -j | jq -r '
+    def mods: [ (if (.modmask / 64 | floor) % 2 == 1 then "Super" else empty end),
+                (if (.modmask / 4  | floor) % 2 == 1 then "Ctrl"  else empty end),
+                (if (.modmask / 8  | floor) % 2 == 1 then "Alt"   else empty end),
+                (if .modmask % 2 == 1                  then "Shift" else empty end) ];
+    def keyname: {"space":"Space","Return":"Enter","slash":"/","minus":"-","comma":",",
+                  "period":".","backspace":"Backspace","left":"←","right":"→","up":"↑",
+                  "down":"↓","mouse:272":"Left-drag","mouse:273":"Right-click",
+                  "mouse_down":"Scroll down","mouse_up":"Scroll up"}[.key]
+                 // (if (.key | length) == 1 then (.key | ascii_upcase) else .key end);
+    .[] | select(.release | not)
+        | ((mods + [keyname]) | join(" + ")) as $k
+        | (if .has_description then .description
+           else (.dispatcher + " " + .arg | .[0:60]) end) as $d
+        | [$k, $d, .dispatcher, .arg, (.mouse | tostring)] | @tsv' |
+  awk -F'\t' '{ printf "%-24s  %s\t%s\t%s\t%s\n", $1, $2, $3, $4, $5 }'
+}
+
+[ "${1:-}" = "--list" ] && { rows | cut -f1; exit 0; }
+
+ROWS="$(rows)"
+pick="$(printf '%s\n' "$ROWS" | cut -f1 | ROFI_HINT="type a key or a word  ·  Enter runs it  ·  Esc closes" \
+  "$BIN/prime-rofi" -dmenu -i -p "⌨  Shortcuts" -theme spotlight -theme-str 'window { width: 760px; }')" || exit 0
+[ -n "$pick" ] || exit 0
+
+IFS=$'\t' read -r _ dispatcher arg mouse < <(printf '%s\n' "$ROWS" | awk -F'\t' -v p="$pick" '$1 == p { print; exit }')
+[ "${mouse:-false}" = true ] && exit 0          # a drag can't be "run" from a list
+case "$dispatcher" in
+  exec) hyprctl dispatch exec -- "$arg" >/dev/null ;;
+  "")   ;;
+  *)    hyprctl dispatch "$dispatcher" $arg >/dev/null ;;
+esac

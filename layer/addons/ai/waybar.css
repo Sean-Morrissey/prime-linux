@@ -1,0 +1,9 @@
+/* Prime AI add-on — the Ask button next to the logo */
+#custom-ask {
+    color: @accent;
+    padding: 0 12px;
+    margin: 4px 2px;
+    border-radius: 10px;
+    background: alpha(@accent, 0.10);
+}
+#custom-ask:hover { background: alpha(@accent, 0.22); }

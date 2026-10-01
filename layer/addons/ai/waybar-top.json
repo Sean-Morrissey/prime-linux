@@ -1,0 +1,11 @@
+{
+  "insert": {"modules-left": {"after": "custom/logo", "modules": ["custom/ask"]}},
+  "modules": {
+    "custom/ask": {
+      "format": "󰚩  Ask",
+      "tooltip-format": "Ask Prime (Super+Shift+Space) · right-click: last answer",
+      "on-click": "~/.local/share/prime-linux/layer/addons/ai/bin/prime-ask --box",
+      "on-click-right": "~/.local/share/prime-linux/layer/addons/ai/bin/prime-ask --last"
+    }
+  }
+}

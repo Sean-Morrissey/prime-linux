@@ -3,6 +3,8 @@
 # installed from the PRIVATE repo, without a GitHub login: it must not hang
 # waiting for a username nobody can type (it runs in a window), and must say
 # how to sign in. git is a fake on PATH that answers like GitHub does.
+# No display variables: run from a desktop session the updater would otherwise
+# open its window (and reload Hyprland) on the real screen.
 set -u
 cd "$(dirname "$(readlink -f "$0")")/.." || exit 1
 T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
@@ -23,7 +25,7 @@ exec "$REAL_GIT" "\$@"
 FAKE
 chmod +x "$T/bin/git"
 start=$(date +%s)
-env -u GIT_TERMINAL_PROMPT -u GIT_ASKPASS HOME="$T/home" PATH="$T/bin:$PATH" PRIME_NO_LIVE=1 PRIME_NO_GSETTINGS=1 \
+env -u GIT_TERMINAL_PROMPT -u GIT_ASKPASS -u WAYLAND_DISPLAY -u DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE HOME="$T/home" PATH="$T/bin:$PATH" PRIME_NO_LIVE=1 PRIME_NO_GSETTINGS=1 \
     timeout 120 bash layer/bin/prime-update --prime > "$T/out" 2>&1 </dev/null
 took=$(( $(date +%s) - start ))
 ck "doesn't wait for a username (finished in ${took}s)" "[ $took -lt 60 ]"

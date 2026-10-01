@@ -1,0 +1,880 @@
+#!/usr/bin/env python3
+"""prime-welcome — the first thing a new Prime Linux user sees.
+
+A short, friendly window (GTK 4 / libadwaita): the three keys worth knowing, pick
+a look, what the computer is for (→ packs), how updates happen, optionally
+connect an AI assistant, how much Prime may do on its own, done. Every step can
+be skipped; nothing needs an AI or the internet. Run it again any time from the
+Prime menu → "Set up my computer again".
+
+  prime-welcome                 open it
+  prime-welcome --first-run     open it only if it hasn't been finished (login autostart)
+  prime-welcome --apply FILE    apply answers from a JSON file without a window (tests)
+  prime-welcome --screenshots DIR   render every step to PNGs (design review, tests)
+
+Writes ~/.config/prime/identity.yaml (your name, what you use the computer for,
+your preferences), ~/.config/prime/capabilities.yaml (through prime-settings),
+and ~/.config/prime/welcome-done.
+"""
+from __future__ import annotations
+
+import datetime as _dt
+import json
+import locale
+import os
+import pwd
+import re
+import subprocess
+import sys
+import threading
+import urllib.request
+
+HOME = os.path.expanduser("~")
+BIN = os.path.dirname(os.path.realpath(__file__))
+LAYER = os.path.realpath(os.path.join(BIN, ".."))
+CFG = os.path.join(HOME, ".config/prime")
+IDENTITY = os.path.join(CFG, "identity.yaml")
+MARKER = os.path.join(CFG, "welcome-done")
+SETTINGS = os.path.join(BIN, "prime-settings")
+AI_SETUP = os.path.join(LAYER, "addons/ai/bin/prime-ai-setup")
+WALLDIRS = [os.path.join(LAYER, "wallpapers"), os.path.join(HOME, "Pictures/Wallpapers")]
+
+ACCENTS = [("Rose", "f87171"), ("Ember", "fb923c"), ("Amber", "fbbf24"), ("Emerald", "34d399"),
+           ("Teal", "2dd4bf"), ("Sapphire", "60a5fa"), ("Amethyst", "c084fc"), ("Silver", "d4d4d8")]
+USES = [  # id, pack, title, what it brings, icon
+    ("gaming", "gaming", "Gaming", "Steam, a game performance mode and an FPS overlay", "input-gaming-symbolic"),
+    ("coding", "coding", "Coding", "A code editor, git and tools for programming", "utilities-terminal-symbolic"),
+    ("creating", "creator", "Creating — video, 3D and art", "Video editing, 3D, drawing and screen recording apps", "applications-graphics-symbolic"),
+    ("studying", "student", "Studying", "Notes, PDFs, citations and Prime Tutor, who teaches step by step", "accessories-dictionary-symbolic"),
+    ("everyday", "", "Just everyday stuff", "Web, email, photos, music — that's all ready already", "user-home-symbolic"),
+]
+UPDATES = [("automatic", "Automatic (recommended)",
+            "Every night: a safety snapshot, then updates. Never restarts on its own; a bad update rolls back."),
+           ("ask", "Ask me first", "Prime tells you when updates are ready; you choose when."),
+           ("off", "Off", "Nothing happens unless you start it (Prime menu → Update). Not recommended.")]
+PROVIDERS = [  # id, title, subtitle, default url, needs key
+    ("none", "Not now", "Prime still keeps your computer healthy. Connect one later from the Prime menu.", "", False),
+    ("local", "A model on this computer", "llama-server or Ollama — private and free", "http://localhost:8080/v1", False),
+    ("network", "A model on another computer at home", "e.g. a desktop running llama-server or Ollama", "", False),
+    ("openrouter", "OpenRouter", "Many models with one account — needs an API key", "https://openrouter.ai/api/v1", True),
+    ("openai", "OpenAI", "Needs an API key", "https://api.openai.com/v1", True),
+    ("other", "Something else", "Any service that speaks the OpenAI API", "", True),
+]
+AUTONOMY = [("suggest", "Ask me first", "Prime tells you what it would change and waits for your yes. Every time."),
+            ("auto-user", "Handle the small stuff", "Prime changes looks and settings by itself and tells you. Installs and updates still ask."),
+            ("auto-all", "Just do it", "Prime does what you ask without checking first and tells you after.")]
+ALWAYS_ASK = "Restoring old settings and anything with passwords always ask. Prime can never give itself more permission — only you can, here."
+
+
+# ── answers → the computer (no window needed) ────────────────────────────────
+def default_name():
+    try:
+        g = pwd.getpwuid(os.getuid()).pw_gecos.split(",")[0].strip()
+        return g or pwd.getpwuid(os.getuid()).pw_name
+    except KeyError:
+        return os.environ.get("USER", "")
+
+
+def system_language():
+    lang = (locale.getlocale()[0] or os.environ.get("LANG", "en_US")).split(".")[0]
+    m = re.match(r"^([a-z]{2})(?:_([A-Z]{2}))?", lang)
+    if not m:
+        return "en"
+    return m.group(1) + (f"-{m.group(2)}" if m.group(2) else "")
+
+
+def _indent(l):
+    return len(l) - len(l.lstrip(" "))
+
+
+def yaml_set(text, path, value):
+    """Set one key in a block-style YAML map, keeping everything else (comments,
+    courses, the user's own lines) exactly as it was. `value` is already YAML."""
+    lines = text.splitlines()
+    start, end = 0, len(lines)
+    for depth, key in enumerate(path):
+        ind, last = depth * 2, depth == len(path) - 1
+        found = None
+        for i in range(start, end):
+            s = lines[i]
+            if s.strip() and not s.lstrip().startswith("#") and _indent(s) == ind \
+                    and re.match(rf"{re.escape(key)}:(\s|$)", s.strip()):
+                found = i
+                break
+        if found is None:
+            at = end
+            while at > start and not lines[at - 1].strip():
+                at -= 1
+            if last:
+                lines.insert(at, " " * ind + f"{key}: {value}")
+                return "\n".join(lines) + "\n"
+            lines.insert(at, " " * ind + f"{key}:")
+            start, end = at + 1, at + 1
+            continue
+        bend = found + 1
+        while bend < end and (not lines[bend].strip() or _indent(lines[bend]) > ind):
+            bend += 1
+        while bend > found + 1 and not lines[bend - 1].strip():
+            bend -= 1
+        if last:
+            lines[found:bend] = [" " * ind + f"{key}: {value}"]
+            return "\n".join(lines) + "\n"
+        start, end = found + 1, bend
+    return "\n".join(lines) + "\n"
+
+
+def q(s):
+    return json.dumps(str(s), ensure_ascii=False)
+
+
+def write_identity(a):
+    """Merge the answers into identity.yaml (docs/schemas/identity.schema.json)."""
+    os.makedirs(CFG, exist_ok=True)
+    try:
+        text = open(IDENTITY).read()
+    except OSError:
+        text = ("# Prime Linux — about you. Your file: edit it any time. Prime reads it so it\n"
+                "# can be more useful; it never grants Prime permission to do anything.\n")
+    stamp = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    text = yaml_set(text, ["version"], "1")
+    if not re.search(r"^created:", text, re.M):
+        text = yaml_set(text, ["created"], q(stamp))
+    text = yaml_set(text, ["updated"], q(stamp))
+    name = (a.get("name") or "").strip()[:64] or default_name() or "friend"
+    text = yaml_set(text, ["name"], q(name))
+    if not re.search(r"^language:", text, re.M):
+        text = yaml_set(text, ["language"], q(system_language()))
+    if "uses" in a:
+        text = yaml_set(text, ["projects", "uses"], "[" + ", ".join(q(u) for u in a["uses"]) + "]")
+    text = yaml_set(text, ["preferences", "session"], "prime")
+    text = yaml_set(text, ["preferences", "theme"], "dark")
+    if a.get("autonomy"):
+        text = yaml_set(text, ["preferences", "autonomy"], a["autonomy"])
+    if a.get("text_scale"):
+        text = yaml_set(text, ["preferences", "accessibility", "text_scale"], a["text_scale"])
+    tmp = IDENTITY + ".tmp"
+    with open(tmp, "w") as f:
+        f.write(text)
+    os.replace(tmp, IDENTITY)
+
+
+def settings(*args, json_out=True):
+    r = subprocess.run([SETTINGS, *args], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                       stdin=subprocess.DEVNULL, env={k: v for k, v in os.environ.items() if k != "PRIME_ACTOR"})
+    if not json_out:
+        return r.returncode == 0, r.stdout.strip() or r.stderr.strip()
+    try:
+        res = json.loads(r.stdout.strip().splitlines()[-1])
+        return res.get("ok", False), res.get("message", "")
+    except (ValueError, IndexError):
+        return False, r.stderr.strip()[:200]
+
+
+def pack_available(pack):
+    return bool(pack) and os.path.isfile(os.path.join(LAYER, "addons", pack, "addon.conf"))
+
+
+def pack_needs_password(pack):
+    try:
+        m = re.search(r'^PACKAGES="?([^"\n]*)', open(os.path.join(LAYER, "addons", pack, "addon.conf")).read(), re.M)
+        return bool(m and m.group(1).strip())
+    except OSError:
+        return False
+
+
+def connect_ai(url, model, key):
+    """Write ai.conf/ai.key through prime-ai-setup (the key goes over stdin only)."""
+    args = [AI_SETUP, "--url", url, "--model", model]
+    if key:
+        args.append("--key-stdin")
+    r = subprocess.run(args, input=(key + "\n") if key else "", stdout=subprocess.PIPE,
+                       stderr=subprocess.STDOUT, text=True, timeout=60)
+    out = r.stdout.strip().splitlines()
+    return r.returncode == 0, (out[-1] if out else "")
+
+
+def list_models(url, key):
+    req = urllib.request.Request(url.rstrip("/") + "/models")
+    if key:
+        req.add_header("Authorization", "Bearer " + key)
+    with urllib.request.urlopen(req, timeout=8) as r:
+        return [m["id"] for m in json.load(r).get("data", [])][:60]
+
+
+def apply_answers(a, log=print, interactive=True):
+    """Everything the window's last step does. Returns a list of summary rows."""
+    rows = []
+    subprocess.run([os.path.join(BIN, "prime-desktop-backup"), "save", "before-welcome"],
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    if a.get("accent"):
+        ok, msg = settings("run", "set_accent", json.dumps({"color": a["accent"]}))
+        rows.append(("Accent colour", a.get("accent_name") or "#" + a["accent"], ok))
+    if a.get("wallpaper"):
+        ok, msg = settings("run", "set_wallpaper", json.dumps({"name": os.path.basename(a["wallpaper"])}))
+        rows.append(("Wallpaper", os.path.splitext(os.path.basename(a["wallpaper"]))[0].replace("prime-", "").title(), ok))
+    write_identity(a)
+    rows.append(("About you", f"saved for {(a.get('name') or default_name() or 'you')}", True))
+    if a.get("autonomy"):
+        ok, _ = settings("autonomy", a["autonomy"], json_out=False)
+        rows.append(("Prime may", dict((k, t) for k, t, _ in AUTONOMY)[a["autonomy"]], ok))
+    if a.get("updates"):
+        ok, msg = settings("run", "set_update_policy", json.dumps({"policy": a["updates"]}))
+        title = dict((k, t) for k, t, _ in UPDATES)[a["updates"]]
+        rows.append(("Updates", title if ok else f"{title} — will be set when automatic updates are installed", ok))
+    if a.get("ai_connected"):
+        r = subprocess.run([os.path.join(BIN, "prime-addon"), "enable", "ai"], stdout=subprocess.PIPE,
+                           stderr=subprocess.STDOUT, text=True, env=dict(os.environ, PRIME_AI_SETUP="keep"))
+        rows.append(("Assistant", (a.get("ai_model") or "connected") + " — Super+Shift+Space to ask", r.returncode == 0))
+    packs = [p for u, p, *_ in USES if u in a.get("uses", []) and p]
+    quiet, loud, later = [], [], []
+    for p in packs:
+        if not pack_available(p):
+            later.append(p)
+        elif pack_needs_password(p):
+            loud.append(p)
+        else:
+            quiet.append(p)
+    for p in quiet:
+        r = subprocess.run([os.path.join(BIN, "prime-addon"), "enable", p], stdout=subprocess.PIPE,
+                           stderr=subprocess.STDOUT, text=True)
+        rows.append((f"{p.title()} pack", "on" if r.returncode == 0 else "couldn't switch it on", r.returncode == 0))
+    if loud and interactive:
+        script = "; ".join(f"{os.path.join(BIN, 'prime-addon')} enable {p}" for p in loud)
+        subprocess.Popen(["kitty", "--class", "prime-float", "--title", "Installing your apps", "-e", "bash", "-c",
+                          "echo 'Prime is installing what you picked. It needs your password once.'; echo; "
+                          + script + "; printf '\\n\\e[2mDone — press any key to close\\e[0m'; read -rsn1"],
+                         start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        for p in loud:
+            rows.append((f"{p.title()} pack", "installing in a window (asks for your password)", True))
+    elif loud:
+        for p in loud:
+            rows.append((f"{p.title()} pack", f"run: prime-addon enable {p}", False))
+    for p in later:
+        rows.append((f"{p.title()} pack", "coming soon — Prime remembers you picked it", True))
+    os.makedirs(CFG, exist_ok=True)
+    with open(MARKER, "w") as f:
+        f.write(_dt.datetime.now().isoformat(timespec="seconds") + "\n")
+    return rows
+
+
+def wallpapers():
+    out = []
+    for d in WALLDIRS:
+        try:
+            for f in sorted(os.listdir(d)):
+                if re.search(r"\.(jpe?g|png|webp)$", f, re.I):
+                    out.append(os.path.join(d, f))
+        except OSError:
+            pass
+    return out
+
+
+def current_theme():
+    t = {"ACCENT": "f87171", "WALL": os.path.join(LAYER, "wallpapers/prime-emblem.jpg")}
+    try:
+        for line in open(os.path.join(CFG, "theme.conf")):
+            if "=" in line:
+                k, v = line.strip().split("=", 1)
+                t[k] = v.strip("'\"").replace("\\ ", " ")
+    except OSError:
+        pass
+    return t
+
+
+def live():
+    return bool(os.environ.get("HYPRLAND_INSTANCE_SIGNATURE")) and not os.environ.get("PRIME_NO_LIVE")
+
+
+# ── the window ───────────────────────────────────────────────────────────────
+def gui(screenshots=None):
+    import gi
+    gi.require_version("Gtk", "4.0")
+    gi.require_version("Adw", "1")
+    gi.require_version("GdkPixbuf", "2.0")
+    from gi.repository import Adw, Gdk, GdkPixbuf, Gio, GLib, Gtk
+
+    CSS = """
+    window.prime-welcome { font-size: 15px; }
+    window.prime-welcome.large { font-size: 18px; }
+    .welcome-title { font-size: 2em; font-weight: 800; }
+    .step-title { font-size: 1.6em; font-weight: 700; }
+    .step-sub { font-size: 1.05em; opacity: 0.8; }
+    .keycap { font-family: "JetBrainsMono Nerd Font", monospace; font-weight: 700; padding: 4px 10px;
+              border-radius: 8px; border: 1px solid alpha(currentColor, 0.25); background: alpha(currentColor, 0.06);
+              box-shadow: inset 0 -2px alpha(currentColor, 0.15); }
+    .swatch { min-width: 44px; min-height: 44px; border-radius: 999px; padding: 0; }
+    .swatch:checked { outline: 3px solid alpha(white, 0.9); outline-offset: 3px; }
+    .wall { padding: 3px; border-radius: 12px; }
+    .wall:checked { outline: 3px solid var(--accent-bg-color, @accent_bg_color); outline-offset: 2px; }
+    .wall picture { border-radius: 9px; }
+    .preview { border-radius: 16px; }
+    .mock-bar { background: alpha(black, 0.45); border-radius: 10px; padding: 4px 10px; margin: 10px; }
+    .mock-window { background: alpha(#1c1c22, 0.88); border-radius: 12px; margin: 34px 60px 26px 60px;
+                   border: 2px solid var(--accent-bg-color, @accent_bg_color); }
+    .mock-dot { min-width: 10px; min-height: 10px; border-radius: 99px; background: var(--accent-bg-color, @accent_bg_color); }
+    """ + "".join(f".swatch-{hx} {{ background: #{hx}; }} " for _, hx in ACCENTS) + """
+    .dots label { font-size: 0.8em; opacity: 0.6; }
+    .done-row-icon { color: var(--accent-bg-color, @accent_bg_color); }
+    """
+
+    def texture(pb):
+        """GdkPixbuf -> GdkTexture without the deprecated helper."""
+        fmt = Gdk.MemoryFormat.R8G8B8A8 if pb.get_has_alpha() else Gdk.MemoryFormat.R8G8B8
+        return Gdk.MemoryTexture.new(pb.get_width(), pb.get_height(), fmt, pb.read_pixel_bytes(), pb.get_rowstride())
+
+    class Welcome(Adw.ApplicationWindow):
+        def __init__(self, app):
+            super().__init__(application=app, title="Welcome to Prime Linux")
+            self.set_default_size(820, 680)
+            self.add_css_class("prime-welcome")
+            th = current_theme()
+            self.a = {"name": default_name(), "accent": th["ACCENT"], "accent_name": "",
+                      "wallpaper": th["WALL"], "uses": [], "updates": "automatic", "autonomy": "suggest",
+                      "text_scale": "normal", "ai_connected": False}
+            self.accent_css = Gtk.CssProvider()
+            Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(), self.accent_css,
+                                                      Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION + 1)
+            self.theme_job = None
+            self.finished = False
+
+            self.stack = Gtk.Stack(transition_type=Gtk.StackTransitionType.SLIDE_LEFT_RIGHT, vexpand=True,
+                                   transition_duration=220)
+            self.pages = []
+            for build in (self.p_welcome, self.p_look, self.p_uses, self.p_updates, self.p_ai, self.p_autonomy, self.p_done):
+                name, widget = build()
+                self.stack.add_named(widget, name)
+                self.pages.append(name)
+
+            self.back = Gtk.Button(label="_Back", use_underline=True)
+            self.skip = Gtk.Button(label="_Skip this step", use_underline=True)
+            self.next = Gtk.Button(label="_Continue", use_underline=True)
+            self.next.add_css_class("suggested-action")
+            self.next.add_css_class("pill")
+            self.back.connect("clicked", lambda *_: self.go(-1))
+            self.skip.connect("clicked", lambda *_: self.go(+1, skip=True))
+            self.next.connect("clicked", lambda *_: self.go(+1))
+            self.progress = Gtk.Label(css_classes=["dots"])
+            bar = Gtk.Box(spacing=12, margin_top=12, margin_bottom=16, margin_start=24, margin_end=24)
+            bar.append(self.back)
+            bar.append(Gtk.Box(hexpand=True))
+            bar.append(self.progress)
+            bar.append(Gtk.Box(hexpand=True))
+            bar.append(self.skip)
+            bar.append(self.next)
+
+            tv = Adw.ToolbarView()
+            hb = Adw.HeaderBar(show_title=False)
+            tv.add_top_bar(hb)
+            tv.set_content(self.stack)
+            tv.add_bottom_bar(bar)
+            self.toast = Adw.ToastOverlay(child=tv)
+            self.set_content(self.toast)
+            self.set_accent(self.a["accent"], apply=False)
+            self.connect("close-request", self.on_close)
+            self.update_nav()
+
+        # ── helpers
+        def page(self, title, sub, body, icon=None):
+            box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18, margin_top=8, margin_bottom=8,
+                          margin_start=36, margin_end=36)
+            if icon:
+                box.append(Gtk.Image(icon_name=icon, pixel_size=48, halign=Gtk.Align.START))
+            t = Gtk.Label(label=title, xalign=0, wrap=True, css_classes=["step-title"])
+            box.append(t)
+            if sub:
+                box.append(Gtk.Label(label=sub, xalign=0, wrap=True, css_classes=["step-sub"]))
+            box.append(body)
+            clamp = Adw.Clamp(maximum_size=720, child=box)
+            sc = Gtk.ScrolledWindow(child=clamp, hscrollbar_policy=Gtk.PolicyType.NEVER, vexpand=True)
+            return sc
+
+        def keycaps(self, *keys):
+            b = Gtk.Box(spacing=6)
+            for i, k in enumerate(keys):
+                if i:
+                    b.append(Gtk.Label(label="+"))
+                b.append(Gtk.Label(label=k, css_classes=["keycap"]))
+            return b
+
+        def labelled(self, w, text):
+            w.update_property([Gtk.AccessibleProperty.LABEL], [text])
+            w.set_tooltip_text(text)
+            return w
+
+        # ── 1 welcome
+        def p_welcome(self):
+            body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18)
+            grp = Adw.PreferencesGroup()
+            self.name_row = Adw.EntryRow(title="What should I call you?", text=self.a["name"])
+            grp.add(self.name_row)
+            body.append(grp)
+            keys = Adw.PreferencesGroup(title="Three keys are all you need",
+                                        description="Super is the key with the Windows logo on it.")
+            for caps, title, sub in [(("Super", "Space"), "Find anything", "apps, files, maths, the web — just type"),
+                                     (("Super", "Alt", "Space"), "The Prime menu", "settings, style, updates, power"),
+                                     (("Super", "/"), "Every shortcut", "a searchable list of all the keys")]:
+                row = Adw.ActionRow(title=title, subtitle=sub)
+                row.add_suffix(self.keycaps(*caps))
+                keys.add(row)
+            body.append(keys)
+            acc = Adw.PreferencesGroup()
+            self.large = Adw.SwitchRow(title="Larger text", subtitle="Easier to read, here and on the desktop")
+            self.large.connect("notify::active", self.on_large)
+            acc.add(self.large)
+            body.append(acc)
+            return "welcome", self.page("Welcome to Prime Linux",
+                                        "Hi — I'm Prime. Let's make this computer yours. It takes about two minutes, "
+                                        "and you can skip anything.", body, icon="prime-linux")
+
+        def on_large(self, row, *_):
+            on = row.get_active()
+            (self.add_css_class if on else self.remove_css_class)("large")
+            self.a["text_scale"] = "large" if on else "normal"
+            if live() and not os.environ.get("PRIME_NO_GSETTINGS"):
+                subprocess.Popen(["gsettings", "set", "org.gnome.desktop.interface", "text-scaling-factor",
+                                  "1.25" if on else "1.0"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+        # ── 2 look
+        def p_look(self):
+            body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
+            # live preview: the wallpaper with a mock bar and window in the accent
+            self.prev_pic = Gtk.Picture(content_fit=Gtk.ContentFit.COVER, can_shrink=True)
+            self.prev_pic.set_size_request(-1, 220)
+            ov = Gtk.Overlay(child=self.prev_pic, css_classes=["preview"], overflow=Gtk.Overflow.HIDDEN)
+            mock = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+            mb = Gtk.Box(spacing=8, css_classes=["mock-bar"], valign=Gtk.Align.START)
+            mb.append(Gtk.Box(css_classes=["mock-dot"], valign=Gtk.Align.CENTER))
+            mb.append(Gtk.Label(label="Prime", css_classes=["caption-heading"]))
+            mb.append(Gtk.Box(hexpand=True))
+            mb.append(Gtk.Label(label="12:00", css_classes=["caption"]))
+            mock.append(mb)
+            win = Gtk.Box(css_classes=["mock-window"], vexpand=True)
+            win.append(Gtk.Label(label="Your windows get this colour", hexpand=True, css_classes=["caption"]))
+            mock.append(win)
+            ov.add_overlay(mock)
+            body.append(ov)
+            self.prev_pic.update_property([Gtk.AccessibleProperty.LABEL], ["Preview of your desktop"])
+
+            body.append(Gtk.Label(label="Accent colour", xalign=0, css_classes=["heading"]))
+            sw = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, max_children_per_line=8, min_children_per_line=4,
+                             column_spacing=14, row_spacing=14, homogeneous=True)
+            group = None
+            for name, hx in ACCENTS:
+                b = Gtk.ToggleButton(css_classes=["swatch", f"swatch-{hx}"], halign=Gtk.Align.CENTER)
+                self.labelled(b, name)
+                if group:
+                    b.set_group(group)
+                group = group or b
+                if hx == self.a["accent"]:
+                    b.set_active(True)
+                b.connect("toggled", lambda btn, n=name, h=hx: btn.get_active() and self.pick_accent(n, h))
+                sw.append(b)
+            body.append(sw)
+
+            body.append(Gtk.Label(label="Wallpaper", xalign=0, css_classes=["heading"]))
+            wf = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, max_children_per_line=4, min_children_per_line=2,
+                             column_spacing=10, row_spacing=10, homogeneous=True)
+            group = None
+            for path in wallpapers():
+                pic = Gtk.Picture(content_fit=Gtk.ContentFit.COVER, can_shrink=True)
+                pic.set_size_request(150, 90)
+                try:
+                    pb = GdkPixbuf.Pixbuf.new_from_file_at_scale(path, 320, 200, True)
+                    pic.set_paintable(texture(pb))
+                except GLib.Error:
+                    continue
+                b = Gtk.ToggleButton(child=pic, css_classes=["wall", "flat"])
+                nice = os.path.splitext(os.path.basename(path))[0].replace("prime-", "").replace("-", " ").title()
+                self.labelled(b, f"Wallpaper: {nice}")
+                if group:
+                    b.set_group(group)
+                group = group or b
+                if os.path.realpath(path) == os.path.realpath(self.a["wallpaper"]):
+                    b.set_active(True)
+                b.connect("toggled", lambda btn, p=path: btn.get_active() and self.pick_wall(p))
+                wf.append(b)
+            body.append(wf)
+            body.append(Gtk.Label(label="Your own pictures can go in Pictures → Wallpapers. Change all of this any time "
+                                        "with Super+Shift+W.", xalign=0, wrap=True, css_classes=["dim-label"]))
+            self.show_wall(self.a["wallpaper"])
+            return "look", self.page("Pick a look", "Your desktop changes as you click.", body)
+
+        def set_accent(self, hx, apply=True):
+            self.a["accent"] = hx
+            self.accent_css.load_from_string(
+                f":root {{ --accent-bg-color: #{hx}; --accent-color: #{hx}; --accent-fg-color: #0a0a0e; }}"
+                f" @define-color accent_bg_color #{hx}; @define-color accent_color #{hx};"
+                f" @define-color accent_fg_color #0a0a0e;")
+            if apply:
+                self.theme_async("set_accent", {"color": hx})
+
+        def pick_accent(self, name, hx):
+            self.a["accent_name"] = name
+            self.set_accent(hx)
+
+        def show_wall(self, path):
+            try:
+                pb = GdkPixbuf.Pixbuf.new_from_file_at_scale(path, 900, 500, True)
+                self.prev_pic.set_paintable(texture(pb))
+            except GLib.Error:
+                pass
+
+        def pick_wall(self, path):
+            self.a["wallpaper"] = path
+            self.show_wall(path)
+            self.theme_async("set_wallpaper", {"name": os.path.basename(path)})
+
+        def theme_async(self, tool, args):
+            """Apply to the real desktop in the background; the newest click wins."""
+            self.theme_job = (tool, args)
+
+            def work(job):
+                if self.theme_job is job:
+                    settings("run", job[0], json.dumps(job[1]))
+            job = self.theme_job
+            threading.Thread(target=work, args=(job,), daemon=True).start()
+
+        # ── 3 uses
+        def p_uses(self):
+            grp = Adw.PreferencesGroup(description="Pick as many as you like. Prime adds the right apps and shortcuts — "
+                                                   "you can change this later in the Prime menu → Add-ons.")
+            self.use_checks = {}
+            for uid, pack, title, sub, icon in USES:
+                if pack and not pack_available(pack):
+                    sub += " · coming soon (Prime remembers you picked it)"
+                row = Adw.ActionRow(title=title, subtitle=sub)
+                row.add_prefix(Gtk.Image(icon_name=icon, pixel_size=28))
+                chk = Gtk.CheckButton(valign=Gtk.Align.CENTER)
+                self.labelled(chk, title)
+                row.add_suffix(chk)
+                row.set_activatable_widget(chk)
+                self.use_checks[uid] = chk
+                grp.add(row)
+            return "uses", self.page("What will you use this computer for?", None, grp)
+
+        # ── 4 updates
+        def p_updates(self):
+            grp = Adw.PreferencesGroup(description="Updates fix security problems and bugs. Before every update Prime "
+                                                   "saves a snapshot, so a bad one can be undone from the boot menu.")
+            self.upd = {}
+            first = None
+            for key, title, sub in UPDATES:
+                row = Adw.ActionRow(title=title, subtitle=sub)
+                rb = Gtk.CheckButton(valign=Gtk.Align.CENTER, group=first)
+                self.labelled(rb, title)
+                first = first or rb
+                rb.set_active(key == self.a["updates"])
+                rb.connect("toggled", lambda b, k=key: b.get_active() and self.a.__setitem__("updates", k))
+                row.add_prefix(rb)
+                row.set_activatable_widget(rb)
+                grp.add(row)
+                self.upd[key] = rb
+            return "updates", self.page("How should updates happen?", None, grp)
+
+        # ── 5 assistant
+        def p_ai(self):
+            body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
+            grp = Adw.PreferencesGroup()
+            self.prov = "none"
+            first = None
+            for pid, title, sub, url, key in PROVIDERS:
+                row = Adw.ActionRow(title=title, subtitle=sub)
+                rb = Gtk.CheckButton(valign=Gtk.Align.CENTER, group=first)
+                self.labelled(rb, title)
+                first = first or rb
+                rb.set_active(pid == "none")
+                rb.connect("toggled", lambda b, p=pid: b.get_active() and self.pick_provider(p))
+                row.add_prefix(rb)
+                row.set_activatable_widget(rb)
+                grp.add(row)
+            body.append(grp)
+            self.ai_form = Adw.PreferencesGroup(title="Connection", visible=False)
+            self.url_row = Adw.EntryRow(title="Address (ends in /v1)")
+            self.key_row = Adw.PasswordEntryRow(title="API key — stays on this computer, readable only by you")
+            self.model_list = Gtk.StringList()
+            self.model_row = Adw.ComboRow(title="Model", model=self.model_list, visible=False)
+            self.model_entry = Adw.EntryRow(title="Model name")
+            find = Gtk.Button(label="Find models", valign=Gtk.Align.CENTER, css_classes=["flat"])
+            find.connect("clicked", lambda *_: self.find_models())
+            self.url_row.add_suffix(find)
+            self.ai_status = Gtk.Label(xalign=0, wrap=True, css_classes=["dim-label"])
+            for w in (self.url_row, self.key_row, self.model_row, self.model_entry):
+                self.ai_form.add(w)
+            body.append(self.ai_form)
+            body.append(self.ai_status)
+            body.append(Gtk.Label(label="Nothing is sent anywhere until you connect. With a model on this computer or "
+                                        "your network, nothing leaves your home at all.", xalign=0, wrap=True,
+                                  css_classes=["dim-label"]))
+            return "ai", self.page("Want an AI assistant?",
+                                   "Prime can explain things, teach, and change settings for you when you ask — "
+                                   "\"make the windows less round\", \"add a shortcut for Firefox\". Optional.", body)
+
+        def pick_provider(self, pid):
+            self.prov = pid
+            _, _, _, url, key = next(p for p in PROVIDERS if p[0] == pid)
+            self.ai_form.set_visible(pid != "none")
+            self.key_row.set_visible(key)
+            self.url_row.set_visible(pid in ("local", "network", "other"))
+            self.url_row.set_text(url)
+            self.ai_status.set_text("")
+            self.a["ai_connected"] = False
+            if pid == "local":
+                threading.Thread(target=self.detect_local, daemon=True).start()
+
+        def detect_local(self):
+            for u in ("http://localhost:8080/v1", "http://localhost:11434/v1"):
+                try:
+                    ms = list_models(u, "")
+                    GLib.idle_add(self.got_models, u, ms)
+                    return
+                except Exception:
+                    pass
+            GLib.idle_add(self.ai_status.set_text, "No model is running on this computer right now. Start "
+                          "llama-server or Ollama, then press Find models.")
+
+        def ai_url(self):
+            if self.prov in ("openrouter", "openai"):
+                return next(p[3] for p in PROVIDERS if p[0] == self.prov)
+            return self.url_row.get_text().strip()
+
+        def find_models(self):
+            url, key = self.ai_url(), self.key_row.get_text().strip()
+            self.ai_status.set_text("Looking…")
+
+            def work():
+                try:
+                    GLib.idle_add(self.got_models, url, list_models(url, key))
+                except Exception as e:
+                    GLib.idle_add(self.ai_status.set_text, f"Couldn't reach it: {e}")
+            threading.Thread(target=work, daemon=True).start()
+
+        def got_models(self, url, models):
+            if self.url_row.get_visible():
+                self.url_row.set_text(url)
+            self.model_list.splice(0, self.model_list.get_n_items(), models)
+            self.model_row.set_visible(bool(models))
+            self.model_entry.set_visible(not models)
+            self.ai_status.set_text(f"Found {len(models)} model(s). Pick one, then Continue." if models
+                                    else "It answered but listed no models — type the model name.")
+
+        def ai_model(self):
+            if self.model_row.get_visible() and self.model_list.get_n_items():
+                return self.model_list.get_string(self.model_row.get_selected())
+            return self.model_entry.get_text().strip()
+
+        def connect_then_next(self):
+            url, model, key = self.ai_url(), self.ai_model(), self.key_row.get_text().strip()
+            if not url or not model:
+                self.ai_status.set_text("Fill in the address and model — or press Skip.")
+                return
+            self.ai_status.set_text("Connecting…")
+            self.next.set_sensitive(False)
+
+            def work():
+                try:
+                    ok, msg = connect_ai(url, model, key)
+                except Exception as e:
+                    ok, msg = False, str(e)
+                GLib.idle_add(done, ok, msg)
+
+            def done(ok, msg):
+                self.next.set_sensitive(True)
+                if ok:
+                    self.a["ai_connected"], self.a["ai_model"] = True, model
+                    self.ai_status.set_text("✓ Connected.")
+                    self.go(+1, skip=True)
+                else:
+                    self.ai_status.set_text(f"That didn't work: {msg or 'no answer'}. Check it, or press Skip.")
+            threading.Thread(target=work, daemon=True).start()
+
+        # ── 6 autonomy
+        def p_autonomy(self):
+            body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
+            self.scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0, 2, 1)
+            self.scale.set_draw_value(False)
+            self.scale.set_round_digits(0)
+            for i, (_, title, _) in enumerate(AUTONOMY):
+                self.scale.add_mark(i, Gtk.PositionType.BOTTOM, title)
+            self.scale.set_value(0)
+            self.labelled(self.scale, "How much Prime may do on its own")
+            self.auto_desc = Gtk.Label(xalign=0, wrap=True, css_classes=["title-4"])
+            self.scale.connect("value-changed", self.on_scale)
+            body.append(self.scale)
+            body.append(self.auto_desc)
+            body.append(Gtk.Label(label=ALWAYS_ASK, xalign=0, wrap=True, css_classes=["dim-label"]))
+            self.auto_note = Gtk.Label(xalign=0, wrap=True, css_classes=["dim-label"])
+            body.append(self.auto_note)
+            self.on_scale(self.scale)
+            return "autonomy", self.page("How much may Prime do on its own?",
+                                         "When you ask Prime to change something. Every change can be undone, and "
+                                         "Prime keeps a list of everything it did.", body)
+
+        def on_scale(self, scale):
+            i = int(round(scale.get_value()))
+            if scale.get_value() != i:
+                scale.set_value(i)
+                return
+            self.a["autonomy"] = AUTONOMY[i][0]
+            self.auto_desc.set_text(AUTONOMY[i][2])
+
+        # ── 7 done
+        def p_done(self):
+            self.done_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
+            self.spinner = Adw.Spinner() if hasattr(Adw, "Spinner") else Gtk.Spinner(spinning=True)
+            self.done_box.append(self.spinner)
+            return "done", self.page("You're all set", "Setting things up…", self.done_box, icon="emblem-ok-symbolic")
+
+        def fill_done(self, rows):
+            self.spinner.set_visible(False)
+            grp = Adw.PreferencesGroup()
+            for title, value, ok in rows:
+                r = Adw.ActionRow(title=title, subtitle=value)
+                r.add_prefix(Gtk.Image(icon_name="emblem-ok-symbolic" if ok else "dialog-warning-symbolic",
+                                       css_classes=["done-row-icon"] if ok else []))
+                grp.add(r)
+            self.done_box.append(grp)
+            tips = Adw.PreferencesGroup(title="Good to know")
+            tip_rows = [(("Super", "Space"), "Find anything"),
+                        (("Super", "Alt", "Space"), "Settings, style, updates — and \"Set up my computer again\""),
+                        (("Super", "/"), "Every shortcut"),
+                        (("Right-click",), "Anything on the bar for its options")]
+            if self.a.get("ai_connected"):
+                tip_rows.insert(1, (("Super", "Shift", "Space"), "Ask Prime — try \"make the accent green\""))
+            for caps, text in tip_rows:
+                r = Adw.ActionRow(title=text)
+                r.add_suffix(self.keycaps(*caps))
+                tips.add(r)
+            self.done_box.append(tips)
+            self.finished = True
+            self.update_nav()
+            self.next.grab_focus()
+
+        # ── navigation
+        def go(self, step, skip=False):
+            cur = self.stack.get_visible_child_name()
+            i = self.pages.index(cur)
+            if step > 0 and not skip:
+                if cur == "welcome":
+                    self.a["name"] = self.name_row.get_text().strip()
+                elif cur == "uses":
+                    self.a["uses"] = [u for u, c in self.use_checks.items() if c.get_active()]
+                elif cur == "ai" and self.prov != "none" and not self.a["ai_connected"]:
+                    return self.connect_then_next()
+            if step > 0 and skip and cur == "uses":
+                self.a["uses"] = []
+            if step > 0 and skip and cur == "autonomy":
+                self.a["autonomy"] = "suggest"
+            if cur == "done" and step > 0:
+                return self.close()
+            j = max(0, min(len(self.pages) - 1, i + step))
+            self.stack.set_transition_type(Gtk.StackTransitionType.SLIDE_LEFT if step > 0
+                                           else Gtk.StackTransitionType.SLIDE_RIGHT)
+            self.stack.set_visible_child_name(self.pages[j])
+            if self.pages[j] == "done":
+                self.run_apply()
+            self.update_nav()
+
+        def run_apply(self):
+            a = dict(self.a)
+
+            def work():
+                try:
+                    rows = apply_answers(a)
+                except Exception as e:
+                    rows = [("Something went wrong", str(e), False)]
+                GLib.idle_add(self.fill_done, rows)
+            threading.Thread(target=work, daemon=True).start()
+
+        def update_nav(self):
+            cur = self.stack.get_visible_child_name()
+            i = self.pages.index(cur)
+            last = cur == "done"
+            self.back.set_visible(0 < i and not last)
+            self.skip.set_visible(cur not in ("welcome", "done"))
+            self.next.set_label("_Start using my computer" if last else ("_Finish" if cur == "autonomy" else "_Continue"))
+            self.next.set_sensitive(not last or self.finished)
+            self.progress.set_label("" if last else f"Step {i + 1} of {len(self.pages) - 1}")
+            self.set_default_widget(self.next)
+
+        def on_close(self, *_):
+            if not os.path.exists(MARKER):
+                os.makedirs(CFG, exist_ok=True)
+                with open(MARKER, "w") as f:
+                    f.write("closed early " + _dt.datetime.now().isoformat(timespec="seconds") + "\n")
+                if live():
+                    subprocess.Popen(["notify-send", "-a", "Prime", "Set up later",
+                                      "Any time: Prime menu (Super+Alt+Space) → Set up my computer again"])
+            return False
+
+    def render_all(win, outdir):
+        """Draw every step to a PNG (no compositor needed beyond the GTK backend)."""
+        os.makedirs(outdir, exist_ok=True)
+        names = list(win.pages)
+
+        def shot(idx):
+            if idx >= len(names):
+                win.get_application().quit()
+                return False
+            win.stack.set_transition_type(Gtk.StackTransitionType.NONE)
+            win.stack.set_visible_child_name(names[idx])
+            if names[idx] == "done" and not win.finished:
+                win.fill_done([("Accent colour", "Sapphire", True), ("Updates", "Automatic (recommended)", True),
+                               ("Gaming pack", "installing in a window (asks for your password)", True)])
+            win.update_nav()
+
+            def snap():
+                w, h = win.get_width(), win.get_height()
+                paintable = Gtk.WidgetPaintable.new(win)
+                snapshot = Gtk.Snapshot()
+                paintable.snapshot(snapshot, w, h)
+                node = snapshot.to_node()
+                print(f"shot {idx} {names[idx]} {w}x{h} node={bool(node)}", file=sys.stderr)
+                if node:
+                    tex = win.get_renderer().render_texture(node, None)
+                    tex.save_to_png(os.path.join(outdir, f"{idx + 1:02d}-{names[idx]}.png"))
+                GLib.timeout_add(150, shot, idx + 1)
+                return False
+            GLib.timeout_add(400, snap)
+            return False
+        GLib.timeout_add(600, shot, 0)
+
+    Adw.init()
+    app = Adw.Application(application_id="org.primelinux.Welcome",
+                          flags=Gio.ApplicationFlags.NON_UNIQUE if screenshots else Gio.ApplicationFlags.DEFAULT_FLAGS)
+
+    def activate(app):
+        Adw.StyleManager.get_default().set_color_scheme(Adw.ColorScheme.FORCE_DARK)
+        prov = Gtk.CssProvider()
+        prov.load_from_string(CSS)
+        Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(), prov, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+        theme = Gtk.IconTheme.get_for_display(Gdk.Display.get_default())
+        theme.add_search_path(os.path.join(CFG, "theme"))
+        win = app.get_active_window() or Welcome(app)
+        win.present()
+        if screenshots:
+            render_all(win, screenshots)
+    app.connect("activate", activate)
+    return app.run([sys.argv[0]])
+
+
+def main(argv):
+    if argv and argv[0] in ("-h", "--help"):
+        print(__doc__)
+        return 0
+    if argv and argv[0] == "--apply":
+        a = json.load(open(argv[1]))
+        if a.get("ai_url"):
+            ok, msg = connect_ai(a["ai_url"], a.get("ai_model", ""), os.environ.get("PRIME_WELCOME_KEY", ""))
+            a["ai_connected"] = ok
+            print(("connected: " if ok else "assistant not connected: ") + msg)
+        for title, value, ok in apply_answers(a, interactive=False):
+            print(f"{'✓' if ok else '!'} {title}: {value}")
+        return 0
+    if argv and argv[0] == "--first-run" and os.path.exists(MARKER):
+        return 0
+    shots = argv[1] if argv and argv[0] == "--screenshots" and len(argv) > 1 else None
+    return gui(shots)
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

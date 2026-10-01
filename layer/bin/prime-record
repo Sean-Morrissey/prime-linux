@@ -1,0 +1,91 @@
+#!/usr/bin/env bash
+# prime-record — record the screen to a video file.
+#
+#   prime-record area [--sound]     drag a box, record that   (Super+Shift+R)
+#   prime-record screen [--sound]   record the screen you're on (Super+Ctrl+Shift+R)
+#   prime-record stop               stop and save
+#   prime-record toggle <area|screen>   start, or stop if already recording
+#   prime-record status             JSON for the bar's red recording dot
+#
+# Videos go to ~/Videos/Recordings. --sound records what you hear as well.
+# Uses gpu-screen-recorder (hardware encoding, light on the CPU) and falls back
+# to wf-recorder when the GPU can't encode (virtual machines, very old GPUs).
+set -u
+RUNTIME="${XDG_RUNTIME_DIR:-/tmp}"
+PIDF="$RUNTIME/prime-record.pid"; FILEF="$RUNTIME/prime-record.file"
+[ -f "$HOME/.config/user-dirs.dirs" ] && . "$HOME/.config/user-dirs.dirs"
+DIR="${XDG_VIDEOS_DIR:-$HOME/Videos}/Recordings"
+
+note() { notify-send -a Prime -t "${3:-3000}" "$1" "${2:-}" >/dev/null 2>&1 || true; }
+bar()  { pkill -RTMIN+9 -x waybar 2>/dev/null || true; }
+recording() { [ -f "$PIDF" ] && kill -0 "$(cat "$PIDF")" 2>/dev/null; }
+
+stop() {
+    recording || { rm -f "$PIDF" "$FILEF"; bar; note "Not recording"; return 0; }
+    local pid file; pid="$(cat "$PIDF")"; file="$(cat "$FILEF" 2>/dev/null)"
+    kill -INT "$pid" 2>/dev/null
+    for _ in $(seq 50); do kill -0 "$pid" 2>/dev/null || break; sleep 0.1; done
+    rm -f "$PIDF" "$FILEF"; bar
+    if [ -s "$file" ]; then note "Recording saved" "${file/#$HOME/\~}" 6000
+    else note "Recording didn't save" "Nothing was captured — see ~/.cache/prime-record.log"; fi
+}
+
+start() {
+    local what="$1" sound="$2" geom="" mon="" file
+    recording && { note "Already recording" "Super+Shift+R stops it"; return 0; }
+    mkdir -p "$DIR"
+    if [ "$what" = area ]; then
+        geom="$(slurp -d 2>/dev/null)" || return 0          # Esc = cancel, quietly
+        [ -n "$geom" ] || return 0
+    else
+        mon="$(hyprctl -j monitors 2>/dev/null | jq -r '.[] | select(.focused) | .name' | head -1)"
+    fi
+    file="$DIR/Recording $(date '+%Y-%m-%d at %H.%M.%S').mp4"
+    local log="$HOME/.cache/prime-record.log"; mkdir -p "$HOME/.cache"; : > "$log"
+    local pid=""
+    if command -v gpu-screen-recorder >/dev/null; then
+        local args=(-f 60 -fallback-cpu-encoding yes -o "$file")
+        if [ -n "$geom" ]; then
+            # slurp says "X,Y WxH"; gpu-screen-recorder wants "WxH+X+Y"
+            local xy="${geom% *}" wh="${geom#* }"
+            args=(-w region -region "${wh}+${xy%,*}+${xy#*,}" "${args[@]}")
+        else
+            args=(-w "${mon:-screen}" "${args[@]}")
+        fi
+        [ "$sound" = 1 ] && args+=(-a default_output)
+        setsid gpu-screen-recorder "${args[@]}" >>"$log" 2>&1 </dev/null & pid=$!
+        sleep 1.2
+        kill -0 "$pid" 2>/dev/null || pid=""
+    fi
+    if [ -z "$pid" ] && command -v wf-recorder >/dev/null; then
+        local args=(-f "$file")
+        [ -n "$geom" ] && args+=(-g "$geom")
+        [ -z "$geom" ] && [ -n "$mon" ] && args+=(-o "$mon")
+        [ "$sound" = 1 ] && args+=(--audio)
+        setsid wf-recorder "${args[@]}" >>"$log" 2>&1 </dev/null & pid=$!
+        sleep 0.8
+        kill -0 "$pid" 2>/dev/null || pid=""
+    fi
+    if [ -z "$pid" ]; then note "Couldn't start recording" "See ~/.cache/prime-record.log" 6000; return 1; fi
+    echo "$pid" > "$PIDF"; echo "$file" > "$FILEF"; bar
+    note "Recording" "Press Super+Shift+R or click the red dot on the bar to stop" 2500
+}
+
+status() {
+    if recording; then
+        local secs=$(( $(date +%s) - $(stat -c %Y "$PIDF") ))
+        printf '{"text":"<span color=\\"#ef4444\\">●</span> %d:%02d","tooltip":"Recording the screen — click to stop and save","class":"recording"}\n' $((secs/60)) $((secs%60))
+    else
+        echo '{"text":""}'
+    fi
+}
+
+sound=0; for a in "$@"; do [ "$a" = --sound ] && sound=1; done
+case "${1:-}" in
+    area|screen) start "$1" "$sound" ;;
+    stop)        stop ;;
+    toggle)      if recording; then stop
+                 else what="${2:-area}"; [ "$what" = screen ] || what=area; start "$what" "$sound"; fi ;;
+    status)      status ;;
+    *) sed -n '2,13p' "$0"; exit 2 ;;
+esac

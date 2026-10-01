@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# prime-osd — the volume and brightness keys, with an on-screen indicator.
+#
+#   prime-osd volume up|down|mute     prime-osd mic mute
+#   prime-osd brightness up|down
+#
+# The popup comes from swayosd (prime-osd.service). If that isn't running the
+# change still happens through wpctl / brightnessctl, just without a popup —
+# a key that silently does nothing is the one thing this must never be.
+set -u
+osd() {
+    command -v swayosd-client >/dev/null 2>&1 && pgrep -x swayosd-server >/dev/null 2>&1 \
+        && swayosd-client "$@" >/dev/null 2>&1
+}
+bar() { pkill -RTMIN+8 -x waybar 2>/dev/null || true; }   # the volume pill
+case "${1:-} ${2:-}" in
+    "volume up")       osd --max-volume 150 --output-volume +5 || wpctl set-volume -l 1.5 @DEFAULT_AUDIO_SINK@ 5%+; bar ;;
+    "volume down")     osd --output-volume -5 || wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-; bar ;;
+    "volume mute")     osd --output-volume mute-toggle || wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle; bar ;;
+    "mic mute")        osd --input-volume mute-toggle || wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle ;;
+    "brightness up")   osd --brightness +5 || brightnessctl -e4 -n2 set 5%+ ;;
+    "brightness down") osd --brightness -5 || brightnessctl -e4 -n2 set 5%- ;;
+    *) sed -n '2,10p' "$0"; exit 2 ;;
+esac
+exit 0

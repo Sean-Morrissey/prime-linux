@@ -60,20 +60,50 @@
           "id": "set.network",
           "label": "Wi-Fi & network",
           "kind": "run",
-          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-float nmtui"
+          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-wifi",
+          "hint": "choose a network, enter its password"
         },
         {
           "id": "set.bluetooth",
           "label": "Bluetooth",
           "kind": "run",
-          "cmd": "exec blueman-manager"
+          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-bluetooth",
+          "hint": "connect headphones, mice, speakers"
         },
         {
           "id": "set.audio",
           "label": "Sound",
-          "hint": "outputs, inputs, per-app volume",
+          "hint": "speakers, headphones, microphone",
           "kind": "run",
-          "cmd": "exec pavucontrol"
+          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-sound"
+        },
+        {
+          "id": "set.keyboard",
+          "label": "Keyboard layout",
+          "hint": "languages — Super+Ctrl+Space switches",
+          "kind": "run",
+          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-keyboard"
+        },
+        {
+          "id": "set.power",
+          "label": "Power mode",
+          "hint": "battery saver · balanced · performance",
+          "kind": "run",
+          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-power-profile"
+        },
+        {
+          "id": "set.printers",
+          "label": "Printers",
+          "hint": "add a printer, see what's printing",
+          "kind": "run",
+          "cmd": "exec system-config-printer"
+        },
+        {
+          "id": "set.netadv",
+          "label": "Network settings (advanced)",
+          "hint": "VPN, fixed IP, hidden networks",
+          "kind": "run",
+          "cmd": "exec nm-connection-editor"
         },
         {
           "id": "set.apps",
@@ -101,6 +131,136 @@
           "hint": "~/.config/hypr/hyprland.conf",
           "kind": "run",
           "cmd": "exec gnome-text-editor ~/.config/hypr/hyprland.conf"
+        }
+      ]
+    },
+    {
+      "id": "toggles",
+      "label": "Quick switches",
+      "icon": "󰔡",
+      "items": [
+        {
+          "id": "tog.menu",
+          "label": "All switches, with what's on now",
+          "kind": "run",
+          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-toggle menu"
+        },
+        {
+          "id": "tog.night",
+          "label": "Night light on / off",
+          "hint": "Super+Ctrl+N",
+          "kind": "run",
+          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-toggle nightlight"
+        },
+        {
+          "id": "tog.dnd",
+          "label": "Do not disturb on / off",
+          "hint": "Super+Shift+K",
+          "kind": "run",
+          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-toggle dnd"
+        },
+        {
+          "id": "tog.awake",
+          "label": "Keep awake on / off",
+          "hint": "Super+Ctrl+I — no dimming or lock",
+          "kind": "run",
+          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-toggle idle"
+        },
+        {
+          "id": "tog.layout",
+          "label": "Next keyboard layout",
+          "hint": "Super+Ctrl+Space",
+          "kind": "run",
+          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-keyboard next"
+        },
+        {
+          "id": "tog.power",
+          "label": "Power mode",
+          "hint": "battery saver · balanced · performance",
+          "kind": "run",
+          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-power-profile"
+        },
+        {
+          "id": "tog.anim",
+          "label": "Animations on / off",
+          "kind": "run",
+          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-toggle-animations"
+        }
+      ]
+    },
+    {
+      "id": "tools",
+      "label": "Capture & tools",
+      "icon": "󰄀",
+      "items": [
+        {
+          "id": "tool.shot",
+          "label": "Screenshot a region",
+          "hint": "Print or Super+Shift+S",
+          "kind": "run",
+          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-snip area"
+        },
+        {
+          "id": "tool.rec",
+          "label": "Record a region of the screen",
+          "hint": "Super+Shift+R — again to stop",
+          "kind": "run",
+          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-record area"
+        },
+        {
+          "id": "tool.recfull",
+          "label": "Record the whole screen with sound",
+          "hint": "Super+Ctrl+Shift+R",
+          "kind": "run",
+          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-record screen --sound"
+        },
+        {
+          "id": "tool.recstop",
+          "label": "Stop recording",
+          "hint": "or click the red dot on the bar",
+          "kind": "run",
+          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-record stop"
+        },
+        {
+          "id": "tool.colour",
+          "label": "Pick a colour from the screen",
+          "hint": "Super+Shift+C — copies its code",
+          "kind": "run",
+          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-colour"
+        },
+        {
+          "id": "tool.emoji",
+          "label": "Emoji",
+          "hint": "Super+Ctrl+E",
+          "kind": "run",
+          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-emoji"
+        },
+        {
+          "id": "tool.calc",
+          "label": "Calculator",
+          "hint": "or type sums into Spotlight",
+          "kind": "run",
+          "cmd": "exec gnome-calculator"
+        },
+        {
+          "id": "tool.clip",
+          "label": "Clipboard history",
+          "hint": "Super+V",
+          "kind": "run",
+          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-clip-picker"
+        },
+        {
+          "id": "tool.webapp",
+          "label": "Make a website into an app",
+          "hint": "WhatsApp, YouTube, Gmail…",
+          "kind": "run",
+          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-webapp"
+        },
+        {
+          "id": "tool.webapprm",
+          "label": "Remove a web app",
+          "kind": "run",
+          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-webapp remove"
         }
       ]
     },

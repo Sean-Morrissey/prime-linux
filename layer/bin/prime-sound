@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# prime-sound — choose where sound comes out (speakers, headphones, HDMI…) and
+# which microphone is used (click the volume icon on the bar). The full mixer
+# (per-app volume) is one row further down.
+set -u
+BIN="$(dirname "$(readlink -f "$0")")"
+note() { notify-send -a Prime -t 3000 "$1" "${2:-}" >/dev/null 2>&1 || true; }
+command -v pactl >/dev/null || exec pavucontrol
+
+def_out="$(pactl get-default-sink 2>/dev/null)"; def_in="$(pactl get-default-source 2>/dev/null)"
+ROWS=(); KIND=(); NAMES=()
+while IFS=$'\t' read -r name desc; do
+    if [ "$name" = "$def_out" ]; then ROWS+=("󰓃  <b>$desc</b>  <span alpha=\"50%\">playing here</span>"); else ROWS+=("󰓃  $desc"); fi
+    KIND+=(out); NAMES+=("$name")
+done < <(pactl -f json list sinks 2>/dev/null | jq -r '.[] | "\(.name)\t\(.description)"')
+while IFS=$'\t' read -r name desc; do
+    if [ "$name" = "$def_in" ]; then ROWS+=("󰍬  <b>$desc</b>  <span alpha=\"50%\">microphone in use</span>"); else ROWS+=("󰍬  $desc"); fi
+    KIND+=(in); NAMES+=("$name")
+done < <(pactl -f json list sources 2>/dev/null | jq -r '.[] | select(.monitor_source == "" or .monitor_source == null) | select(.name | endswith(".monitor") | not) | "\(.name)\t\(.description)"')
+ROWS+=("󰒓  Sound settings — per-app volume, more devices…"); KIND+=(mixer); NAMES+=("")
+
+i="$(printf '%s\n' "${ROWS[@]}" | ROFI_HINT="󰓃 speakers / headphones  ·  󰍬 microphones  ·  Enter choose  ·  Esc close" \
+    "$BIN/prime-rofi" -dmenu -i -no-custom -markup-rows -format i -theme bar -p "󰕾 Sound")" || exit 0
+[ -n "$i" ] || exit 0
+case "${KIND[$i]}" in
+    out)   pactl set-default-sink "${NAMES[$i]}" && note "Sound now plays through" "$(printf '%s' "${ROWS[$i]}" | sed 's/<[^>]*>//g; s/^󰓃  //; s/  playing here//')" ;;
+    in)    pactl set-default-source "${NAMES[$i]}" && note "Microphone changed" "$(printf '%s' "${ROWS[$i]}" | sed 's/<[^>]*>//g; s/^󰍬  //; s/  microphone in use//')" ;;
+    mixer) exec pavucontrol ;;
+esac
+pkill -RTMIN+8 -x waybar 2>/dev/null || true

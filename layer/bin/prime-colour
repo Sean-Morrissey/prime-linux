@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# prime-colour — pick a colour from anywhere on the screen (Super+Shift+C).
+# Click a pixel and its hex code (#rrggbb) is copied; Esc cancels.
+set -u
+c="$(hyprpicker -f hex -a 2>/dev/null)" || exit 0
+c="$(printf '%s' "$c" | tr -d '[:space:]')"
+[ -n "$c" ] || exit 0
+printf '%s' "$c" | wl-copy 2>/dev/null
+notify-send -a Prime -t 4000 "Colour copied: $c" "<span background='$c'>                    </span>  paste it anywhere" >/dev/null 2>&1 || true

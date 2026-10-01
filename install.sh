@@ -311,7 +311,7 @@ if skip_step 6; then info "done earlier"
 else
     # nightly updates, snapshot-before-update, desktop-settings backup hook,
     # firewall + safe defaults — root-owned copies in /usr/local/lib/prime-linux
-    if run sudo bash "$LAYER/system/install-system.sh" install --user "$USER" --policy "${PRIME_UPDATE_POLICY:-auto}"; then
+    if run sudo bash "$LAYER/system/install-system.sh" install --user "$(id -un)" --policy "${PRIME_UPDATE_POLICY:-auto}"; then
         note "system install-system.sh"
         ok "Nightly updates (snapshot first, never reboots), backups before every update, firewall on"
     else

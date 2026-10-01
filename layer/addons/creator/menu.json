@@ -1,0 +1,19 @@
+{
+  "sections": [
+    {
+      "id": "creator", "label": "Creator", "icon": "󰄄",
+      "items": [
+        {"id": "create.kdenlive", "label": "Kdenlive", "hint": "edit videos", "kind": "run", "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-addon open kdenlive"},
+        {"id": "create.obs", "label": "OBS Studio", "hint": "Super+Alt+R · record or stream the screen", "kind": "run", "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-addon open obs"},
+        {"id": "create.blender", "label": "Blender", "hint": "3D and animation", "kind": "run", "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-addon open blender"},
+        {"id": "create.krita", "label": "Krita", "hint": "drawing and painting", "kind": "run", "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-addon open krita"},
+        {"id": "create.gimp", "label": "GIMP", "hint": "photo editing", "kind": "run", "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-addon open gimp"},
+        {"id": "create.audacity", "label": "Audacity", "hint": "record and edit audio", "kind": "run", "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-addon open audacity"},
+        {"id": "create.gpu", "label": "GPU rendering for Blender", "hint": "shows the download size first", "kind": "term", "cmd": "~/.local/share/prime-linux/layer/addons/creator/bin/prime-creator gpu-render"},
+        {"id": "create.extras", "label": "Get more creative apps…", "hint": "Ardour, Inkscape, HandBrake, darktable", "kind": "term", "cmd": "~/.local/share/prime-linux/layer/addons/creator/bin/prime-creator extras"},
+        {"id": "create.tips", "label": "Hardware encoding tips", "hint": "OBS, Kdenlive, Blender", "kind": "term", "cmd": "~/.local/share/prime-linux/layer/addons/creator/bin/prime-creator tips"},
+        {"id": "create.check", "label": "Check my creator setup", "hint": "what your graphics card can do", "kind": "term", "cmd": "~/.local/share/prime-linux/layer/bin/prime-addon check creator"}
+      ]
+    }
+  ]
+}

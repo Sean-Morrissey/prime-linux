@@ -1,0 +1,195 @@
+#!/usr/bin/env bash
+# prime-gaming — the Gaming pack's helper.
+#
+#   prime-gaming perf [on|off|toggle|status]  Performance mode (Super+Alt+P)
+#   prime-gaming hud  [on|off|toggle|status]  FPS overlay in games (Super+Alt+H)
+#   prime-gaming tips                         how to get the most out of it
+#   prime-gaming setup | teardown | check     used by prime-addon
+set -u
+. "$(dirname "$(readlink -f "$0")")/../../_lib/pack.sh"
+PACK="$LAYER/addons/gaming"
+HUDCONF="${XDG_CONFIG_HOME:-$HOME/.config}/MangoHud/MangoHud.conf"
+PERF_PREV="$PACK_STATE/gaming.perf-previous"
+
+# ── Performance mode: the power profile (power-profiles-daemon, or tuned-ppd) ─
+ppd_get() {
+    if have powerprofilesctl; then powerprofilesctl get 2>/dev/null
+    else busctl get-property org.freedesktop.UPower.PowerProfiles /org/freedesktop/UPower/PowerProfiles \
+             org.freedesktop.UPower.PowerProfiles ActiveProfile 2>/dev/null | sed -E 's/^s "(.*)"$/\1/'; fi
+}
+ppd_set() {
+    if have powerprofilesctl; then powerprofilesctl set "$1" 2>/dev/null
+    else busctl set-property org.freedesktop.UPower.PowerProfiles /org/freedesktop/UPower/PowerProfiles \
+             org.freedesktop.UPower.PowerProfiles ActiveProfile s "$1" 2>/dev/null; fi
+}
+perf() {
+    local cur; cur="$(ppd_get)"
+    case "${1:-toggle}" in
+        status) echo "${cur:-unknown}" ;;
+        bar)    # waybar custom/perf: only visible while Performance mode is on
+                if [ "$cur" = performance ]; then
+                    printf '{"text":"󰓅","tooltip":"Performance mode is on — click to switch it off","class":"on"}\n'
+                else printf '{"text":"","class":"off"}\n'; fi ;;
+        toggle) if [ "$cur" = performance ]; then perf off; else perf on; fi ;;
+        on)
+            [ -n "$cur" ] || { notify "Performance mode needs the power-profiles service — run: prime-addon check gaming"; return 1; }
+            [ "$cur" = performance ] || echo "$cur" > "$PERF_PREV"
+            if ppd_set performance; then
+                notify "Performance mode on — full CPU speed. Uses more power and runs warmer." 4000 "󰓅 Performance mode"
+            else
+                notify "This computer doesn't offer a performance power profile (common on desktops with older CPUs)." 6000
+                return 1
+            fi ;;
+        off)
+            local to; to="$(cat "$PERF_PREV" 2>/dev/null)"; [ -n "$to" ] && [ "$to" != performance ] || to=balanced
+            ppd_set "$to" && notify "Performance mode off — back to $to." 3000 "󰾅 Performance mode"
+            rm -f "$PERF_PREV" ;;
+    esac
+    bar_signal 11
+}
+
+# ── FPS overlay (MangoHud). It's loaded into games hidden; this shows/hides it.
+write_hudconf() {
+    mkdir -p "$(dirname "$HUDCONF")"
+    cat > "$HUDCONF" <<'EOF'
+# Prime gaming pack — MangoHud settings (Prime only writes this file if it doesn't exist;
+# it's yours now). Show/hide in a running game: Right Shift + F12.
+# Prime menu → Gaming → "FPS overlay" sets whether it's shown when a game starts.
+no_display
+toggle_hud=Shift_R+F12
+position=top-left
+font_size=20
+background_alpha=0.4
+round_corners=8
+fps
+frametime
+frame_timing=0
+cpu_stats
+cpu_temp
+gpu_stats
+gpu_temp
+vram
+ram
+# Launchers and tools never get the overlay
+blacklist=steam,steamwebhelper,lutris,heroic,protonup-qt,gamescope
+EOF
+}
+hud() {
+    [ -f "$HUDCONF" ] || write_hudconf
+    case "${1:-toggle}" in
+        status) grep -qx 'no_display' "$HUDCONF" && echo off || echo on ;;
+        toggle) if grep -qx 'no_display' "$HUDCONF"; then hud on; else hud off; fi ;;
+        on)  sed -i '/^no_display$/d' "$HUDCONF"
+             notify "FPS overlay on — it shows in games you start from now. In a game: Right Shift+F12." 5000 "󰄧 Game overlay" ;;
+        off) grep -qx 'no_display' "$HUDCONF" || echo no_display >> "$HUDCONF"
+             notify "FPS overlay hidden. In a game you can still show it with Right Shift+F12." 4000 "󰄧 Game overlay" ;;
+    esac
+}
+
+setup() {
+    # GameMode raises a game's priority; that needs the 'gamemode' group (safe —
+    # it grants no admin rights).
+    if getent group gamemode >/dev/null && ! in_group gamemode; then
+        say "Letting games use GameMode (adding you to the 'gamemode' group)…"
+        sudo usermod -aG gamemode "$USER" && note "takes effect the next time you log in"
+    fi
+    # Performance mode needs a power-profile service. CachyOS ships one; on a bare
+    # system install power-profiles-daemon — unless tuned-ppd (its alternative) is there.
+    if ! pacman -Qq power-profiles-daemon >/dev/null 2>&1 && ! pacman -Qq tuned-ppd >/dev/null 2>&1; then
+        if [ "${PRIME_ADDON_PACKAGES:-install}" = install ]; then
+            say "Installing the power-profile service for Performance mode…"
+            sudo pacman -S --needed --noconfirm power-profiles-daemon && echo "pacman power-profiles-daemon" >> "$PACK_STATE/gaming.installed"
+        else note "(would install power-profiles-daemon)"; fi
+    fi
+    if pacman -Qq power-profiles-daemon >/dev/null 2>&1 && ! systemctl is-enabled --quiet power-profiles-daemon 2>/dev/null; then
+        sudo systemctl enable --now power-profiles-daemon >/dev/null 2>&1 || note "(power-profiles service starts after the next reboot)"
+    fi
+    if [ -f "$HUDCONF" ]; then note "Keeping your MangoHud settings ($HUDCONF)"
+    else write_hudconf; say "FPS overlay ready (hidden until you switch it on: Super+Alt+H)"; fi
+    say "Games get the whole screen, the lowest latency and never trigger the lock screen."
+    tips_short
+}
+
+teardown() {
+    [ "$(ppd_get)" = performance ] && [ -f "$PERF_PREV" ] && perf off >/dev/null
+    rm -f "$PERF_PREV"
+    return 0
+}
+
+tips_short() {
+    note "Tip: in Steam → Settings → Compatibility, turn on Steam Play for all titles."
+    pacman -Qq proton-cachyos-slr >/dev/null 2>&1 \
+        && note "     Pick \"proton-cachyos\" there for the best results on CachyOS."
+    note "Tip: for one game's best speed, set its Launch Options to:  gamemoderun %command%"
+}
+tips() {
+    cat <<'EOF'
+
+  Gaming on Prime — the short version
+
+  • Steam runs Windows games through Proton. In Steam → Settings → Compatibility,
+    switch on "Enable Steam Play for all other titles".
+  • On CachyOS, choose "proton-cachyos" there too: it's tuned for this system.
+    Other Proton versions (e.g. GE-Proton): Prime menu → Gaming → Proton versions.
+  • Make one game faster: right-click it in Steam → Properties → Launch Options:
+        gamemoderun %command%          (GameMode: CPU priority while it runs)
+        game-performance %command%     (CachyOS: Performance mode while it runs)
+        gamescope -f -- %command%      (fixes games that fight with the screen size)
+  • FPS overlay: Super+Alt+H switches it on for the next game; Right Shift+F12
+    shows or hides it inside a running game.
+  • Performance mode: Super+Alt+P. A speedometer appears in the bar while it's on.
+  • Epic, GOG and Amazon games: Heroic.  Everything else (Battle.net, EA, old
+    discs, emulators): Lutris.  Both are in the Gaming menu.
+  • Controllers: Xbox, PlayStation, Switch and Steam controllers work over USB.
+    Bluetooth: pair them in Settings → Bluetooth.
+  • Something wrong? Prime menu → Gaming → Check my gaming setup.
+EOF
+}
+
+check() {
+    local g
+    if pacman-conf --repo-list 2>/dev/null | grep -qx multilib; then ck_ok "32-bit software (multilib) is on"
+    else ck_bad "32-bit software (multilib) is off — fix: prime-addon enable gaming"; fi
+    for g in $(gpus); do
+        case "$g" in
+            amd)     pacman -Qq lib32-vulkan-radeon >/dev/null 2>&1 && ck_ok "AMD graphics: 32- and 64-bit Vulkan drivers" \
+                                                                  || ck_bad "AMD 32-bit Vulkan driver missing — fix: prime-addon enable gaming" ;;
+            intel)   pacman -Qq lib32-vulkan-intel >/dev/null 2>&1 && ck_ok "Intel graphics: 32- and 64-bit Vulkan drivers" \
+                                                                 || ck_bad "Intel 32-bit Vulkan driver missing — fix: prime-addon enable gaming" ;;
+            nvidia)
+                pacman -Qq lib32-nvidia-utils >/dev/null 2>&1 && ck_ok "NVIDIA: 32-bit driver libraries" \
+                                                                || ck_bad "NVIDIA 32-bit libraries missing — fix: prime-addon enable gaming"
+                if [ -r /proc/driver/nvidia/version ]; then ck_ok "NVIDIA driver loaded"
+                else ck_warn "NVIDIA driver installed but not loaded — restart the computer"; fi ;;
+            nouveau) ck_warn "NVIDIA card on the open 'nouveau' driver — games run much faster with NVIDIA's driver (CachyOS Hello → Apps/Tweaks → Install NVIDIA drivers)" ;;
+            none)    ck_warn "No graphics card detected (virtual machine?) — games will be slow" ;;
+        esac
+    done
+    if have vulkaninfo && vulkaninfo --summary >/dev/null 2>&1; then
+        ck_ok "Vulkan works: $(vulkaninfo --summary 2>/dev/null | sed -n 's/^[[:space:]]*deviceName *= *//p' | head -1)"
+    else ck_warn "Vulkan didn't answer (normal outside the desktop; otherwise a driver problem)"; fi
+    ls /usr/lib/udev/rules.d/*steam* >/dev/null 2>&1 && ck_ok "Controller support (Steam's device rules) installed" \
+                                                     || ck_warn "Controller rules missing — install: steam-devices"
+    if ls /usr/share/steam/compatibilitytools.d/proton-cachyos* >/dev/null 2>&1; then ck_ok "Proton-CachyOS available in Steam"
+    else ck_ok "Proton comes with Steam (Proton-CachyOS needs the CachyOS repositories)"; fi
+    if in_group gamemode; then
+        id -nG | tr ' ' '\n' | grep -qx gamemode && ck_ok "GameMode allowed" || ck_warn "GameMode allowed after you log out and back in"
+    else ck_warn "You're not in the 'gamemode' group — fix: prime-addon enable gaming"; fi
+    local p; p="$(ppd_get)"
+    if [ -n "$p" ]; then ck_ok "Performance mode switch works (now: $p)"
+    else ck_warn "Power-profile service isn't running — Performance mode won't work (try: sudo systemctl enable --now power-profiles-daemon)"; fi
+    [ -f "$HUDCONF" ] && ck_ok "FPS overlay set up (currently $(hud status) at game start)" \
+                      || ck_warn "FPS overlay settings missing — fix: prime-addon enable gaming"
+    if [ "$(cat /proc/sys/vm/max_map_count 2>/dev/null || echo 0)" -ge 1048576 ]; then ck_ok "Memory map limit is game-ready"
+    else ck_warn "vm.max_map_count is low — some big games crash (CachyOS sets it; on Arch: install cachyos-settings or set 1048576)"; fi
+}
+
+case "${1:-}" in
+    perf)     perf "${2:-toggle}" ;;
+    hud)      hud "${2:-toggle}" ;;
+    tips)     tips ;;
+    setup)    setup ;;
+    teardown) teardown ;;
+    check)    check ;;
+    *)        sed -n '2,8p' "$0"; exit 2 ;;
+esac

@@ -1,0 +1,127 @@
+#!/usr/bin/env bash
+# prime-student — the Student pack's helper.
+#
+#   prime-student focus [start [minutes]|stop|toggle|status]   Focus mode (Super+Alt+F)
+#   prime-student tutor [question]   ask the AI tutor (needs the AI add-on)  (Super+Alt+T)
+#   prime-student setup | teardown | check     used by prime-addon
+#
+# Focus mode: notifications paused, a countdown in the bar, a nudge to take a break
+# at the end. Length: PRIME_FOCUS_MINUTES (default 25).
+set -u
+. "$(dirname "$(readlink -f "$0")")/../../_lib/pack.sh"
+SELF="$(readlink -f "$0")"
+STUDY="$HOME/Study"
+RUNTIME="${XDG_RUNTIME_DIR:-/tmp}"
+FOCUS="$RUNTIME/prime-focus"
+OBSIDIAN_CONF="${XDG_CONFIG_HOME:-$HOME/.config}/obsidian/obsidian.json"
+AI_ASK="$LAYER/addons/ai/bin/prime-ask"
+
+# ── Focus mode ───────────────────────────────────────────────────────────────
+focus_load() { END=0; PID=0; PREV=false; MIN=0; [ -f "$FOCUS" ] && . "$FOCUS"; }
+focus_on() { focus_load; [ "$END" -gt "$(date +%s)" ]; }
+dnd() { have swaync-client && swaync-client "$1" >/dev/null 2>&1; }
+focus() {
+    case "${1:-toggle}" in
+        toggle) if focus_on; then focus stop; else focus start "${2:-}"; fi ;;
+        status) if focus_on; then echo "on, $(( (END - $(date +%s) + 59) / 60 )) min left"; else echo off; fi ;;
+        bar)
+            if focus_on; then
+                local left=$(( (END - $(date +%s) + 59) / 60 ))
+                printf '{"text":"󰀠 %sm","tooltip":"Focus mode — %s min left. Notifications are paused.\\nClick to stop.","class":"on"}\n' "$left" "$left"
+            else printf '{"text":"","class":"off"}\n'; fi ;;
+        start)
+            focus_on && { notify "Focus mode is already on ($(focus status))."; return 0; }
+            local min="${2:-${PRIME_FOCUS_MINUTES:-25}}" prev pid
+            [[ "$min" =~ ^[0-9]+$ ]] && [ "$min" -gt 0 ] || min=25
+            prev="$(swaync-client -D 2>/dev/null || echo false)"
+            notify "Focus for $min minutes. Notifications are paused until then — Super+Alt+F stops early." 4000 "󰀠 Focus mode"
+            sleep 0.3; dnd -dn
+            setsid bash -c "sleep $((min * 60)); exec '$SELF' focus done" >/dev/null 2>&1 < /dev/null &
+            pid=$!
+            printf 'END=%s\nPID=%s\nPREV=%s\nMIN=%s\n' "$(( $(date +%s) + min * 60 ))" "$pid" "$prev" "$min" > "$FOCUS"
+            bar_signal 12 ;;
+        stop|done)
+            focus_load
+            [ -f "$FOCUS" ] || { [ "$1" = stop ] && notify "Focus mode isn't on."; return 0; }
+            [ "$1" = stop ] && [ "$PID" -gt 1 ] && kill -- -"$PID" 2>/dev/null
+            rm -f "$FOCUS"
+            [ "$PREV" = true ] || dnd -df
+            if [ "$1" = done ]; then
+                notify "$MIN minutes of focus done — nice. Take a 5-minute break, then Super+Alt+F for the next round." 0 "󰀠 Focus mode"
+            else notify "Focus mode off — notifications are back." 3000 "󰀠 Focus mode"; fi
+            bar_signal 12 ;;
+    esac
+}
+
+# ── the tutor: the AI add-on's prime-ask with a study framing ─────────────────
+TUTOR_PROMPT="You are a patient study tutor. Help me understand rather than handing me the answer: explain the idea step by step in plain words, use a small example, point out the usual mistake, and finish with one short question that checks I understood. If I'm doing graded work, guide me to the answer instead of writing it for me."
+tutor() {
+    local q="${*:-}"
+    if ! grep -qx ai "$HOME/.config/prime/addons" 2>/dev/null || ! [ -x "$AI_ASK" ]; then
+        notify "The tutor uses Prime's AI assistant. Switch it on: Prime menu → Settings → Add-ons → AI." 8000 "󰑴 Tutor"
+        [ -t 1 ] && echo "The tutor needs the AI add-on: prime-addon enable ai"
+        return 1
+    fi
+    if [ -z "$q" ] && [ -n "${WAYLAND_DISPLAY:-}" ] && have rofi; then
+        q="$(ROFI_HINT="Ask a study question — the tutor explains it step by step  ·  Esc cancels" \
+             "$LAYER/bin/prime-rofi" -dmenu -p "󰑴 Tutor" -theme spotlight < /dev/null)" || return 0
+    fi
+    [ -n "$q" ] || { exec "$AI_ASK" --box; }
+    exec "$AI_ASK" "$TUTOR_PROMPT
+
+My question: $q" --new
+}
+
+# ── setup ────────────────────────────────────────────────────────────────────
+obsidian_vault() {   # point Obsidian at ~/Study/Notes the first time it opens
+    [ -f "$OBSIDIAN_CONF" ] && return 0
+    mkdir -p "$(dirname "$OBSIDIAN_CONF")"
+    printf '{"vaults":{"%s":{"path":"%s","ts":%s000,"open":true}}}\n' \
+        "$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')" "$STUDY/Notes" "$(date +%s)" > "$OBSIDIAN_CONF"
+    say "Obsidian opens your notes in ~/Study/Notes."
+}
+lang_packs() {   # spell-check and LibreOffice in your language, when it isn't English
+    local l="${LANG%%.*}" two want=() p
+    two="${l%%_*}"; [ -n "$two" ] && [ "$two" != C ] && [ "$two" != POSIX ] || return 0
+    [ "$two" = en ] || want+=("libreoffice-fresh-$two" "hunspell-$two" "hyphen-$two")
+    [ "$l" != en_US ] && want+=("hunspell-${l,,}")
+    local avail=()
+    for p in "${want[@]}"; do pacman -Qq "$p" >/dev/null 2>&1 || ! pacman -Si "$p" >/dev/null 2>&1 || avail+=("$p"); done
+    [ ${#avail[@]} -gt 0 ] || return 0
+    say "Adding spell-check and office language packs for $l…"
+    "$LAYER/bin/prime-addon" get "${avail[@]}" >/dev/null || warn "language packs didn't install (try: prime-addon get ${avail[*]})"
+}
+setup() {
+    mkdir -p "$STUDY/Notes" "$STUDY/Classes" "$STUDY/Reading" "$STUDY/Assignments"
+    bookmark_add "$STUDY" Study
+    say "Your Study folder: Notes, Classes, Reading (PDFs) and Assignments — in the file manager's sidebar."
+    obsidian_vault
+    lang_packs
+    say "Focus mode (Super+Alt+F): $(echo "${PRIME_FOCUS_MINUTES:-25}") minutes, notifications paused, a timer in the bar."
+    if grep -qx ai "$HOME/.config/prime/addons" 2>/dev/null; then say "AI tutor ready: Super+Alt+T"
+    else note "AI tutor: switch on the AI add-on to use it (Prime menu → Settings → Add-ons)."; fi
+}
+teardown() { focus_on && focus stop >/dev/null; bookmark_remove "$STUDY"; return 0; }
+
+check() {
+    local d miss=()
+    for d in Notes Classes Reading Assignments; do [ -d "$STUDY/$d" ] || miss+=("$d"); done
+    [ ${#miss[@]} -eq 0 ] && ck_ok "Study folder in place (~/Study)" || ck_warn "Missing in ~/Study: ${miss[*]} — fix: prime-addon enable student"
+    if [ -f "$OBSIDIAN_CONF" ]; then ck_ok "Obsidian knows your notes folder"; else ck_warn "Obsidian hasn't been set up — open it once, or: prime-addon enable student"; fi
+    have swaync-client && ck_ok "Focus mode can pause notifications" || ck_bad "Notification centre (swaync) missing — Focus mode can't pause notifications"
+    ck_ok "Focus mode: $(focus status)"
+    local l="${LANG%%.*}"
+    if ls /usr/share/hunspell/"${l:-en_US}".dic >/dev/null 2>&1; then ck_ok "Spell-check dictionary for ${l:-en_US}"
+    else ck_warn "No spell-check dictionary for ${l} — try: prime-addon get hunspell-${l%%_*}"; fi
+    if grep -qx ai "$HOME/.config/prime/addons" 2>/dev/null && [ -x "$AI_ASK" ]; then ck_ok "AI tutor available (Super+Alt+T)"
+    else ck_warn "AI tutor off — it needs the AI add-on: prime-addon enable ai"; fi
+}
+
+case "${1:-}" in
+    focus)    focus "${2:-toggle}" "${3:-}" ;;
+    tutor)    shift; tutor "$@" ;;
+    setup)    setup ;;
+    teardown) teardown ;;
+    check)    check ;;
+    *)        sed -n '2,9p' "$0"; exit 2 ;;
+esac

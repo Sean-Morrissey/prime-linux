@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Focus Mode
+Comment=Pause notifications for a 25-minute study session (Super+Alt+F)
+Exec=@LAYER@/addons/student/bin/prime-student focus toggle
+Icon=preferences-desktop-notification
+Categories=Education;Utility;
+Keywords=focus;study;pomodoro;timer;concentrate;do not disturb;

@@ -14,7 +14,11 @@ set -euo pipefail
 PRIME_HOME="$HOME/.local/share/prime-linux"
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 STAMP="$(date +%Y%m%d-%H%M%S)"
-BACKUP="$HOME/.config-backups/prime-install-$STAMP"
+INSTALL_CONF="$HOME/.config/prime/install.conf"
+RUN_BACKUP="$HOME/.config-backups/prime-install-$STAMP"
+# A re-run keeps the first install's backup folder: it holds the originals prime-uninstall puts back.
+BACKUP="$(sed -n 's/^BACKUP=//p' "$INSTALL_CONF" 2>/dev/null || true)"
+[ -n "$BACKUP" ] && [ -d "$BACKUP" ] || BACKUP="$RUN_BACKUP"
 DRY=0; PKGS=1
 for a in "$@"; do
     case "$a" in
@@ -80,11 +84,22 @@ LAYER="$PRIME_HOME/layer"
 
 # ── 3. your config files (seeded once; existing ones backed up first) ────────
 step "Setting up your config files"
+backup() {   # backup <file relative to ~/.config> [folder]: copy it aside before it is replaced
+    local rel="$1" to="${2:-$BACKUP}"
+    [ -e "$BACKUP/$rel" ] && to="$RUN_BACKUP"   # never overwrite the first copy, it's what prime-uninstall restores
+    run mkdir -p "$to/$(dirname "$rel")"; run cp -a "$HOME/.config/$rel" "$to/$rel"
+    # recorded straight away, so an interrupted run still leaves prime-uninstall a way back
+    if [ "$to" = "$BACKUP" ] && [ $DRY = 0 ]; then
+        mkdir -p "$(dirname "$INSTALL_CONF")"
+        if grep -q '^BACKUP=' "$INSTALL_CONF" 2>/dev/null; then sed -i "s|^BACKUP=.*|BACKUP=$BACKUP|" "$INSTALL_CONF"
+        else printf 'BACKUP=%s\n' "$BACKUP" >> "$INSTALL_CONF"; fi
+    fi
+    info "~/.config/$rel — yours backed up to $to, replaced"
+}
 seed() {   # seed <file relative to ~/.config>
     local rel="$1" dst="$HOME/.config/$1" src="$SRC/layer/seed/$1"
     if [ -f "$dst" ] && grep -q 'prime-linux' "$dst" 2>/dev/null; then info "~/.config/$rel — already Prime's, kept"; return; fi
-    if [ -e "$dst" ]; then run mkdir -p "$BACKUP/$(dirname "$rel")"; run cp -a "$dst" "$BACKUP/$rel"; info "~/.config/$rel — yours backed up, replaced"
-    else info "~/.config/$rel — created"; fi
+    if [ -e "$dst" ]; then backup "$rel"; else info "~/.config/$rel — created"; fi
     run mkdir -p "$(dirname "$dst")"; run cp "$src" "$dst"
 }
 seed hypr/hyprland.conf
@@ -96,21 +111,29 @@ done
 
 # hardware.conf: what this machine's GPU needs for video decode
 gpu="$(lspci -nn 2>/dev/null | grep -iE 'vga|3d|display' || true)"
+hw="${TMPDIR:-/tmp}/prime-hw.$$"
 {
     echo "# Written by the Prime Linux installer for this machine ($(date +%F))."
-    if   grep -qi nvidia <<<"$gpu"; then
+    # by PCI vendor id: a name match finds "ati" in "Intel Corporation"
+    if   grep -qi '\[10de:' <<<"$gpu"; then
         echo "env = LIBVA_DRIVER_NAME,nvidia"
         echo "env = __GLX_VENDOR_LIBRARY_NAME,nvidia"
         echo "env = NVD_BACKEND,direct"
         echo "cursor {"; echo "    no_hardware_cursors = true"; echo "}"
-    elif grep -qiE 'amd|ati|radeon' <<<"$gpu"; then
+    elif grep -qi '\[1002:' <<<"$gpu"; then
         echo "env = LIBVA_DRIVER_NAME,radeonsi"
-    elif grep -qi intel <<<"$gpu"; then
+    elif grep -qi '\[8086:' <<<"$gpu"; then
         echo "env = LIBVA_DRIVER_NAME,iHD"
     fi
-} > "${TMPDIR:-/tmp}/prime-hw.$$"
+} > "$hw"
 info "GPU: $(sed -E 's/^[^:]*: //' <<<"$gpu" | head -1 | cut -c1-70)"
-run cp "${TMPDIR:-/tmp}/prime-hw.$$" "$HOME/.config/hypr/hardware.conf"; rm -f "${TMPDIR:-/tmp}/prime-hw.$$"
+if [ ! -e "$HOME/.config/hypr/hardware.conf" ]; then run cp "$hw" "$HOME/.config/hypr/hardware.conf"
+elif cmp -s <(tail -n +2 "$hw") <(tail -n +2 "$HOME/.config/hypr/hardware.conf"); then info "~/.config/hypr/hardware.conf — unchanged, kept"
+else  # an edited copy of ours is not an original for prime-uninstall to put back
+    if head -1 "$HOME/.config/hypr/hardware.conf" | grep -q '^# Written by the Prime Linux installer'; then backup hypr/hardware.conf "$RUN_BACKUP"
+    else backup hypr/hardware.conf; fi
+    run cp "$hw" "$HOME/.config/hypr/hardware.conf"; fi
+rm -f "$hw"
 
 # ── 4. theme ─────────────────────────────────────────────────────────────────
 step "Applying the theme"
@@ -176,4 +199,5 @@ printf '\n  %s%sPrime Linux is installed.%s\n\n' "$B" "$A" "$R"
 info "Log out, pick ${B}Hyprland${R} on the login screen, and log in."
 info "Then:  Super+Space search · Super+Alt+Space menu · Super+/ every shortcut"
 [ -d "$BACKUP" ] && info "Your previous configs are in $BACKUP"
+[ "$RUN_BACKUP" != "$BACKUP" ] && [ -d "$RUN_BACKUP" ] && info "Files replaced on this run are in $RUN_BACKUP"
 echo

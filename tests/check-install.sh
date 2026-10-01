@@ -26,5 +26,8 @@ ck "accent switch rewrites colours"         "$L/bin/prime-theme --set-accent 60a
 ck "add-on enable (no setup) + bar merge"   "echo ai >> ~/.config/prime/addons && $L/bin/prime-addon --relink && grep -q addons/ai ~/.config/hypr/addons.conf && $L/bin/prime-bar --print top | jq -e '.\"modules-left\" | index(\"custom/ask\")'"
 ck "config still valid with add-on"        "Hyprland --verify-config -c ~/.config/hypr/hyprland.conf"
 ck "right-click gets Ask rows with add-on"  "$L/bin/prime-context bar.cpu --list | grep -q 'Ask Prime'"
+ck "menu rows still resolve with the AI add-on"  "$L/bin/prime-menu --check | tail -1 | grep -q 'every row resolves'"
+ck "welcome app loads (GTK 4 + libadwaita)"     "python3 -c 'import gi; gi.require_version(\"Gtk\",\"4.0\"); gi.require_version(\"Adw\",\"1\"); from gi.repository import Adw' && python3 -c 'import ast,sys; ast.parse(open(sys.argv[1]).read())' $L/bin/prime-welcome"
+ck "assistant: toolbox, permissions, mock model, welcome" "bash $L/addons/ai/tests/run.sh"
 ck "no trace of the author's machine"      "! grep -rIl -e /home/sean -e '\\bsean\\b' $L ~/.config/hypr ~/.config/kitty ~/.config/prime"
 echo; [ $fail = 0 ] && echo "ALL PASSED" || echo "$fail FAILED"; exit $fail

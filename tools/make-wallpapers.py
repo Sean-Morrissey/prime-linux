@@ -47,16 +47,16 @@ def render(name, w, h, seed):
 
 
 def emblem(w, h, out):
-    """prime-emblem: the Split-tile emblem, large and quiet, over a deep red bloom."""
+    """prime-emblem: the Orbit P brand mark (Sunset), large and quiet, over a deep red bloom."""
     import subprocess, tempfile
     base = render("prime-ember", w, h, 7)
-    mark = os.path.join(os.path.dirname(__file__), "..", "layer", "branding", "mark.svg")
+    mark = os.path.join(os.path.dirname(__file__), "..", "layer", "branding", "brand-mark.svg")
     size = int(h * 0.30)
     with tempfile.NamedTemporaryFile(suffix=".png") as t:
         subprocess.run(["magick", "-background", "none", "-density", "600", mark,
                         "-resize", f"{size}x{size}", t.name], check=True)
         m = Image.open(t.name).convert("RGBA")
-        alpha = m.getchannel("A").point(lambda v: int(v * 0.62))
+        alpha = m.getchannel("A").point(lambda v: int(v * 0.85))
         m.putalpha(alpha)
         img = base.convert("RGBA")
         img.alpha_composite(m, ((w - size) // 2, (h - size) // 2))
@@ -68,18 +68,14 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default=os.path.join(os.path.dirname(__file__), "..", "layer", "wallpapers"))
     ap.add_argument("--size", default="3840x2160")
-    ap.add_argument("--only", help="build just this one (e.g. prime-emblem, prime-daylight)")
     a = ap.parse_args()
     w, h = map(int, a.size.split("x"))
     os.makedirs(a.out, exist_ok=True)
     for i, name in enumerate(SETS):
-        if a.only and a.only != name:
-            continue
         p = os.path.join(a.out, f"{name}.jpg")
         render(name, w, h, 1000 + i).save(p, quality=92, subsampling=0, optimize=True)
         print(p, os.path.getsize(p) // 1024, "KiB")
-    if not a.only or a.only == "prime-emblem":
-        emblem(w, h, os.path.join(a.out, "prime-emblem.jpg"))
+    emblem(w, h, os.path.join(a.out, "prime-emblem.jpg"))
 
 
 if __name__ == "__main__":

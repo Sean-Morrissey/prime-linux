@@ -1,6 +1,7 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
-  <!-- Prime Linux emblem "Split tile". Original artwork, CC0.
-       prime-theme recolours #f87171 to the accent. -->
-  <path fill="#f87171" d="M60 20 H76 A12 12 0 0 1 88 32 V224 A12 12 0 0 1 76 236 H60 A40 40 0 0 1 20 196 V60 A40 40 0 0 1 60 20 Z"/>
-  <path fill="#f87171" d="M118 20 H196 A40 40 0 0 1 236 60 V74 A72 72 0 0 1 164 146 H118 A12 12 0 0 1 106 134 V32 A12 12 0 0 1 118 20 Z"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <!-- Prime Linux emblem — "Orbit P" (concept D, chosen 2026-10-01). Original artwork, CC0.
+       Desktop copy: single colour; prime-theme recolours #f87171 to the user's accent. -->
+  <defs><mask id="m"><rect width="256" height="256" fill="#fff"/><path d="M75 26 A27 27 0 0 1 102 53 V205 A27 27 0 0 1 48 205 V53 A27 27 0 0 1 75 26 Z" fill="#000"/></mask></defs>
+  <path fill="#f87171" fill-rule="evenodd" mask="url(#m)" d="M72 104 a68 68 0 1 0 136 0 a68 68 0 1 0 -136 0 Z M106 104 a34 34 0 1 0 68 0 a34 34 0 1 0 -68 0 Z"/>
+  <path fill="#f87171" d="M75 36 A17 17 0 0 1 92 53 V205 A17 17 0 0 1 58 205 V53 A17 17 0 0 1 75 36 Z"/>
 </svg>

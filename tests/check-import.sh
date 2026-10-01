@@ -98,6 +98,14 @@ ck "the AI key is still there"                  "cmp $T/ai.key.orig $HOME/.confi
 ck "undo again changes nothing"                 "$L/bin/prime-import --undo && tree ${SAVED[*]} | diff $T/before.txt -"
 ck "apply → undo round-trips a second time"     "$L/bin/prime-import --apply --yes && $L/bin/prime-import --undo && tree ${SAVED[*]} | diff $T/before.txt -"
 
+echo "-- the installer offers it"
+H2="$T/home2"; cp -a "$FIX" "$H2"; find "$H2" -printf '%P %m\n' | sort > "$T/h2.txt"
+if command -v pacman >/dev/null 2>&1; then
+ck "install.sh --dry-run shows the import plan, changes nothing" "HOME=$H2 XDG_STATE_HOME= bash $REPO/install.sh --dry-run --no-packages > $T/inst.txt 2>&1; grep -q 'bring it along' $T/inst.txt && grep -q 'Open Steam' $T/inst.txt && find $H2 -printf '%P %m\n' | sort | diff - $T/h2.txt"
+else
+echo "  SKIP  no pacman here — install.sh --dry-run not run"
+fi
+
 echo "-- after the installer (old settings in its backup)"
 B="$HOME/.config-backups/prime-install-20260101-000000"
 mkdir -p "$B/hypr"; cp "$HOME/.config/hypr/hyprland.conf" "$B/hypr/hyprland.conf"

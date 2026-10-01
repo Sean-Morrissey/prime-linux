@@ -42,6 +42,7 @@ Three layers, so customisation stays unlimited and updates never fight the user:
 |---|---|---|
 | Defaults | `~/.local/share/prime-linux/layer/default` | `prime-update` (git pull) |
 | Add-ons / packs | `layer/addons/<name>`, enabled in `~/.config/prime/addons` | `prime-addon`, later Prime itself |
+| Personal add-ons | `~/.config/prime/addons.d/<name>` (same format; `prime-import` makes one from a pre-Prime desktop — [MIGRATING.md](MIGRATING.md)) | the user — never shipped, never overwritten |
 | The user's own | `~/.config/hypr/hyprland.conf`, `~/.config/kitty/kitty.conf`, `~/.config/waybar/user.css`, `~/.config/prime/menu.json` | the user — never overwritten |
 
 Hyprland sources defaults first and the user's lines last, so the user always

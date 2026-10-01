@@ -51,6 +51,11 @@ it stopped**. A full log is kept in `~/.local/state/prime/logs/`.
 Want to see what it will do first? Add ` -s -- --dry-run` at the end:
 `curl -fsSL …/boot.sh | bash -s -- --dry-run` — it shows every step and changes nothing.
 
+**Already had your own Hyprland setup?** At the end the installer offers to bring
+your shortcuts, screens, bar items and background services along as your own
+add-on — everything is saved first and `prime-import --undo` reverses it. Details:
+[MIGRATING.md](MIGRATING.md).
+
 ## 3. First login
 
 1. Log out (or restart).

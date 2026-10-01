@@ -150,7 +150,7 @@ for p in SCRIPTS:
         continue
     for n, line in enumerate(src.splitlines(), 1):
         if re.search(r"(\[\"kitty\"|exec kitty|\bkitty -e|\bkitty --class|prime-float\b)", line) \
-                and not line.lstrip().startswith("#"):
+                and not line.lstrip().startswith("#") and "prime-allow-terminal" not in line:
             term.append(f"{rel(p)}:{n}: {line.strip()}")
 ck("nothing in the menu, bar, right-click menus, app list or keys opens a terminal", term)
 

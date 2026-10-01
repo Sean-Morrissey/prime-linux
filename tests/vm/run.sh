@@ -137,9 +137,9 @@ cmd_prime() {
     ssh_vm 'rm -rf ~/prime-linux && git --version >/dev/null 2>&1 || sudo pacman -S --needed --noconfirm git >/dev/null' || die "no git in VM"
     # README "private repo" steps, word for word, except that `gh repo clone
     # Sean-Morrissey/prime-linux` (which needs a GitHub login) is this bundle
-    ssh_vm 'cd ~ && git clone -q /tmp/prime.bundle prime-linux'
+    ssh_vm 'git clone -q /tmp/prime.bundle ~/prime-linux'
     say "running the README's install command in the VM (log: install.log)"
-    ssh_vm 'cd ~ && bash prime-linux/install.sh' > "$WORK/install.log" 2>&1
+    ssh_vm 'bash ~/prime-linux/install.sh' > "$WORK/install.log" 2>&1
     local rc=$?; tail -12 "$WORK/install.log"
     [ $rc = 0 ] || die "install.sh failed in the VM (exit $rc) — see $WORK/install.log"
     ssh_vm 'cat ~/.cache/prime-hyprpm.log 2>/dev/null' > "$WORK/hyprpm.log"

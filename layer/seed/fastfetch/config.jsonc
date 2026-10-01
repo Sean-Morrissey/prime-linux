@@ -18,6 +18,8 @@
     "separator": "  ",
     "color": { "keys": "38;2;134;152;251", "title": "38;2;96;165;250" }
   },
+  // values are kept short: next to the 42-column logo a long line wraps
+  // under it in an 80-column terminal
   "modules": [
     "title",
     "separator",
@@ -27,13 +29,13 @@
     { "type": "uptime", "key": "On for" },
     { "type": "packages", "key": "Apps" },
     { "type": "shell", "key": "Shell" },
-    { "type": "display", "key": "Screen" },
+    { "type": "display", "key": "Screen", "format": "{width}x{height} @ {refresh-rate} Hz" },
     { "type": "wm", "key": "Desktop" },
     { "type": "terminal", "key": "Terminal" },
-    { "type": "cpu", "key": "Processor" },
-    { "type": "gpu", "key": "Graphics" },
+    { "type": "cpu", "key": "Processor", "format": "{name}" },
+    { "type": "gpu", "key": "Graphics", "format": "{name}" },
     { "type": "memory", "key": "Memory" },
-    { "type": "disk", "key": "Disk", "folders": "/" },
+    { "type": "disk", "key": "Disk", "folders": "/", "format": "{size-used} / {size-total} ({size-percentage})" },
     { "type": "battery", "key": "Battery" },
     "break",
     "colors"

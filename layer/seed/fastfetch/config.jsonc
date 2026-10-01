@@ -8,11 +8,11 @@
   "logo": {
     "type": "file-raw",
     "source": "~/.config/prime/prime-logo.txt",
-    // 15 lines x 16 columns; the module list below is ~19 lines, so 2 lines of
+    // 8 lines x 38 columns; the module list below is ~19 lines, so 5 lines of
     // top padding centre the logo against it
-    "width": 16,
-    "height": 15,
-    "padding": { "top": 2, "left": 2, "right": 4 }
+    "width": 38,
+    "height": 8,
+    "padding": { "top": 5, "left": 2, "right": 4 }
   },
   "display": {
     "separator": "  ",

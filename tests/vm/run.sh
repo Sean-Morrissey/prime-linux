@@ -134,10 +134,12 @@ cmd_prime() {
     say "copying this checkout in (as boot.sh would clone it)"
     git -C "$REPO" bundle create "$WORK/prime.bundle" HEAD >/dev/null 2>&1 || die "git bundle failed"
     scp_vm "$WORK/prime.bundle" alex@127.0.0.1:/tmp/prime.bundle
-    ssh_vm 'rm -rf ~/prime-src && git --version >/dev/null 2>&1 || sudo pacman -S --needed --noconfirm git >/dev/null' || die "no git in VM"
-    ssh_vm 'git clone -q /tmp/prime.bundle ~/prime-src'
-    say "running install.sh in the VM (log: install.log)"
-    ssh_vm 'bash ~/prime-src/install.sh --yes' > "$WORK/install.log" 2>&1
+    ssh_vm 'rm -rf ~/prime-linux && git --version >/dev/null 2>&1 || sudo pacman -S --needed --noconfirm git >/dev/null' || die "no git in VM"
+    # README "private repo" steps, word for word, except that `gh repo clone
+    # Sean-Morrissey/prime-linux` (which needs a GitHub login) is this bundle
+    ssh_vm 'cd ~ && git clone -q /tmp/prime.bundle prime-linux'
+    say "running the README's install command in the VM (log: install.log)"
+    ssh_vm 'cd ~ && bash prime-linux/install.sh' > "$WORK/install.log" 2>&1
     local rc=$?; tail -12 "$WORK/install.log"
     [ $rc = 0 ] || die "install.sh failed in the VM (exit $rc) — see $WORK/install.log"
     ssh_vm 'cat ~/.cache/prime-hyprpm.log 2>/dev/null' > "$WORK/hyprpm.log"
@@ -177,6 +179,11 @@ cmd_prime() {
         ck 'login health check clean'    '~/.local/share/prime-linux/layer/bin/prime-doctor --login'
         grim /tmp/desktop.png" | tee "$WORK/session-checks.log"
     scp_vm alex@127.0.0.1:/tmp/desktop.png "$WORK/desktop.png" && say "screenshot: $WORK/desktop.png"
+    say "opening what a friend sees first: bar, Start menu, Spotlight, Prime menu, terminal greeting"
+    scp_vm "$HERE/desktop-checks.sh" alex@127.0.0.1:/tmp/desktop-checks.sh
+    ssh_vm "$E; export XDG_RUNTIME_DIR WAYLAND_DISPLAY HYPRLAND_INSTANCE_SIGNATURE; bash /tmp/desktop-checks.sh" \
+        | tee -a "$WORK/session-checks.log"
+    for p in start-menu spotlight prime-menu terminal; do scp_vm "alex@127.0.0.1:/tmp/$p.png" "$WORK/$p.png" 2>/dev/null; done
     # an empty desktop is one flat colour in the middle; a wallpaper is thousands
     local colours; colours="$("$(command -v magick || echo convert)" "$WORK/desktop.png" -gravity center -crop 40%x40%+0+0 -format %k info: 2>/dev/null || echo 0)"
     if [ "${colours:-0}" -gt 200 ]; then echo "    ✓ wallpaper visible ($colours colours mid-screen)" | tee -a "$WORK/session-checks.log"

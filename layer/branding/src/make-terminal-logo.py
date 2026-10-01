@@ -1,20 +1,16 @@
 #!/usr/bin/env python3
-"""make-terminal-logo.py — the terminal greeting's logo: P.R.I.M.E, spelled down,
-the words read across.
+"""make-terminal-logo.py — the terminal greeting's logo: the PRIME wordmark with
+what it stands for underneath.
 
-    P  lease
-    R  elax
-    I  'll
-    M  anage
-    E  verything
+    ██████╗ ██████╗ ██╗███╗   ███╗███████╗
+    ...                                       (blue-to-violet, one colour per row)
 
-Each capital is a compact 3-row block letter (a 5x6 bitmap drawn with half blocks)
-in the brand's blue-to-violet gradient, one colour per letter; the rest of the word
-sits on the letter's middle row in bright text. Writes, next to this file's
-../terminal/ folder:
+      Please Relax I'll Manage Everything     (the initials in the brand colours)
+
+Writes, next to this file's ../terminal/ folder:
 
     prime-logo.txt        truecolor ANSI (what fastfetch shows)
-    prime-logo.plain.txt  the same shapes, no colour (for logs, `cat`, screen readers)
+    prime-logo.plain.txt  the same, no colour (for logs, `cat`, screen readers)
 
 The fastfetch config (layer/seed/fastfetch/config.jsonc) uses the size printed at
 the end, and the vertical padding that centres the logo against its module list.
@@ -26,37 +22,37 @@ import os
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(HERE, "..", "terminal")
 
-# 5 wide x 6 tall; '#' is ink. Two bitmap rows make one text row (▀ ▄ █).
-GLYPHS = {
-    "P": ["####.", "#...#", "####.", "#....", "#....", "#...."],
-    "R": ["####.", "#...#", "####.", "#.#..", "#..#.", "#...#"],
-    "I": [".###.", "..#..", "..#..", "..#..", "..#..", ".###."],
-    "M": ["#...#", "##.##", "#.#.#", "#...#", "#...#", "#...#"],
-    "E": ["#####", "#....", "####.", "#....", "#....", "#####"],
-}
-WORDS = [("P", "lease"), ("R", "elax"), ("I", "'ll"), ("M", "anage"), ("E", "verything")]
-GRADIENT = [(96, 165, 250), (115, 158, 250), (134, 152, 251), (154, 145, 251), (192, 132, 252)]
-GAP = "  "                                   # between the capital and the rest of the word
-BRIGHT, RESET = "\x1b[1;97m", "\x1b[0m"
+WORDMARK = [
+    "██████╗ ██████╗ ██╗███╗   ███╗███████╗",
+    "██╔══██╗██╔══██╗██║████╗ ████║██╔════╝",
+    "██████╔╝██████╔╝██║██╔████╔██║█████╗",
+    "██╔═══╝ ██╔══██╗██║██║╚██╔╝██║██╔══╝",
+    "██║     ██║  ██║██║██║ ╚═╝ ██║███████╗",
+    "╚═╝     ╚═╝  ╚═╝╚═╝╚═╝     ╚═╝╚══════╝",
+]
+# one colour per wordmark row, sapphire to amethyst
+GRADIENT = [(96, 165, 250), (115, 158, 250), (134, 152, 251),
+            (154, 145, 251), (173, 139, 252), (192, 132, 252)]
+WORDS = ["Please", "Relax", "I'll", "Manage", "Everything"]
+# the initial of each word takes a brand colour (P..E across the gradient)
+INITIALS = [GRADIENT[0], GRADIENT[1], GRADIENT[2], GRADIENT[4], GRADIENT[5]]
+DIM, RESET = "\x1b[38;2;161;161;170m", "\x1b[0m"
 
 
-def rows(letter: str) -> list:
-    bm = GLYPHS[letter]
-    out = []
-    for top, bot in zip(bm[0::2], bm[1::2]):
-        out.append("".join("█" if a == "#" and b == "#" else "▀" if a == "#" else "▄" if b == "#" else " "
-                           for a, b in zip(top, bot)))
-    return out
+def fg(rgb):
+    return "\x1b[1;38;2;{};{};{}m".format(*rgb)
 
 
 def build():
-    ansi, plain = [], []
-    for (letter, rest), (r, g, b) in zip(WORDS, GRADIENT):
-        colour = f"\x1b[38;2;{r};{g};{b}m"
-        for i, line in enumerate(rows(letter)):
-            tail = rest if i == 1 else ""
-            plain.append((line + (GAP + tail if tail else "")).rstrip())
-            ansi.append(f"{colour}{line}{RESET}" + (f"{GAP}{BRIGHT}{tail}{RESET}" if tail else ""))
+    width = max(len(l) for l in WORDMARK)
+    tagline = " ".join(WORDS)
+    pad = " " * ((width - len(tagline)) // 2)
+    ansi = [f"{fg(c)}{line}{RESET}" for line, c in zip(WORDMARK, GRADIENT)]
+    plain = list(WORDMARK)
+    ansi.append("")
+    plain.append("")
+    ansi.append(pad + " ".join(f"{fg(c)}{w[0]}{RESET}{DIM}{w[1:]}{RESET}" for w, c in zip(WORDS, INITIALS)))
+    plain.append(pad + tagline)
     return ansi, plain
 
 

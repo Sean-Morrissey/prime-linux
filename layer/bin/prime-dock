@@ -1,24 +1,49 @@
 #!/usr/bin/env bash
 # prime-dock — the dock: your pinned apps and everything that's open, at the bottom of
-# the screen, out of the way until you move the pointer to the bottom edge (like a Mac).
+# the screen of the pointer, out of the way until the pointer touches the bottom edge of
+# any screen (like a Mac).
 # A click opens or switches to an app; the grid button opens Start; right-click an app
 # to pin or unpin it.
 #
 #   prime-dock          what prime-dock.service runs
 #   prime-dock --args   print the dock command (tests)
 #
-# The dock is nwg-dock-hyprland. If it isn't installed, the older side bar (a column of
-# open apps on the left) starts instead, so there is always a way back to a window.
+# The dock is nwg-dock-hyprland. If it isn't installed yet (Update everything installs
+# it), the older side bar (a column of open apps on the left) stands in, and it hides
+# too: it slides in when the pointer touches the left edge and away once it leaves.
 set -u
 BIN="$(dirname "$(readlink -f "$0")")"
 CONF="$HOME/.config/nwg-dock-hyprland"
 PINNED="$HOME/.cache/nwg-dock-pinned"
 
-args=(-d -p bottom -i 44 -mb 8 -hd 300 -s prime.css -c "$BIN/prime-start")
+args=(-d -p bottom -i 44 -mb 8 -hd 0 -s prime.css -c "$BIN/prime-start")
 if [ "${1:-}" = --args ]; then printf '%s\n' nwg-dock-hyprland "${args[@]}"; exit 0; fi
 
+# how far the pointer is from the left edge of the screen it is on (logical pixels)
+edge_x() {
+    local pos mons
+    pos="$(hyprctl cursorpos -j 2>/dev/null)" || return 1
+    mons="$(hyprctl monitors -j 2>/dev/null)" || return 1
+    jq -rn --argjson p "$pos" --argjson m "$mons" \
+        '($m | map(select($p.x >= .x and $p.y >= .y and $p.x < .x + (.width / .scale) and $p.y < .y + (.height / .scale))) | first // empty) as $on
+         | if $on then ($p.x - $on.x | floor) else empty end'
+}
+
+side_bar() {
+    PRIME_SIDE_AUTOHIDE=1 "$BIN/prime-bar" side & local bar=$! shown=0 x
+    trap 'kill $bar 2>/dev/null' EXIT TERM INT
+    while kill -0 "$bar" 2>/dev/null; do
+        sleep 0.15
+        x="$(edge_x)" || continue
+        [ -n "$x" ] || continue
+        if [ "$shown" = 0 ] && [ "$x" -le 1 ]; then kill -USR1 "$bar"; shown=1
+        elif [ "$shown" = 1 ] && [ "$x" -gt 70 ]; then kill -USR1 "$bar"; shown=0; fi
+    done
+    wait "$bar"
+}
+
 if ! command -v nwg-dock-hyprland >/dev/null 2>&1; then
-    exec "$BIN/prime-bar" side
+    side_bar; exit $?
 fi
 
 # its style comes from the theme (accent, glass); the file must live in its own folder

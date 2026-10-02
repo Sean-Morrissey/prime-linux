@@ -169,6 +169,7 @@ cmd_prime() {
         # retried: at first login Hyprland is busy loading the title-bar plugin for a few seconds
         ck 'Hyprland running'            'for i in \$(seq 15); do hyprctl -j version && exit 0; sleep 2; done; exit 1'
         ck 'config loaded with no errors' '[ \"\$(hyprctl -j configerrors | jq -r \".[]\" | grep -c .)\" = 0 ]'
+        ck 'main window left, new ones share the right half' 'hyprctl -j getoption general:layout | jq -e \".str == \\\"master\\\"\"'
         ck 'top bar + dock running'      '[ \$(pgrep -cx waybar) -ge 1 ] && for i in \$(seq 10); do pgrep -f nwg-dock-hyprland && exit 0; sleep 1; done; exit 1'
         ck 'prime-session.target active' 'systemctl --user is-active prime-session.target'
         ck 'volume popups (swayosd)'     'pgrep -x swayosd-server'

@@ -217,6 +217,7 @@ PAGES = [
     ("apps", "Apps", "view-app-grid-symbolic", "default browser file manager startup autostart packs add-ons app store"),
     ("updates", "Updates", "software-update-available-symbolic", "update upgrade automatic nightly undo rollback snapshot"),
     ("security", "Privacy & Security", "security-high-symbolic", "firewall ssh remote login password encryption permissions"),
+    ("printers", "Printers", "printer-symbolic", "print printer scanner paper ink"),
     ("datetime", "Date & Time", "preferences-system-time-symbolic", "clock time zone timezone date ntp"),
     ("region", "Language & Region", "preferences-desktop-locale-symbolic", "language locale region format"),
     ("accounts", "Users & Accounts", "system-users-symbolic", "account name password user login"),
@@ -435,6 +436,25 @@ def gui(page: str = "", screenshots: str = "", selftest: bool = False) -> int:
         g.add(r)
         return r
 
+    CORE_SECTIONS = {"apps", "settings", "toggles", "tools", "style", "update", "power", "about"}
+
+    def registry() -> list:
+        """Every row Prime knows (its own, each enabled pack's, your own menu.json)."""
+        try:
+            return json.loads(sh("prime-menu", "--json", timeout=8) or "{}").get("sections", [])
+        except ValueError:
+            return []
+
+    def pack_group(page, sec, title="", skip=()):
+        rows = [it for it in sec.get("items", []) if it.get("id") not in skip]
+        if not rows:
+            return None
+        g = group(page, title or re.sub(r"^\W+", "", sec.get("label", "")).strip())
+        for it in rows:
+            opener(g, it.get("label", ""), it.get("hint", ""), ["prime-menu", "--run", it["id"]],
+                   "Show" if it.get("kind") in ("panel", "term") else "Open")
+        return g
+
     def missing(g, what):
         g.add(Adw.ActionRow(title=GLib.markup_escape_text(what), subtitle="Not on this computer"))
 
@@ -558,6 +578,10 @@ def gui(page: str = "", screenshots: str = "", selftest: bool = False) -> int:
         choice(win, g3, "After a screenshot", "", after, st.get("after_screenshot", "buttons"),
                lambda v: tb("after_screenshot", v))
         opener(g3, "Take a screenshot now", "Drag over the part you want", ["prime-snip", "area"], "Take")
+        g4 = group(page, "Recording and colours")
+        opener(g4, "Record part of the screen", "Super+Shift+R; press it again to stop", ["prime-record", "area"], "Record")
+        opener(g4, "Record the whole screen with sound", "Super+Ctrl+Shift+R", ["prime-record", "screen", "--sound"], "Record")
+        opener(g4, "Pick a colour from the screen", "Copies its code (Super+Shift+C)", ["prime-colour"], "Pick")
         return page
 
     def p_appearance(win):
@@ -578,6 +602,9 @@ def gui(page: str = "", screenshots: str = "", selftest: bool = False) -> int:
         g2 = group(page, "Motion")
         switch(win, g2, "Animations", "Windows slide and fade; off is calmer and faster",
                st.get("animations", "on") != "off", lambda on: tb("animations", "on" if on else "off"))
+        g4 = group(page, "Advanced")
+        opener(g4, "Edit the window & keyboard settings file", "Your own lines win over Prime's", ["gnome-text-editor",
+               os.path.join(HOME, ".config/hypr/hyprland.conf")], "Edit")
         g3 = group(page, "Screen saver")
         opener(g3, "Preview the screen saver", "What shows before the screen locks", ["prime-screensaver"], "Preview")
         return page
@@ -651,6 +678,9 @@ def gui(page: str = "", screenshots: str = "", selftest: bool = False) -> int:
                fmt=lambda x: f"{x:.0f} a second")
         g3 = group(page, "Shortcuts")
         opener(g3, "Every keyboard shortcut", "Searchable; pick one to run it (Super+/)", ["prime-keys"], "Show")
+        g4 = group(page, "Typing tools")
+        opener(g4, "Emoji", "Super+Ctrl+E", ["prime-emoji"], "Open")
+        opener(g4, "Clipboard history", "Everything you copied recently (Super+V)", ["prime-clip-picker"], "Open")
         return page
 
     def p_processor(win):
@@ -732,6 +762,9 @@ def gui(page: str = "", screenshots: str = "", selftest: bool = False) -> int:
                    sh(pg, "hud", "status") == "on",
                    lambda v: done(ok(pg, "hud", "on" if v else "off"), "FPS overlay " + ("on" if v else "off")))
             opener(g2, "Tips for the best performance", "", ["prime-panel", "--title", "Gaming tips", "--", pg, "tips"])
+        for sec in registry():
+            if sec.get("id") == "gaming":
+                pack_group(page, sec, "Games and tools", skip=("game.perf", "game.hud", "game.tips"))
         g3 = group(page, "Graphics")
         for name, drv in gpus()[:2]:
             info(g3, name, f"driver: {drv}" if drv else "")
@@ -754,6 +787,10 @@ def gui(page: str = "", screenshots: str = "", selftest: bool = False) -> int:
                AUTONOMY, cur, lambda lv: done(ok("prime-settings", "autonomy", lv), "Saved"))
         opener(g2, "What Prime changed", "Every change, in plain words, and how to undo it",
                ["prime-panel", "--title", "What Prime changed", "--", os.path.join(BIN, "prime-settings"), "log", "30"], "Show")
+        if on:
+            for sec in registry():
+                if sec.get("id") == "prime":
+                    pack_group(page, sec, "Ask Prime")
         return page
 
     def p_apps(win):
@@ -791,7 +828,10 @@ def gui(page: str = "", screenshots: str = "", selftest: bool = False) -> int:
             switch(win, g3, name, f, not hidden, flip)
             shown += 1
         if not shown:
-            info(g3, "Nothing extra starts with the computer", "")
+            info(g3, "Nothing extra starts with the computer", "Apps you set to start by themselves show up here")
+        for sec in registry():               # Coding, Creating, Studying… (Gaming and AI have their own pages)
+            if sec.get("id") not in CORE_SECTIONS | {"gaming", "prime"}:
+                pack_group(page, sec)
         return page
 
     def p_updates(win):
@@ -805,6 +845,7 @@ def gui(page: str = "", screenshots: str = "", selftest: bool = False) -> int:
         opener(g2, "Update everything", "The system, apps and Prime", ["prime-update"], "Update")
         opener(g2, "What's waiting", "Nothing changes until you choose to", ["prime-update", "--check"], "Show")
         opener(g2, "Undo the last update", "Go back to how things were before it", ["prime-update", "--undo"], "Undo")
+        opener(g2, "System snapshots", "Every saved state of the system, newest first", ["prime-snapshots"], "Show")
         return page
 
     def p_security(win):
@@ -825,6 +866,18 @@ def gui(page: str = "", screenshots: str = "", selftest: bool = False) -> int:
         opener(g2, "Full security check", "With the fix for anything that needs you",
                ["prime-panel", "--title", "Security check", "--", os.path.join(BIN, "prime-security"), "status"], "Open")
         opener(g2, "Get a file back", "File History", ["prime-file-history"], "Open")
+        return page
+
+    def p_printers(win):
+        page = Adw.PreferencesPage()
+        g = group(page, "Printers", "Most Wi-Fi printers are found by themselves")
+        names = [l.split()[1] for l in sh("lpstat", "-p").splitlines() if l.startswith("printer ")]
+        default = sh("lpstat", "-d").split(":")[-1].strip()
+        for n in names:
+            info(g, n.replace("_", " "), "Default printer" if n == default else "Ready", "printer-symbolic")
+        if not names:
+            info(g, "No printers yet", "Add one below")
+        opener(g, "Add or change a printer", "Find a printer on the network or a USB cable", ["system-config-printer"], "Open")
         return page
 
     def p_datetime(win):
@@ -861,7 +914,7 @@ def gui(page: str = "", screenshots: str = "", selftest: bool = False) -> int:
             name = m.group(1).strip()
         info(g, "Name", name or os.environ.get("USER", ""), "avatar-default-symbolic")
         info(g, "Account", os.environ.get("USER", "") or os.path.basename(HOME))
-        opener(g, "Change your name and preferences", "The Welcome app, any time", ["prime-welcome"], "Open")
+        opener(g, "Set up my computer again", "Your name, look, packs and updates — the Welcome app", ["prime-welcome"], "Open")
         g2 = group(page, "Password")
         r = Adw.ActionRow(title="Change your password", subtitle="The one you log in and unlock with")
         b = Gtk.Button(label="Change", valign=Gtk.Align.CENTER)
@@ -953,13 +1006,17 @@ def gui(page: str = "", screenshots: str = "", selftest: bool = False) -> int:
         r.add_suffix(b)
         g2.add(r)
         opener(g2, "About Prime", "P.R.I.M.E — Please Relax I'll Manage Everything", ["prime-about"])
+        g3 = group(page, "Repair")
+        opener(g3, "Save desktop settings now", "A copy you can restore later", ["prime-menu", "--run", "style.save"], "Save")
+        opener(g3, "Restart the bar", "If the bar froze or vanished (Super+W)", ["prime-bar", "restart"], "Restart")
+        opener(g3, "Reload window settings", "After editing the settings file by hand", ["prime-menu", "--run", "style.reload"], "Reload")
         return page
 
     BUILDERS = {"network": p_network, "bluetooth": p_bluetooth, "sound": p_sound, "display": p_display,
                 "appearance": p_appearance, "notifications": p_notifications, "power": p_power,
                 "mouse": p_mouse, "keyboard": p_keyboard, "processor": p_processor, "graphics": p_graphics,
                 "storage": p_storage, "gaming": p_gaming, "assistant": p_assistant, "apps": p_apps,
-                "updates": p_updates, "security": p_security, "datetime": p_datetime, "region": p_region,
+                "updates": p_updates, "security": p_security, "printers": p_printers, "datetime": p_datetime, "region": p_region,
                 "accounts": p_accounts, "accessibility": p_accessibility, "about": p_about}
     assert set(BUILDERS) == {p for p, *_ in PAGES}
 

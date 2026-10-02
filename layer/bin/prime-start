@@ -10,7 +10,7 @@ monitor you are using:
     (~/.config/prime/pinned, one app id per line);
   * All apps › — every app, A to Z;
   * Recent — the last files you opened;
-  * your name, and buttons for the Prime menu, Settings, Lock and Power.
+  * your name, and buttons for Settings, Lock and Power.
 
 Esc, a click anywhere outside, or the logo again closes it.
 
@@ -495,7 +495,6 @@ class Start:
         foot.pack_start(who, True, True, 0)
         self.footer_buttons = []
         for icon, label, cmd in (
-            ("prime-linux", "Prime menu", [os.path.join(BIN, "prime-menu")]),
             ("preferences-system-symbolic", "Settings", [os.path.join(BIN, "prime-system-settings")]),
             ("system-lock-screen-symbolic", "Lock", ["loginctl", "lock-session"]),
             ("system-shutdown-symbolic", "Power", [os.path.join(BIN, "prime-power-menu")]),
@@ -803,9 +802,9 @@ def selftest() -> int:
         install_css()
         s = Start(offscreen=True)
         check("window builds with search, pinned grid and footer",
-              s.entry.get_placeholder_text().startswith("Search") and len(s.footer_buttons) == 4)
+              s.entry.get_placeholder_text().startswith("Search") and len(s.footer_buttons) == 3)
         check("footer buttons are named", [b.get_accessible().get_name() for b in s.footer_buttons]
-              == ["Prime menu", "Settings", "Lock", "Power"])
+              == ["Settings", "Lock", "Power"])
         s.show_all()
         check("All apps › shows every app A–Z", s.page == "all" and s.link_button.get_label() == "‹ Back")
         s.show_pinned()
@@ -833,7 +832,7 @@ def main() -> int:
     ap.add_argument("--selftest", action="store_true")
     ap.add_argument("--screenshot", metavar="PNG")
     ap.add_argument("--query", default="")
-    ap.add_argument("--all", action="store_true", help="with --screenshot: the All apps page")
+    ap.add_argument("--all", action="store_true", help="open on the All apps page (Super+A)")
     a = ap.parse_args()
     if a.selftest:
         return selftest()
@@ -854,6 +853,8 @@ def main() -> int:
     try:
         install_css()
         start = Start()
+        if a.all:
+            start.show_all()
         GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGTERM, start.close)
         start.present()
         Gtk.main()

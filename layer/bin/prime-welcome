@@ -5,7 +5,7 @@ A short, friendly window (GTK 4 / libadwaita): the three keys worth knowing, pic
 a look, what the computer is for (→ packs), how updates happen, optionally
 connect an AI assistant, how much Prime may do on its own, done. Every step can
 be skipped; nothing needs an AI or the internet. Run it again any time from the
-Prime menu → "Set up my computer again".
+Settings → Users & Accounts → "Set up my computer again".
 
   prime-welcome                 open it
   prime-welcome --first-run     open it only if it hasn't been finished (login autostart)
@@ -52,9 +52,9 @@ USES = [  # id, pack, title, what it brings, icon
 UPDATES = [("automatic", "Automatic (recommended)",
             "Every night: a safety snapshot, then updates. Never restarts on its own; a bad update rolls back."),
            ("ask", "Ask me first", "Prime tells you when updates are ready; you choose when."),
-           ("off", "Off", "Nothing happens unless you start it (Prime menu → Update). Not recommended.")]
+           ("off", "Off", "Nothing happens unless you start it (Settings → Updates). Not recommended.")]
 PROVIDERS = [  # id, title, subtitle, default url, needs key
-    ("none", "Not now", "Prime still keeps your computer healthy. Connect one later from the Prime menu.", "", False),
+    ("none", "Not now", "Prime still keeps your computer healthy. Connect one later in Settings → AI Assistant.", "", False),
     ("local", "A model on this computer", "llama-server or Ollama — private and free", "http://localhost:8080/v1", False),
     ("network", "A model on another computer at home", "e.g. a desktop running llama-server or Ollama", "", False),
     ("openrouter", "OpenRouter", "Many models with one account — needs an API key", "https://openrouter.ai/api/v1", True),
@@ -539,7 +539,7 @@ def gui(screenshots=None):
         # ── 3 uses
         def p_uses(self):
             grp = Adw.PreferencesGroup(description="Pick as many as you like. Prime adds the right apps and shortcuts — "
-                                                   "you can change this later in the Prime menu → Add-ons.")
+                                                   "you can change this later in the Settings → Apps → Packs and add-ons.")
             self.use_checks = {}
             for uid, pack, title, sub, icon in USES:
                 if pack and not pack_available(pack):
@@ -811,7 +811,7 @@ def gui(screenshots=None):
                     f.write("closed early " + _dt.datetime.now().isoformat(timespec="seconds") + "\n")
                 if live():
                     subprocess.Popen(["notify-send", "-a", "Prime", "Set up later",
-                                      "Any time: Prime menu (Super+Alt+Space) → Set up my computer again"])
+                                      "Any time: Settings (Super+I) → Users & Accounts → Set up my computer again"])
             return False
 
     def render_all(win, outdir):

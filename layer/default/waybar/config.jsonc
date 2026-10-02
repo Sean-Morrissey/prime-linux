@@ -18,6 +18,7 @@
   "spacing": 4,
   "modules-left": [
     "image#logo",
+    "hyprland/workspaces",
     "custom/mediaPrev",
     "custom/mediaPlay",
     "custom/mediaNext",
@@ -36,6 +37,16 @@
     "custom/notification",
     "custom/power"
   ],
+  // workspaces: one dot per desktop in use (just one, until you use more) — the
+  // running apps live in the dock at the bottom (prime-dock)
+  "hyprland/workspaces": {
+    "on-click": "activate",
+    "on-scroll-up": "hyprctl dispatch workspace e-1",
+    "on-scroll-down": "hyprctl dispatch workspace e+1",
+    "format": "{icon}",
+    "format-icons": {"default": "●"},
+    "on-click-right": "~/.local/share/prime-linux/layer/bin/prime-context bar.workspaces"
+  },
   "tray": {
     "icon-size": 16,
     "spacing": 10
@@ -259,7 +270,7 @@
     "path": "~/.config/prime/theme/mark.svg",
     "size": 18,
     "tooltip": true,
-    "tooltip-format": "Start (Super+X) — apps, pinned, recent files\nRight-click for more · Prime menu Super+Alt+Space · Search Super+Space",
+    "tooltip-format": "Start (Super+X) — apps, pinned, recent files\nRight-click for more · Settings Super+I · Search Super+Space",
     "on-click": "~/.local/share/prime-linux/layer/bin/prime-start",
     "on-click-right": "~/.local/share/prime-linux/layer/bin/prime-context bar.logo",
     "interval": 3600

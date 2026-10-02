@@ -1235,7 +1235,7 @@ def run_tool(name, args, actor="user", mode="deny", untrusted=""):
 
 def notify(title, body):
     if live():
-        run(["notify-send", "-a", "Prime", title, body + "\nUndo: Prime menu → Undo, or ask Prime."])
+        run(["notify-send", "-a", "Prime", title, body + "\nUndo: Settings → About & Help → Undo, or ask Prime."])
 
 
 # ── command line ─────────────────────────────────────────────────────────────

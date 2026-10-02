@@ -15,7 +15,7 @@
   },
   "elements": {
     "bar.logo": {
-      "label": "Prime menu",
+      "label": "Start",
       "state": "printf '%s on %s · workspace %s' \"$XDG_CURRENT_DESKTOP\" \"$(uname -r)\" \"$(hyprctl -j activeworkspace 2>/dev/null | jq -r .name)\"",
       "ask": "The logo element in my bar is my app launcher. My session: {state}. What should I know about this setup?",
       "items": [
@@ -24,8 +24,8 @@
           "cmd": "~/.local/share/prime-linux/layer/bin/prime-spotlight"
         },
         {
-          "label": "󰍜  Open the Prime menu",
-          "cmd": "~/.local/share/prime-linux/layer/bin/prime-menu"
+          "label": "󰒓  Open Settings",
+          "cmd": "~/.local/share/prime-linux/layer/bin/prime-system-settings"
         },
         {
           "label": "󰒓  Open the power menu",

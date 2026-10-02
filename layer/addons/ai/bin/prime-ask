@@ -308,7 +308,7 @@ def answer(text, image=None, new=False, tutor=False, source=""):
             print("@bad The assistant isn't set up yet")
             print(f"@action Set it up\t{os.path.join(HERE, 'prime-ai-setup')}")
         else:
-            print("The assistant isn't set up yet — Prime menu → Ask Prime → Change the model.")
+            print("The assistant isn't set up yet — Settings → AI Assistant → Change the model.")
         return 1
     tools = load_tools()
     mode = tool_mode(c, tutor)
@@ -377,7 +377,7 @@ def answer(text, image=None, new=False, tutor=False, source=""):
             print(f"@action Change the model\t{os.path.join(HERE, 'prime-ai-setup')}")
         else:
             print(f"\n{RED}Couldn't reach the assistant:{OFF} {e}\n"
-                  "Change it in the Prime menu → Ask Prime → Change the model.")
+                  "Change it in the Settings → AI Assistant → Change the model.")
         return 1
     reply = ACTION_RE.sub("", reply).strip()
     os.makedirs(CACHE, exist_ok=True)

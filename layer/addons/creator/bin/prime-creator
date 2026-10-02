@@ -115,10 +115,10 @@ tips() {
   • Kdenlive: when rendering, choose a profile marked VAAPI (AMD/Intel) or NVENC
     (NVIDIA) — much faster than the CPU ones. If none are listed, switch on the
     hardware encoders in Kdenlive's settings and reopen the Render dialog.
-  • Blender: Prime menu → Creator → "GPU rendering for Blender" installs what your
+  • Blender: Settings → Apps → Creator → "GPU rendering for Blender" installs what your
     card needs; then Preferences → System → Cycles Render Devices.
   • Krita and GIMP open .psd files; Krita is the one for drawing with a tablet.
-  • What can my card do? Prime menu → Creator → Check my creator setup.
+  • What can my card do? Settings → Apps → Creator → Check my creator setup.
 EOF
 }
 
@@ -128,8 +128,8 @@ setup() {
     while IFS=$'\t' read -r lvl msg; do
         [ "$lvl" = ok ] && [[ "$msg" == *encoding* ]] && { say "$msg"; enc=1; }
     done < <(hw_lines)
-    [ $enc = 1 ] || note "Hardware video encoding wasn't confirmed yet — after logging in, check: Prime menu → Creator → Check my creator setup"
-    note "Blender renders on the processor until you add graphics-card rendering (Prime menu → Creator)."
+    [ $enc = 1 ] || note "Hardware video encoding wasn't confirmed yet — after logging in, check: Settings → Apps → Creator → Check my creator setup"
+    note "Blender renders on the processor until you add graphics-card rendering (Settings → Apps → Creator)."
     note "OBS: let its first-run wizard pick your graphics card's encoder."
 }
 
@@ -139,7 +139,7 @@ check() {
     for p in $pk; do pacman -Qq "$p" >/dev/null 2>&1 || miss+=("$p"); done
     if [ -z "$pk" ]; then ck_warn "Blender: CPU rendering only (no supported graphics card found)"
     elif [ ${#miss[@]} -eq 0 ]; then ck_ok "Blender can render on the graphics card ($pk)"
-    else ck_warn "Blender renders on the CPU — faster on the GPU: Prime menu → Creator → GPU rendering for Blender"; fi
+    else ck_warn "Blender renders on the CPU — faster on the GPU: Settings → Apps → Creator → GPU rendering for Blender"; fi
     if have ffmpeg && ffmpeg -hide_banner -hwaccels 2>/dev/null | grep -qx vaapi; then ck_ok "ffmpeg supports VA-API"; fi
     pacman -Qq xdg-desktop-portal-hyprland >/dev/null 2>&1 && ck_ok "Screen capture for OBS (PipeWire portal)" \
                                                           || ck_bad "Screen capture portal missing — install xdg-desktop-portal-hyprland"

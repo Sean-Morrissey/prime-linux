@@ -275,8 +275,8 @@ if not re.search(r"text\s*=\s*Prime\b", lock):
 panel = open(f"{LAYER}/bin/prime-panel").read()
 if "— Prime" not in panel or "mark_path()" not in panel:
     brand.append("Prime windows don't carry the Prime name and emblem")
-if "Prime menu" not in json.dumps(top.get("image#logo", {})):
-    brand.append("the bar logo doesn't say Prime menu")
+if "Start" not in json.dumps(top.get("image#logo", {})) or "mark" not in json.dumps(top.get("image#logo", {})):
+    brand.append("the bar logo isn't the Prime emblem opening Start")
 ck("Prime on the lock screen, the bar and every Prime window", brand)
 
 # ── a fresh install comes up as Prime (payload + ISO buildset) ─────────────────

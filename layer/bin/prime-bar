@@ -120,7 +120,7 @@ def keyboard_rows():
                 labels.setdefault(k, v.get("label", k))
         except (OSError, ValueError):
             pass
-    labels["bar.logo"] = "Prime menu"
+    labels["bar.logo"] = "Start"
     rows, seen = [], set()
     for which in ("top", "side"):
         cfg = build(which)[0]
@@ -178,7 +178,7 @@ def main():
     if arg == "--keys":
         return keys("--list" in sys.argv)
     if arg == "restart":
-        os.execvp("systemctl", ["systemctl", "--user", "restart", "prime-bar@top", "prime-bar@side"])
+        os.execvp("systemctl", ["systemctl", "--user", "restart", "prime-bar@top", "prime-dock"])
     if arg == "--print":
         print(json.dumps(build(sys.argv[2])[0], indent=1, ensure_ascii=False))
         return 0

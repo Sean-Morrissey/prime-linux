@@ -60,7 +60,7 @@ focus() {
 tutor() {
     local q="${*:-}"
     if ! grep -qx ai "$HOME/.config/prime/addons" 2>/dev/null || ! [ -x "$AI_ASK" ]; then
-        notify "The tutor uses Prime's AI assistant. Switch it on: Prime menu → Settings → Add-ons → AI." 8000 "󰑴 Tutor"
+        notify "The tutor uses Prime's AI assistant. Switch it on: Settings → AI Assistant." 8000 "󰑴 Tutor"
         [ -t 1 ] && echo "The tutor needs the AI add-on: prime-addon enable ai"
         return 1
     fi
@@ -95,7 +95,7 @@ setup() {
     lang_packs
     say "Focus mode (Super+Alt+F): $(echo "${PRIME_FOCUS_MINUTES:-25}") minutes, notifications paused, a timer in the bar."
     if grep -qx ai "$HOME/.config/prime/addons" 2>/dev/null; then say "AI tutor ready: Super+Alt+T"
-    else note "AI tutor: switch on the AI add-on to use it (Prime menu → Settings → Add-ons)."; fi
+    else note "AI tutor: switch on the AI add-on to use it (Settings → Apps → Packs and add-ons)."; fi
 }
 teardown() { focus_on && focus stop >/dev/null; bookmark_remove "$STUDY"; return 0; }
 

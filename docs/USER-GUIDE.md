@@ -118,7 +118,8 @@ add-on — everything is saved first and `prime-import --undo` reverses it. Deta
 1. Log out (or restart).
 2. On the login screen, open the **session** menu (KDE/SDDM: bottom-left;
    GNOME: the gear icon) and choose **Prime**. It's remembered next time.
-3. Log in. You'll see the top bar, the dock on the left and your wallpaper.
+3. Log in. You'll see the top bar and your wallpaper. The dock — your apps and everything
+   that's open — waits at the bottom: move the pointer to the bottom edge to show it.
    Open a terminal (Super+Enter) and Prime greets you: **P.R.I.M.E — Please
    Relax I'll Manage Everything**.
 
@@ -127,19 +128,21 @@ Three keys to remember — *Super* is the Windows key:
 | Press | You get |
 |---|---|
 | **Super + Space** | Search: apps, files, sums (type `12*7`), the web |
-| **Super + Alt + Space** | The Prime menu: settings, quick switches, tools, updates, power |
+| **Super + I** | Settings: Wi-Fi, sound, display, mouse, gaming, updates, everything |
 | **Super + /** | Every keyboard shortcut, searchable |
 
-Everything in this guide is also in the Prime menu, so you never *need* a terminal.
+Everything in this guide is also in Settings or Spotlight, so you never *need* a terminal.
 
 ## 4. Everyday things
 
 ### Apps
 - **Open an app**: click the **P** logo (or Super+X) for the Start menu — pinned apps, All apps, recent files. Or Super+Space, type its name, Enter. Right-click an app in Start to pin or unpin it.
-- **Install an app**: Prime menu → Apps → **App Store**. Click Install.
-- **A website as an app** (WhatsApp, YouTube, Gmail…): Prime menu → Capture & tools
+- **Install an app**: Settings → Apps → **App Store**. Click Install.
+- **A website as an app** (WhatsApp, YouTube, Gmail…): Settings → Apps
   → **Make a website into an app**. It gets its own window and icon.
 - **Close a window**: Super+Q, or the red dot on the window's title bar.
+- **The dock**: move the pointer to the bottom edge of the screen. Click an app to open or
+  switch to it; right-click to pin or unpin it; the grid button opens Start.
 
 ### Settings
 - **Super+I** (or Start → **Settings**) opens one window for everything about the computer, like Settings on Windows or a Mac: Wi-Fi, Bluetooth, sound, displays, appearance, notifications, power and battery, mouse and touchpad, keyboard, processor, graphics, storage, gaming, the AI assistant, apps, updates, privacy and security, date and time, language, your account and password, accessibility, and About & Help. Type in the search box to find a setting.
@@ -182,7 +185,7 @@ Settings → Displays → **Screenshots** chooses what happens after one: show t
 buttons, just save and copy, or always ask Prime.
 
 ### Quick switches
-Prime menu → **Quick switches**, or right-click the small icons that appear on the bar:
+The bar's switches icon, or right-click the small icons that appear on the bar:
 - **Night light** (Super+Ctrl+N) — warmer colours in the evening.
 - **Do not disturb** (Super+Shift+K) — notifications wait silently.
 - **Keep awake** (Super+Ctrl+I) — the screen won't dim or lock (watching, presenting).
@@ -193,11 +196,11 @@ The battery shows on the bar (desktops don't show it). Click it for the power
 mode. Prime warns you at 15% and at 5%. Closing the lid locks and sleeps the computer.
 
 ### More than one keyboard language
-Prime menu → Settings → **Keyboard layout** → choose languages to add.
+Settings → **Keyboard** → Add or remove layouts → choose languages to add.
 **Super+Ctrl+Space** switches; the bar shows which one is active.
 
 ### Printers
-Prime menu → Settings → **Printers** → *Add*. Most Wi-Fi printers are found on
+Settings → **Printers** → *Add or change a printer*. Most Wi-Fi printers are found on
 their own.
 
 ### Phones and USB sticks
@@ -213,8 +216,8 @@ choose *File transfer* on the phone.
   It updates everything — system, apps and Prime — and takes a snapshot first.
 - **If an update breaks something**: restart and, in the boot menu, choose the
   snapshot entry from before the update. Your desktop settings can also be put
-  back separately: Prime menu → Style & repair → **Restore desktop settings**.
-- **Lost or overwrote a file?** Prime menu → Style & repair → **Get a file back**: pick a moment (an hour, a day, a week ago) and your home folder opens as it was then — copy the file back. Prime keeps these automatically on CachyOS's standard disk layout.
+  back separately: Settings → About & Help → **Restore desktop settings**.
+- **Lost or overwrote a file?** Settings → Storage → **Get a file back**: pick a moment (an hour, a day, a week ago) and your home folder opens as it was then — copy the file back. Prime keeps these automatically on CachyOS's standard disk layout.
 - **If the desktop misbehaves**: **Super+H** checks it and fixes what it can. Prime also checks by itself — at every login and once a day while you stay logged in — repairs what it safely can, and only tells you about something new: a disk getting full, a background service that stopped, or a desktop part that was updated (Undo an update goes back if it looks wrong).
   **Super+W** restarts the bar.
 - **Lock** with Super+L. **Power off / restart** with the ⏻ icon on the bar.
@@ -229,7 +232,7 @@ Your own settings live in files that updates never overwrite:
 | `~/.config/waybar/user.css` | bar colours and sizes |
 | `~/.config/kitty/kitty.conf` | the terminal |
 
-Prime menu → Settings → **Edit window & keyboard settings** opens the first one.
+Settings → Appearance → **Edit the window & keyboard settings file** opens the first one.
 
 ## 7. Removing Prime
 
@@ -243,5 +246,5 @@ On the login screen, choose your previous desktop again.
 ## Help
 
 - Super+/ — every shortcut.
-- Prime menu → About → **This computer** — details to share when asking for help.
+- Settings → **About & Help** — details to share when asking for help.
 - The install log: `~/.local/state/prime/logs/`.

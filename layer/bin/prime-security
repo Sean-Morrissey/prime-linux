@@ -27,7 +27,7 @@ else G=; Y=; Rd=; D=; Bo=; N=; fi
 TSV=0; problems=0; warnings=0
 row() { # row <ok|warn|bad|info> <text> [fix]
   if [ $TSV = 1 ]; then printf '%s\t%s\t%s\n' "$1" "$2" "${3:-}"; return; fi
-  # in a Prime window (Prime menu → Update → Security check) every line is a row
+  # in a Prime window (Settings → Privacy & Security) every line is a row
   # with a word badge; plain text would all end up folded under "Details"
   if [ -n "${PRIME_PANEL:-}" ]; then
     case "$1" in
@@ -217,20 +217,20 @@ updates_status() {
   pol="$(jq -r '.policy // ""' <<<"$j" 2>/dev/null)"; last="$(jq -r '.last_success // 0' <<<"$j" 2>/dev/null)"
   [ $timer = 1 ] || pol=none
   case "$pol" in
-    none)          row warn "Automatic updates are not set up — security fixes wait until you update by hand" "Prime menu → Update → Update settings" ;;
+    none)          row warn "Automatic updates are not set up — security fixes wait until you update by hand" "Settings → Updates" ;;
     auto|security) row ok "Security fixes install automatically ($pol)" ;;
     ask)           row info "Updates wait for you to click Install (\"Ask me first\")" ;;
-    off)           row warn "Automatic updates are off" "Prime menu → Update → Update settings → Automatic" ;;
+    off)           row warn "Automatic updates are off" "Settings → Updates → Automatically" ;;
   esac
   if [ -n "$last" ] && [ "$last" != 0 ] && [ "$last" != null ]; then
     days=$(( ( $(date +%s) - last ) / 86400 ))
-    if [ "$days" -ge 30 ]; then row bad "Last update was $days days ago" "Prime menu → Update → Update everything"
-    elif [ "$days" -ge 10 ]; then row warn "Last update was $days days ago" "Prime menu → Update → Update everything"
+    if [ "$days" -ge 30 ]; then row bad "Last update was $days days ago" "Settings → Updates → Update everything"
+    elif [ "$days" -ge 10 ]; then row warn "Last update was $days days ago" "Settings → Updates → Update everything"
     else row ok "Last update: $([ "$days" = 0 ] && echo today || echo "$days day(s) ago")"; fi
   fi
   if command -v arch-audit >/dev/null; then
     local n; n="$(timeout 30 arch-audit -u -q 2>/dev/null | grep -c . || true)"
-    [ "${n:-0}" -gt 0 ] && row warn "$n installed package(s) have a security fix waiting" "Prime menu → Update → Update everything"
+    [ "${n:-0}" -gt 0 ] && row warn "$n installed package(s) have a security fix waiting" "Settings → Updates → Update everything"
   fi
 }
 

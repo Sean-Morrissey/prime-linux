@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # prime-doctor — check the desktop and repair what it safely can.
 #
-#   prime-doctor          full report (Super+H, Prime menu → Style & repair);
+#   prime-doctor          full report (Super+H, Settings → About & Help);
 #                         shown in a Prime window, never a terminal
 #   prime-doctor --login  quiet: runs at every login, notifies only about
 #                         problems it couldn't fix itself
@@ -52,7 +52,7 @@ action() {  # a button in the Prime window: action <label> <command>
 
 declare -A NAME=(
     [prime-bar@top]="The top bar"
-    [prime-bar@side]="The side bar"
+    [prime-dock]="The dock"
     [prime-cliphist-text]="Clipboard history (text)"
     [prime-cliphist-image]="Clipboard history (pictures)"
     [prime-clip-persist]="Keeping copied text after its app closes"
@@ -95,7 +95,7 @@ done
 
 if [ $in_session = 1 ]; then
     # 3 — the bars and clipboard history run in the background, watched over
-    for u in prime-bar@top prime-bar@side prime-cliphist-text prime-cliphist-image prime-clip-persist; do
+    for u in prime-bar@top prime-dock prime-cliphist-text prime-cliphist-image prime-clip-persist; do
         if systemctl --user is-active --quiet "$u"; then ok "Running: ${NAME[$u]}"
         else
             systemctl --user reset-failed "$u" 2>/dev/null
@@ -168,7 +168,7 @@ if [ -x "$ENGINE" ] && j="$("$ENGINE" status --json 2>/dev/null)"; then
     pol="$(jq -r .policy <<<"$j")"; last="$(jq -r .last_success <<<"$j")"; fails="$(jq -r .failures <<<"$j")"
     st="$(jq -r '.last_run.status // ""' <<<"$j")"
     if ! systemctl is-enabled prime-system-update.timer >/dev/null 2>&1; then
-        [ "$pol" = off ] && tip "Automatic updates are off — Prime menu → Update → Update settings" \
+        [ "$pol" = off ] && tip "Automatic updates are off — Settings → Updates" \
                          || { bad "Automatic updates aren't running — Update everything sets them up"; need_update=1; }
     elif [ "${fails:-0}" -ge 2 ]; then bad "Automatic updates stopped after $fails failed tries — Update everything shows why"; need_update=1
     elif [ "$st" = broken ]; then bad "The last update didn't finish — Update everything finishes it (or Undo an update goes back)"; need_update=1; need_undo=1
@@ -195,7 +195,7 @@ fi
 while IFS=$'\t' read -r lvl msg fix; do
     [ "$lvl" = bad ] && row bad "$msg" "$fix"
 done < <("$BIN/prime-security" status --tsv 2>/dev/null)
-say note "The full safety report: Prime menu → Update → Security check"
+say note "The full safety report: Settings → Privacy & Security"
 
 # 11 — packs and add-ons check themselves
 if [ $QUIET = 0 ] && [ -x "$BIN/prime-addon" ]; then
@@ -255,7 +255,7 @@ if [ ${#jumped[@]} -gt 0 ]; then
     tip "Updated since the last check: ${jumped[*]} — if anything looks different since, Undo an update goes back"
     [ $QUIET = 1 ] && notify-send -a Prime -u low -t 12000 "Prime: part of the desktop was updated" \
         "$(printf '%s\n' "${jumped[@]}")
-If anything looks different, Prime menu → Update → Undo an update goes back." 2>/dev/null
+If anything looks different, Settings → Updates → Undo the last update goes back." 2>/dev/null
 fi
 for pk in hyprland waybar rofi gtk3 python; do
     v="$(pacman -Q "$pk" 2>/dev/null | awk '{print $2}' | sed -E 's/^[0-9]+://; s/^([0-9]+\.[0-9]+).*/\1/')"
@@ -281,7 +281,7 @@ fi
 if [ $QUIET = 1 ]; then
     [ ${#left[@]} -gt 0 ] && notify-send -a Prime -u normal -t 15000 "Desktop check — something needs you" \
         "$(printf '%s\n' "${left[@]}")
-Open the Prime menu → Style & repair → Check and fix the desktop."
+Open the Settings → About & Help → Check and fix the desktop."
 elif [ -n "${PRIME_PANEL:-}" ]; then
     if [ ${#left[@]} -eq 0 ]; then echo "@summary Everything looks healthy."
     elif [ ${#left[@]} -eq 1 ]; then echo "@summary One thing needs you — the button below fixes it."

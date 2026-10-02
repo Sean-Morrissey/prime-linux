@@ -64,11 +64,11 @@ curl -fsSL https://raw.githubusercontent.com/sean-morrissey/prime-linux/main/boo
   with **Prime Linux is installed**.
 - **Log out** (or restart), choose **Prime** in the login screen's session menu, and
   log in. You get the top bar, the **P** logo (click it for the Start menu), and:
-  **Super+Space** search · **Super+Alt+Space** the Prime menu · **Super+/** every
+  **Super+Space** search · **Super+I** Settings · **Super+/** every
   shortcut. (*Super* is the Windows key.)
 - If anything stops half-way, run the install command again (A: step 5, B: the
   one line): it carries on where it stopped. The log is in `~/.local/state/prime/logs/`.
-- **Updates:** Prime menu → Update → **Update everything**.
+- **Updates:** Settings → Updates → **Update everything**.
 - **Changed your mind?** In a terminal: `prime-uninstall` puts the computer back as it
   was (from KDE's Konsole: `~/.local/share/prime-linux/layer/bin/prime-uninstall`).
 - The downloaded `~/prime-linux` folder (option A) can be deleted after installing;

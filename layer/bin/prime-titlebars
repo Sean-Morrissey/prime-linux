@@ -3,7 +3,9 @@
 # built for the Hyprland that's running, then load them.
 #
 #   prime-titlebars            at login (autostart): quick when already built;
-#                              otherwise builds once in the background (~1 min)
+#                              otherwise builds once in the background (~1 min) —
+#                              including after a Hyprland update, when the old build
+#                              no longer loads (no "Needs you" in the health check)
 #   prime-titlebars --rebuild  build again (after a Hyprland update)
 #
 # hyprpm can only add plugins from inside a running Hyprland session, so the
@@ -15,11 +17,19 @@ note() { notify-send -a Prime -t "${3:-5000}" "$1" "${2:-}" >/dev/null 2>&1 || t
 command -v hyprpm >/dev/null || exit 0
 
 enabled() { hyprpm list 2>/dev/null | sed 's/\x1b\[[0-9;]*m//g' | grep -A3 -i 'hyprbars' | grep -qi 'enabled: *\(true\|yes\)'; }
+loaded()  { hyprctl plugin list 2>/dev/null | grep -qi hyprbars; }
 
+again=0
 if [ "${1:-}" != --rebuild ] && enabled; then
-    hyprpm reload -n >/dev/null 2>&1; exit 0
+    hyprpm reload -n >/dev/null 2>&1
+    for _ in 1 2 3; do loaded && exit 0; sleep 1; done
+    again=1      # built for the Hyprland before an update: build again, quietly
 fi
-note "Setting up window title bars" "A one-time build for this version of Hyprland — about a minute. Everything works meanwhile."
+if [ $again = 1 ]; then
+    note "Updating window title bars" "Hyprland was updated, so they're rebuilt for it — about a minute. Everything works meanwhile."
+else
+    note "Setting up window title bars" "A one-time build for this version of Hyprland — about a minute. Everything works meanwhile."
+fi
 {
     echo "== $(date) prime-titlebars ${1:-}"
     hyprpm update &&

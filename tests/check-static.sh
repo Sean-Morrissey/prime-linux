@@ -32,8 +32,8 @@ ck "text size survives an accent change"      "bash $L/bin/prime-theme --set-acc
 ck "health check speaks the window's language" "PRIME_PANEL=1 bash $L/bin/prime-doctor > \$HOME/doc && ! grep -vqE '^@(ok|fix|bad|note|step|action|summary) ' \$HOME/doc && grep -q '^@summary ' \$HOME/doc"
 ck "health check offers a button, not a command" "PRIME_PANEL=1 bash $L/bin/prime-doctor | grep '^@bad' | grep -vqiE 'run |prime-|systemctl|journalctl' || ! PRIME_PANEL=1 bash $L/bin/prime-doctor | grep -q '^@bad'"
 ck "About lists facts as rows"                "PRIME_PANEL=1 bash $L/bin/prime-about | grep -q '^@row Version	Prime ' && PRIME_PANEL=1 bash $L/bin/prime-about --computer | grep -q '^@row Memory	'"
-ck "add-on list says on/off and where to change it" "bash $L/bin/prime-addon | grep -q 'Prime menu → Settings → Add-ons'"
-ck "every bar item is in the keyboard list"   "[ \$(python3 $L/bin/prime-bar --keys --list | wc -l) -ge 15 ] && python3 $L/bin/prime-bar --keys --list | grep -q '^bar.logo	Prime menu'"
+ck "add-on list says on/off and where to change it" "bash $L/bin/prime-addon | grep -q 'Settings → Apps → Packs and add-ons'"
+ck "every bar item is in the keyboard list"   "[ \$(python3 $L/bin/prime-bar --keys --list | wc -l) -ge 15 ] && python3 $L/bin/prime-bar --keys --list | grep -q '^bar.logo	Start'"
 ck "old terminal rows open Prime windows"     "grep -q prime-activity $L/bin/prime-float && grep -q prime-wifi $L/bin/prime-float && ! grep -q kitty $L/bin/prime-float"
 ck "lock-screen status line is quiet without Caps Lock" "out=\$(bash $L/bin/prime-lock-status); [ -z \"\$out\" ] || [ \"\$out\" = 'Caps Lock is on' ]"
 

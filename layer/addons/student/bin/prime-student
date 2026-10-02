@@ -46,6 +46,7 @@ focus() {
             [ "$1" = stop ] && [ "$PID" -gt 1 ] && kill -- -"$PID" 2>/dev/null
             rm -f "$FOCUS"
             [ "$PREV" = true ] || dnd -df
+            # shellcheck disable=SC1010  # "done" here is the word, not the loop keyword
             if [ "$1" = done ]; then
                 notify "$MIN minutes of focus done — nice. Take a 5-minute break, then Super+Alt+F for the next round." 0 "󰀠 Focus mode"
             else notify "Focus mode off — notifications are back." 3000 "󰀠 Focus mode"; fi

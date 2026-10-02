@@ -86,7 +86,8 @@ case "${ID:-}" in
 esac
 
 # which desktop(s) this CachyOS edition came with — they stay on the login screen
-sessions="$(ls /usr/share/wayland-sessions/*.desktop /usr/share/xsessions/*.desktop 2>/dev/null | xargs -rn1 basename 2>/dev/null | sed 's/\.desktop$//' | sort -u || true)"
+sessions="$(for f in /usr/share/wayland-sessions/*.desktop /usr/share/xsessions/*.desktop; do
+                [ -e "$f" ] && basename "$f" .desktop; done | sort -u || true)"
 have_desktops=()
 grep -qE '^plasma' <<<"$sessions" && have_desktops+=("KDE Plasma")
 grep -qE '^gnome' <<<"$sessions" && have_desktops+=("GNOME")

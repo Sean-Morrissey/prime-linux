@@ -97,7 +97,7 @@ extras() {
         echo; say "Which would you like? (numbers, e.g. 1 3)"
         i=1; while IFS=$'\t' read -r l pkg desc; do say "$(printf '%d) %-15s %s' $i "$l" "$desc")"; i=$((i+1)); done <<<"$EXTRAS"
         sel="$(ask_text "Numbers, e.g. 1 3")" || return 0
-        for i in $sel; do pkg="$(sed -n "${i}p" <<<"$EXTRAS" | cut -f2)"; [ -n "$pkg" ] && picks+=($pkg); done
+        for i in $sel; do pkg="$(sed -n "${i}p" <<<"$EXTRAS" | cut -f2)"; [ -n "$pkg" ] && picks+=("$pkg"); done
     fi
     [ ${#picks[@]} -gt 0 ] || return 0
     "$LAYER/bin/prime-addon" get "${picks[@]}"

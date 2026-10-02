@@ -33,8 +33,10 @@ docker exec "$NAME" bash -c 'rm -rf /home/alex/src-worktree/.git && cp -a /home/
 # settings must persist between commands for the uninstall check to mean anything
 AS_ALEX=(docker exec -u alex -e HOME=/home/alex -e XDG_RUNTIME_DIR=/run/user/1000 -e GSETTINGS_BACKEND=keyfile "$NAME")
 
-# a stranger's account is never empty: an old terminal config Prime must back up and restore
+# a stranger's account is never empty: an old terminal config and an autostart entry
+# Prime replaces must be backed up and restored
 "${AS_ALEX[@]}" bash -c 'mkdir -p ~/.config/kitty && echo "# my settings, before-prime" > ~/.config/kitty/kitty.conf
+    mkdir -p ~/.config/autostart && printf "[Desktop Entry]\nType=Application\nName=my nm-applet, before-prime\nExec=nm-applet\n" > ~/.config/autostart/nm-applet.desktop
     for k in gtk-theme icon-theme font-name; do echo "$k $(gsettings get org.gnome.desktop.interface $k)"; done > /tmp/gsettings-before'
 
 echo "== install"

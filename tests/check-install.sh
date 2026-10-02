@@ -20,6 +20,7 @@ ck "manifest records what changed"          "grep -q '^created ' $S/install.mani
 # only when the harness planted a config of "yours" before installing (install-in-container does)
 if [ -n "${PRIME_TEST_PLANTED_CONFIG:-}" ]; then
 ck "existing config backed up and recorded" "grep -q '^replaced .*kitty/kitty.conf' $S/install.manifest && grep -q 'before-prime' \$(sed -n 's/^BACKUP=//p' ~/.config/prime/install.conf)/kitty/kitty.conf"
+ck "your autostart entry backed up, then hidden" "grep -q '^replaced .*autostart/nm-applet.desktop' $S/install.manifest && grep -q 'hidden by Prime' ~/.config/autostart/nm-applet.desktop"
 fi
 ck "all of Prime's packages present"        "[ -z \"\$($L/bin/prime-missing-packages)\" ]"
 ck "re-run is a no-op that stays complete"  "bash $P/install.sh --no-packages --yes && grep -qx complete $S/install.progress"

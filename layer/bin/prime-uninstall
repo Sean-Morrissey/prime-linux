@@ -66,10 +66,11 @@ if [ -f "$MANIFEST" ]; then
                              *) grep -q 'prime-linux' "$f" 2>/dev/null && run rm -f "$f" ;; esac ;;
             replaced)   # the OLDEST backup holding it is the pre-Prime version
                 f="$rest"; rel="${f#$HOME/.config/}"
-                for b in $(sed -n 's/^backup //p' "$MANIFEST") "$BACKUP"; do
+                # one backup path per line: a home folder with a space in its name stays one path
+                while IFS= read -r b; do
                     [ -n "$b" ] && [ -e "$b/$rel" ] || continue
                     run mkdir -p "$(dirname "$f")"; run cp -a "$b/$rel" "$f"; say "Restored ~/.config/$rel"; break
-                done ;;
+                done < <(sed -n 's/^backup //p' "$MANIFEST"; printf '%s\n' "$BACKUP") ;;
         esac
     done < "$MANIFEST"
 elif [ -n "$BACKUP" ] && [ -d "$BACKUP" ]; then

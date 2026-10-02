@@ -166,7 +166,8 @@ cmd_prime() {
     say "checking the live session"
     ssh_vm "$E; export XDG_RUNTIME_DIR WAYLAND_DISPLAY HYPRLAND_INSTANCE_SIGNATURE
         ck() { if ( eval \"\$2\" ) >/dev/null 2>&1; then echo \"    ✓ \$1\"; else echo \"    ✗ \$1\"; fi; }
-        ck 'Hyprland running'            'hyprctl -j version'
+        # retried: at first login Hyprland is busy loading the title-bar plugin for a few seconds
+        ck 'Hyprland running'            'for i in \$(seq 15); do hyprctl -j version && exit 0; sleep 2; done; exit 1'
         ck 'config loaded with no errors' '[ \"\$(hyprctl -j configerrors | jq -r \".[]\" | grep -c .)\" = 0 ]'
         ck 'top bar + dock running'      '[ \$(pgrep -cx waybar) -ge 2 ]'
         ck 'prime-session.target active' 'systemctl --user is-active prime-session.target'

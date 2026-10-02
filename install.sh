@@ -437,7 +437,7 @@ fi
 printf '\n  %s%sPrime Linux is installed.%s\n\n' "$B" "$A" "$R"
 if [ -n "$dm" ]; then info "Log out, pick ${B}Prime${R} on the login screen ($dm: the session menu), and log in."
 else info "Restart the computer, choose ${B}Prime${R} on the login screen, and log in."; fi
-info "Then:  Super+Space search · Super+Alt+Space menu · Super+/ every shortcut"
+info "Then:  click the P logo (or Super+X) for the Start menu · Super+Space search · Super+/ every shortcut"
 [ -d "$BACKUP" ] && info "Your previous settings are saved in ${BACKUP/#$HOME/\~}"
 info "Changed your mind? prime-uninstall puts everything back."
 echo

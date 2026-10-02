@@ -49,7 +49,7 @@ You need a free GitHub account, and an invitation from the owner.
 2. **Install GitHub's sign-in tool:**
 
    ```
-   sudo pacman -S --needed --noconfirm github-cli git
+   sudo pacman -Syu --needed --noconfirm github-cli git
    ```
 
 3. **Sign this computer in to GitHub:**

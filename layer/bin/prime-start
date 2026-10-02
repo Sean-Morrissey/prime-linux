@@ -63,9 +63,31 @@ spot = importlib.util.module_from_spec(importlib.util.spec_from_loader("prime_sp
 _loader.exec_module(spot)
 
 
+def private_dir(d: str) -> bool:
+    """d is a real directory, ours, and nobody else can get in (mode 700)."""
+    import stat
+    try:
+        st = os.lstat(d)
+    except OSError:
+        return False
+    return stat.S_ISDIR(st.st_mode) and st.st_uid == os.getuid() and stat.S_IMODE(st.st_mode) == 0o700
+
+
 def runtime_dir() -> str:
     d = os.environ.get("XDG_RUNTIME_DIR", "")
-    return d if d and os.access(d, os.W_OK) else f"/tmp/prime-{os.getuid()}"
+    if d and os.access(d, os.W_OK):
+        return d
+    # the fallback must be ours and private: another account could pre-create it and
+    # plant a symlink where the pid file is written (same rule as prime-bar)
+    d = f"/tmp/prime-{os.getuid()}"
+    try:
+        os.makedirs(d, mode=0o700, exist_ok=True)
+    except OSError:
+        pass
+    if private_dir(d):
+        return d
+    import tempfile
+    return tempfile.mkdtemp(prefix="prime-start-")
 
 
 PIDFILE = os.path.join(runtime_dir(), "prime-start.pid")
@@ -761,6 +783,11 @@ def selftest() -> int:
         check("Enter opens the top match", act[0] == "launch" and act[1] in installed, str(act))
     check("Enter with no match goes to Spotlight", enter_action("zzqxv no such app", apps) == ("spotlight", "zzqxv no such app"))
     check("Enter on an empty field does nothing", enter_action("   ", apps) == ("none", ""))
+    shared = os.path.join(tmp, "shared"); os.mkdir(shared); os.chmod(shared, 0o777)
+    mine = os.path.join(tmp, "mine"); os.mkdir(mine, 0o700)
+    os.symlink(mine, os.path.join(tmp, "link"))
+    check("pid-file folder: a shared or symlinked one is refused, a private one used",
+          not private_dir(shared) and not private_dir(os.path.join(tmp, "link")) and private_dir(mine))
     check("Recent never shows scratch or hidden-folder files",
           all(spot.wanted_recent(p) for p in spot.load_recent(4)))
 

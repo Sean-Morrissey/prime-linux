@@ -25,7 +25,7 @@ When it asks for your password, type it (nothing shows while you type) and press
 2. Install GitHub's sign-in tool:
 
    ```bash
-   sudo pacman -S --needed --noconfirm github-cli git
+   sudo pacman -Syu --needed --noconfirm github-cli git
    ```
 
 3. Sign in to GitHub from this computer:

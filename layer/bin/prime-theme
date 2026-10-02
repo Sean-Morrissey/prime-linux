@@ -209,17 +209,26 @@ if best:
 }
 
 pick_wall() {
-  local rows choice f
-  rows="$(for d in "${WALLDIRS[@]}"; do
+  local -a files=() names=()
+  local f n i choice
+  mapfile -t files < <(for d in "${WALLDIRS[@]}"; do
             find "$d" -maxdepth 1 -type f \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.webp' \) 2>/dev/null
-          done | sort | while read -r f; do printf '%s\0icon\x1f%s\n' "$(basename "$f")" "$f"; done)"
-  [ -n "$rows" ] || { notify "No wallpapers found — put images in ~/Pictures/Wallpapers"; return 0; }
-  choice="$(printf '%s\n' "$rows" | ROFI_HINT="Enter sets it  ·  Esc keeps the current one  ·  add your own in ~/Pictures/Wallpapers" \
-    "$BIN/prime-rofi" -dmenu -i -show-icons -p "󰸉 Wallpaper" -theme spotlight \
-    -theme-str 'window { width: 900px; } listview { columns: 4; lines: 3; } element { orientation: vertical; } element-icon { size: 150px; } element-text { horizontal-align: 0.5; }')" || return 0
-  for d in "${WALLDIRS[@]}"; do
-    [ -f "$d/$choice" ] && { set_wall "$d/$choice"; return 0; }
+          done | sort)
+  [ ${#files[@]} -gt 0 ] || { notify "No wallpapers found — put images in ~/Pictures/Wallpapers"; return 0; }
+  # a name to read ("Aurora", "Beach trip"), not a file name ("prime-aurora.jpg")
+  for f in "${files[@]}"; do
+    n="$(basename "${f%.*}")"; n="${n#prime-}"; n="${n//[-_]/ }"
+    names+=("${n^}")
   done
+  # rows go to rofi through a pipe, never a variable: bash drops the NUL in rofi's
+  # "name\0icon\x1f<file>" from a $(…), and the picker showed "aurora.jpgicon…"
+  # instead of thumbnails. The choice comes back as a row number.
+  choice="$(for i in "${!files[@]}"; do printf '%s\0icon\x1f%s\n' "${names[$i]}" "${files[$i]}"; done |
+    ROFI_HINT="Enter sets it  ·  Esc keeps the current one  ·  add your own in ~/Pictures/Wallpapers" \
+    "$BIN/prime-rofi" -dmenu -i -show-icons -no-custom -format i -p "Wallpaper" -theme spotlight \
+    -theme-str 'window { width: 920px; } listview { columns: 4; lines: 2; spacing: 10px; } element { orientation: vertical; padding: 10px; spacing: 8px; children: [ element-icon, element-text ]; } element-icon { size: 180px; } element-text { horizontal-align: 0.5; }')" || return 0
+  [[ "$choice" =~ ^[0-9]+$ ]] && [ -n "${files[$choice]:-}" ] && set_wall "${files[$choice]}"
+  return 0
 }
 
 pick_accent() {
@@ -261,6 +270,6 @@ case "${1:-}" in
   --set-accent) set_accent "${2:?hex}" ;;
   --wallpaper)  pick_wall ;;
   --accent)     pick_accent ;;
-  "")           pick_wall; pick_accent; pick_text; notify "Theme applied" "$WALL" ;;
+  "")           pick_wall; pick_accent; pick_text; notify "Theme applied" "Wallpaper, accent colour and text size are set — Super+Shift+W changes them again" ;;
   *)            sed -n '2,24p' "$0"; exit 2 ;;
 esac

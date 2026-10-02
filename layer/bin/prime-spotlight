@@ -6,7 +6,8 @@ Calculator, and a last row that searches the web — or, with the AI add-on
 enabled, asks the assistant. Enter opens the highlighted row; the mouse works
 too (hover to highlight, click to open). Esc closes.
 
-Plain sums are answered in place (2+2, 15% of nothing, just arithmetic);
+Things Prime can simply do ("wifi off", "louder", "bigger text", "mouse settings")
+come first, under "Do it" — no AI involved (prime-do). Plain sums are answered in place (2+2, 15% of nothing, just arithmetic);
 Enter copies the result. Prefixes, for when the guess is wrong:
     = <expr>     arithmetic only
     > <text>     applications only
@@ -51,6 +52,24 @@ LAYER = os.path.realpath(os.path.join(os.path.dirname(os.path.realpath(__file__)
 WEB_SEARCH = os.environ.get("PRIME_WEB_SEARCH", "https://duckduckgo.com/?q={}")
 
 
+def _load_do():
+    """prime-do's phrase list (the things Prime does without AI), or None."""
+    try:
+        import importlib.machinery
+        import importlib.util
+        path = os.path.join(LAYER, "bin", "prime-do")
+        loader = importlib.machinery.SourceFileLoader("prime_do", path)
+        spec = importlib.util.spec_from_loader("prime_do", loader)
+        mod = importlib.util.module_from_spec(spec)
+        loader.exec_module(mod)
+        return mod
+    except (OSError, SyntaxError, ImportError):
+        return None
+
+
+PRIME_DO = _load_do()
+
+
 def find_asker() -> str:
     """The first enabled add-on that can answer questions (bin/prime-ask), or ""."""
     try:
@@ -91,7 +110,7 @@ SKIP_DIRS = {".git", "node_modules", ".cache", ".venv", "venv", "__pycache__",
 MAX_ROWS = 9
 APP_ICONS: dict = {}          # desktop id -> Icon= value (filled by load_apps)
 
-SECTION = {"app": "Applications", "setting": "Settings", "path": "Files", "recent": "Recent",
+SECTION = {"do": "Do it", "app": "Applications", "setting": "Settings", "path": "Files", "recent": "Recent",
            "math": "Calculator", "ask": "Ask Prime" if ASKER else "Web", "hint": ""}
 
 CSS = """
@@ -375,6 +394,14 @@ def rank_settings(query: str, settings: list, limit: int = 3) -> list:
     return [("setting", s[2], s[3], "") for s in scored[:limit]]
 
 
+def rank_do(query: str, limit: int = 2) -> list:
+    """Things Prime can do for these words: ("do", title, id, "sure"|"maybe")."""
+    if PRIME_DO is None or len(query.strip()) < 3:
+        return []
+    return [("do", title, iid, "sure" if score >= 1.0 else "maybe")
+            for score, iid, title in PRIME_DO.match(query, limit) if score >= 0.67]
+
+
 def rank_apps(query: str, apps: list, limit: int = 6) -> list:
     q = query.lower().strip()
     scored = []
@@ -427,6 +454,8 @@ def route(kind: str, main: str, sub: str, query: str) -> tuple:
         return ("run_setting", sub)                    # prime-menu --run <row id>
     if kind == "math":
         return ("copy", main.lstrip("= ").strip())
+    if kind == "do":
+        return ("do", sub)                             # prime-do --id <id>
     if query.startswith("/") or not ASKER:
         return ("web", query.lstrip("/").strip())
     return ("ask", query)
@@ -452,6 +481,8 @@ def results_for(query: str, apps: list, recents: list, timeout: int = 4, setting
         value = calc(q)
         if value:
             rows.append(("math", f"= {value}", q.lstrip("=").strip(), "copy"))
+    if not asked_only_apps and not asked_only_web and not is_sum:
+        rows += rank_do(body)
     if not asked_only_web and not q.startswith("="):
         rows += rank_apps(body, apps, 5 if not asked_only_apps else MAX_ROWS)
     if not asked_only_apps and not asked_only_web and not is_sum:
@@ -472,6 +503,7 @@ def top_hit(rows: list, query: str):
     def named(r):
         return bool(q) and any(w.startswith(q) for w in [r[1].lower()] + re.split(r"[\s\-_.]+", r[1].lower()))
     tests = [lambda r: r[0] == "math",
+             lambda r: r[0] == "do" and r[3] == "sure",                 # "wifi off" → do it
              lambda r: r[0] == "setting" and _norm(r[1]) == _norm(q),   # "bluetooth" → Bluetooth
              lambda r: r[0] == "app" and named(r),
              lambda r: r[0] == "setting" and named(r),
@@ -493,7 +525,7 @@ def grouped(rows: list, query: str = "") -> list:
         return [("", rows[0])]
     if rows[0][3] == "recent":
         return [("Recent", r) for r in rows]
-    order = ["math", "app", "setting", "path", "ask"]
+    order = ["math", "do", "app", "setting", "path", "ask"]
     top = top_hit(rows, query)
     out = [("Top Hit", top)]
     for k in order:
@@ -529,6 +561,8 @@ def icon_for(kind: str, sub: str):
         return Gio.content_type_get_icon(ctype) if ctype else themed("text-x-generic")
     if kind == "math":
         return themed("accessories-calculator", "accessories-calculator-symbolic")
+    if kind == "do":
+        return themed("prime-linux", "system-run", "emblem-ok-symbolic")
     if kind == "setting":
         return themed("preferences-system", "emblem-system", "preferences-system-symbolic")
     if kind == "ask":
@@ -739,7 +773,8 @@ class Spotlight(Gtk.Window):
         title.set_ellipsize(Pango.EllipsizeMode.MIDDLE if kind == "path" else Pango.EllipsizeMode.END)
         title.get_style_context().add_class("answer" if kind == "math" else "title")
         text.pack_start(title, False, False, 0)
-        detail = {"app": sub and "", "path": pretty_path(sub), "setting": SETTING_HINTS.get(sub, "")}.get(kind, sub)
+        detail = {"app": sub and "", "path": pretty_path(sub), "setting": SETTING_HINTS.get(sub, ""),
+                  "do": "Prime does it now"}.get(kind, sub)
         if kind == "app":
             detail = sub_comment = next((c for (_n, _e, d, c) in self.apps if d == sub), "")
             detail = sub_comment or "Application"
@@ -752,7 +787,7 @@ class Spotlight(Gtk.Window):
             text.pack_start(st, False, False, 0)
         box.pack_start(text, True, True, 0)
 
-        verb = {"app": "Open", "path": "Open", "setting": "Open", "math": "Copy", "ask": "Ask" if ASKER else "Search"}.get(kind)
+        verb = {"do": "Do", "app": "Open", "path": "Open", "setting": "Open", "math": "Copy", "ask": "Ask" if ASKER else "Search"}.get(kind)
         if verb:
             cap = Gtk.Label(label=f"{verb}  ↵")
             cap.get_style_context().add_class("keycap")
@@ -831,6 +866,8 @@ class Spotlight(Gtk.Window):
             detached(["xdg-open", payload])
         elif action == "run_setting":
             detached([os.path.join(LAYER, "bin", "prime-menu"), "--run", payload])
+        elif action == "do":
+            detached([os.path.join(LAYER, "bin", "prime-do"), "--id", payload])
         elif action == "copy":
             copy_to_clipboard(payload)
         elif action == "ask":

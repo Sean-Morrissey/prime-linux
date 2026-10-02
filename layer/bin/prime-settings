@@ -774,6 +774,15 @@ def t_change_setting(a):
         val = int(raw)
         summary = (f"repeat a held key {val} times a second" if name == "key_repeat_rate"
                    else f"start repeating a held key after {val} ms")
+    elif name == "after_screenshot":
+        v = str(raw).strip().lower()
+        v = {"buttons": "buttons", "options": "buttons", "save": "save", "just save": "save", "nothing": "save",
+             "ask": "ask", "ask prime": "ask", "prime": "ask"}.get(v)
+        if v is None:
+            raise Refuse("after_screenshot is buttons (show what I can do next), save (just save and copy) or ask (ask Prime)")
+        val = v
+        summary = {"buttons": "show buttons after a screenshot", "save": "just save and copy screenshots",
+                   "ask": "ask Prime about every screenshot"}[v]
     elif name == "keyboard_layout":
         val = _layout(raw)
         summary = f"switch the keyboard layout to {val}"
@@ -799,7 +808,7 @@ def t_change_setting(a):
     else:
         raise Refuse("I can change: animations, natural_scroll, keyboard_layout, night_light, gaps, rounding, "
                      "mouse_speed, mouse_acceleration, left_handed, tap_to_click, touchpad_while_typing, "
-                     "key_repeat_rate, key_repeat_delay")
+                     "key_repeat_rate, key_repeat_delay, after_screenshot")
 
     def mutate(st):
         st["settings"][name] = val

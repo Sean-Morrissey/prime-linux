@@ -1,17 +1,23 @@
 #!/usr/bin/env bash
 # prime-snip — Snipping-Tool style capture.
 #
-#   prime-snip [area|full|screen|window] [--no-menu] [--action <label>]
+#   prime-snip [area|full|screen|window] [--ask] [--no-menu] [--action <label>]
 #
 # area    drag to highlight a region (dimmed overlay)   [default]
 # full    every monitor joined into one image
 # screen  the monitor the pointer is on
 # window  the focused window
 #
-# After the shot it is on the clipboard and saved in ~/Pictures/Screenshots,
-# and a small action sheet offers: annotate, copy again, open folder, delete —
-# plus any actions enabled add-ons provide (e.g. the AI add-on's "Ask Prime").
-# --action runs one add-on action straight away (what Super+Alt+A uses).
+# The shot is saved in ~/Pictures/Screenshots and copied, straight away — a plain
+# screen capture never asks anything. Then, like a Mac's thumbnail, a notification
+# offers what you might do next: Edit, Ask Prime (with the AI pack), Show in
+# folder, Delete. Ignore it and it goes away; the screenshot stays.
+# What happens after a screenshot is a choice in Settings → Displays → Screenshots
+# (after_screenshot: buttons [default] | save = just save and copy | ask = always
+# ask Prime about it).
+# --ask      capture, then ask Prime about it (Super+Alt+A) — one step, no choice
+# --action   run one add-on action by its label straight away
+# --no-menu  just save and copy, whatever Settings says
 set -u
 
 BIN="$(dirname "$(readlink -f "$0")")"
@@ -25,6 +31,7 @@ while [ $# -gt 0 ]; do
     area|full|screen|window) MODE="$1" ;;
     --no-menu) NO_MENU=1 ;;
     --action)  ACTION="${2:-}"; NO_MENU=1; shift ;;
+    --ask)     ACTION="Ask Prime"; NO_MENU=1 ;;
   esac
   shift
 done
@@ -54,11 +61,12 @@ SAVE_DIR="$HOME/Pictures/Screenshots"
 mkdir -p "$SAVE_DIR"
 STAMP="$(date +%Y%m%d_%H%M%S)"
 SHOT="$SAVE_DIR/snip_${STAMP}.png"
+n=2; while [ -e "$SHOT" ]; do SHOT="$SAVE_DIR/snip_${STAMP}_$n.png"; n=$((n + 1)); done   # two in one second
 TMP="$RUNTIME/prime-snip-${STAMP}.png"
 LOG="$RUNTIME/prime-snip.log"
 log() { printf '%s %s\n' "$(date +%H:%M:%S)" "$*" >>"$LOG" 2>/dev/null || true; }
 
-need() { command -v "$1" >/dev/null 2>&1 || { notify-send -a "Prime Snip" "Missing tool: $1"; exit 1; }; }
+need() { command -v "$1" >/dev/null 2>&1 || { notify-send -a "Prime" "Missing tool: $1"; exit 1; }; }
 need grim
 need slurp
 need wl-copy
@@ -74,7 +82,7 @@ case "$MODE" in
     log "area geom: $geom"
     grim -g "$geom" "$TMP" || {
       log "grim failed for geom '$geom'"
-      notify-send -a "Prime Snip" "Capture failed" "grim rejected the region ($geom)"
+      notify-send -a "Prime" "Capture failed" "grim rejected the region ($geom)"
       exit 1
     }
     ;;
@@ -91,12 +99,12 @@ case "$MODE" in
     if [ -n "$win" ] && [ "$win" != "null" ]; then
       grim -g "$win" "$TMP" || exit 1
     else
-      notify-send -a "Prime Snip" "No focused window"; exit 0
+      notify-send -a "Prime" "No focused window"; exit 0
     fi
     ;;
 esac
 
-[ -s "$TMP" ] || { notify-send -a "Prime Snip" "Capture failed"; exit 1; }
+[ -s "$TMP" ] || { notify-send -a "Prime" "Capture failed"; exit 1; }
 mv -f "$TMP" "$SHOT"
 wl-copy <"$SHOT"
 log "captured $MODE -> $SHOT"
@@ -105,14 +113,49 @@ if [ -n "$ACTION" ]; then
   for h in $(addon_actions); do
     "$h" --list | grep -qiF -- "$ACTION" && exec "$h" "$ACTION" "$SHOT"
   done
-  notify-send -a "Prime Snip" "No add-on handles: $ACTION"; exit 1
+  notify-send -a "Prime" "No add-on handles: $ACTION"; exit 1
 fi
 
-notify-send -a "Prime Snip" -i "$SHOT" -t 4000 \
-  "Snip saved" "$(basename "$SHOT")  •  copied to clipboard"
+# what to do after a screenshot (Settings → Displays → Screenshots)
+AFTER="$(jq -r '.settings.after_screenshot // empty' "$HOME/.config/prime/settings.json" 2>/dev/null)"
+case "$AFTER" in save|ask|buttons) ;; *) AFTER=buttons ;; esac
+asker=""; for h in $(addon_actions); do "$h" --list | grep -q 'Ask Prime' && asker="$h"; done
+if [ "$NO_MENU" != 1 ] && [ "$AFTER" = ask ] && [ -n "$asker" ]; then
+  exec "$asker" "$("$asker" --list | grep -m1 'Ask Prime')" "$SHOT"
+fi
+if [ "$NO_MENU" = 1 ] || [ "$AFTER" = save ]; then
+  notify-send -a "Prime" -i "$SHOT" -t 3000 "Screenshot saved and copied" "$(basename "$SHOT") · Pictures › Screenshots"
+  exit 0
+fi
 
-if [ "$NO_MENU" = "1" ]; then exit 0; fi
+# the thumbnail with buttons (notification actions); an old notify-send without
+# them falls back to the small menu below
+if notify-send --help 2>&1 | grep -q -- '--action'; then
+  acts=(--action=edit=Edit)
+  [ -n "$asker" ] && acts+=(--action=ask="Ask Prime")
+  i=0; while IFS= read -r row; do
+    [ -n "$row" ] || continue
+    case "$row" in *"Ask Prime"*) continue ;; esac
+    acts+=(--action="addon$i=${row#*  }"); i=$((i + 1))
+  done < <(for h in $(addon_actions); do "$h" --list; done)
+  acts+=(--action=show="Show in folder" --action=delete=Delete)
+  picked="$(notify-send -a "Prime" -i "$SHOT" -t 10000 --wait "${acts[@]}" \
+            "Screenshot saved and copied" "$(basename "$SHOT")")" || exit 0
+  case "$picked" in
+    edit)   exec satty --filename "$SHOT" --output-filename "$SHOT" --early-exit ;;
+    ask)    exec "$asker" "$("$asker" --list | grep -m1 'Ask Prime')" "$SHOT" ;;
+    show)   exec xdg-open "$SAVE_DIR" ;;
+    delete) rm -f "$SHOT"; notify-send -a "Prime" -t 2500 "Screenshot deleted"; exit 0 ;;
+    addon*) n="${picked#addon}"; i=0
+            for h in $(addon_actions); do while IFS= read -r row; do
+              case "$row" in ""|*"Ask Prime"*) continue ;; esac
+              [ "$i" = "$n" ] && exec "$h" "$row" "$SHOT"; i=$((i + 1))
+            done < <("$h" --list); done ;;
+  esac
+  exit 0
+fi
 
+notify-send -a "Prime" -i "$SHOT" -t 4000 "Screenshot saved and copied" "$(basename "$SHOT")"
 extra=""; for h in $(addon_actions); do extra+="$("$h" --list)"$'\n'; done
 choice="$( { printf '%s' "$extra"; printf '%s\n' \
   "󰎞  Annotate" \
@@ -124,9 +167,9 @@ choice="$( { printf '%s' "$extra"; printf '%s\n' \
 
 case "$choice" in
   *Annotate*)      satty --filename "$SHOT" --output-filename "$SHOT" --early-exit >/dev/null 2>&1 & ;;
-  *"Copy again"*)  wl-copy <"$SHOT"; notify-send -a "Prime Snip" "Copied to clipboard" ;;
+  *"Copy again"*)  wl-copy <"$SHOT"; notify-send -a "Prime" "Copied to clipboard" ;;
   *"Open folder"*) xdg-open "$SAVE_DIR" >/dev/null 2>&1 & ;;
-  *Delete*)        rm -f "$SHOT"; notify-send -a "Prime Snip" "Snip deleted" ;;
+  *Delete*)        rm -f "$SHOT"; notify-send -a "Prime" "Snip deleted" ;;
   *)               for h in $(addon_actions); do
                      "$h" --list | grep -qxF -- "$choice" && exec "$h" "$choice" "$SHOT"
                    done ;;

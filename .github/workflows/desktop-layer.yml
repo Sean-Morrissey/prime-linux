@@ -71,6 +71,8 @@ jobs:
         run: bash tests/check-checkup.sh
       - name: Settings app (every page, mouse/keyboard toolbox, password change)
         run: bash tests/check-settings-app.sh
+      - name: Prime does everyday requests without AI; screenshots never ask first
+        run: bash tests/check-prime-do.sh
       - name: shellcheck (warning level) on every shell script
         run: bash tests/check-shellcheck.sh
 

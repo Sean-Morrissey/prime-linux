@@ -143,6 +143,7 @@ Everything in this guide is also in the Prime menu, so you never *need* a termin
 
 ### Settings
 - **Super+I** (or Start → **Settings**) opens one window for everything about the computer, like Settings on Windows or a Mac: Wi-Fi, Bluetooth, sound, displays, appearance, notifications, power and battery, mouse and touchpad, keyboard, processor, graphics, storage, gaming, the AI assistant, apps, updates, privacy and security, date and time, language, your account and password, accessibility, and About & Help. Type in the search box to find a setting.
+- **Just say it**: Super+Space, then type what you want — "wifi off", "louder", "mute", "do not disturb", "bigger text", "accent blue", "mouse settings", "take a screenshot", "something's wrong", "get a file back" — and press Enter. Prime does it straight away; no AI needed.
 - Mouse, keyboard, look and the other saved settings can be undone: About & Help → **Undo the last change made here**.
 
 ### Windows and workspaces
@@ -165,7 +166,8 @@ Right-click anything on the bar for more options.
 ### Screenshots and recordings
 | Press | |
 |---|---|
-| **Print** (or Super+Shift+S) | Screenshot a region — draw a box. It opens for marking up; it's also copied. |
+| **Print** (or Super+Shift+S) | Screenshot a region — draw a box. It's saved and copied at once; the notification then offers **Edit · Ask Prime · Show in folder · Delete** (ignore it and it goes away). |
+| **Super+Alt+A** (AI pack) | Screenshot a region and ask Prime about it, in one step. |
 | **Super+Shift+R** | Record a region of the screen. Press again (or click the red ● on the bar) to stop. |
 | **Super+Ctrl+Shift+R** | Record the whole screen with sound. |
 | **Super+Shift+C** | Pick a colour from anywhere on screen (copies its code). |
@@ -173,6 +175,8 @@ Right-click anything on the bar for more options.
 | **Super+V** | Clipboard history — everything you copied recently |
 
 Screenshots go to *Pictures/Screenshots*, recordings to *Videos/Recordings*.
+Settings → Displays → **Screenshots** chooses what happens after one: show the
+buttons, just save and copy, or always ask Prime.
 
 ### Quick switches
 Prime menu → **Quick switches**, or right-click the small icons that appear on the bar:

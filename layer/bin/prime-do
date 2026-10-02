@@ -1,0 +1,304 @@
+#!/usr/bin/python3
+"""prime-do — say what you want in plain words; Prime does it. No AI involved.
+
+"wifi off", "louder", "mute", "do not disturb", "bigger text", "accent blue",
+"mouse settings", "take a screenshot", "something's wrong", "get a file back"…
+A fixed list of things Prime knows how to do, matched by their words, run at
+once. It is what Spotlight's "Do it" rows and the Ask box use first, so the
+everyday requests work the same with or without the AI pack, offline, instantly,
+and always the same way. Anything it doesn't know goes to the assistant (if you
+have it) or the web.
+
+  prime-do "wifi off"              do it (prints the one-line result)
+  prime-do --match "wifi off"      what it would do, best first: id<TAB>title<TAB>score
+  prime-do --id wifi-off           do one by its id (what Spotlight runs)
+  prime-do --list                  everything it knows, one per line
+  PRIME_DO_DRY=1                   print the command instead of running it (tests)
+
+A score of 1.0 means every word you typed was understood; Spotlight makes that
+the Top Hit and the Ask box runs it without asking the model. Things that can't
+be undone with one click (restart, shut down) only ever open the power menu.
+"""
+from __future__ import annotations
+
+import os
+import re
+import shutil
+import subprocess
+import sys
+
+BIN = os.path.dirname(os.path.realpath(__file__))
+LAYER = os.path.realpath(os.path.join(BIN, ".."))
+HOME = os.path.expanduser("~")
+
+# words that carry no meaning in a request ("could you please turn the wifi off")
+FILLER = set("""please pls can could would you will i i'd id want wanna to the my a an me it this that
+    turn switch set make put go get be is are now just for of up down some bit little lot more
+    hey prime ok okay thanks thank and with on off take last mode something something's somethings
+    there's theres what's whats seems seem""".split()) - {"up", "down", "on", "off", "more"}
+# words that only say "the settings for…": understood, but never enough on their own
+SOFT = {"settings", "setting", "preferences", "options", "open", "change", "show", "info", "speed",
+        "sensitivity", "size", "page"}
+
+ON = {"on", "enable", "start", "activate", "allow"}
+OFF = {"off", "disable", "stop", "deactivate", "block", "kill"}
+UP = {"up", "louder", "higher", "increase", "raise", "more", "brighter"}
+DOWN = {"down", "quieter", "lower", "decrease", "reduce", "less", "dimmer", "softer"}
+
+ACCENT_WORDS = {"red": "f87171", "rose": "f87171", "pink": "f87171", "orange": "fb923c", "ember": "fb923c",
+                "yellow": "fbbf24", "amber": "fbbf24", "gold": "fbbf24", "green": "34d399", "emerald": "34d399",
+                "teal": "2dd4bf", "cyan": "2dd4bf", "turquoise": "2dd4bf", "blue": "60a5fa", "sapphire": "60a5fa",
+                "purple": "c084fc", "violet": "c084fc", "amethyst": "c084fc", "lilac": "c084fc",
+                "grey": "d4d4d8", "gray": "d4d4d8", "silver": "d4d4d8", "white": "d4d4d8"}
+
+
+def B(name: str) -> str:
+    return os.path.join(BIN, name)
+
+
+def tb(setting: str, value) -> list:
+    import json
+    return [B("prime-settings"), "run", "change_setting", json.dumps({"setting": setting, "value": value})]
+
+
+# (id, title, word groups that must all be present, words that must be absent, command, result)
+# A group is a set of synonyms; a multi-word synonym ("do not disturb") counts as present
+# when the phrase appears.
+SINK, SOURCE = "@DEFAULT_AUDIO_SINK@", "@DEFAULT_AUDIO_SOURCE@"
+INTENTS = [
+    ("wifi-on", "Turn Wi-Fi on", [{"wifi", "wireless", "wlan"}, ON], OFF,
+     ["nmcli", "radio", "wifi", "on"], "Wi-Fi is on"),
+    ("wifi-off", "Turn Wi-Fi off", [{"wifi", "wireless", "wlan"}, OFF], ON,
+     ["nmcli", "radio", "wifi", "off"], "Wi-Fi is off"),
+    ("wifi-pick", "Choose a Wi-Fi network", [{"wifi", "wireless", "network", "internet"}, {"connect", "join", "choose", "pick", "networks", "network"}], ON | OFF,
+     [B("prime-wifi")], ""),
+    ("airplane-on", "Airplane mode on (Wi-Fi and Bluetooth off)", [{"airplane", "aeroplane", "flight", "plane"}], OFF,
+     ["sh", "-c", "nmcli radio all off; bluetoothctl power off >/dev/null 2>&1; true"], "Airplane mode is on"),
+    ("airplane-off", "Airplane mode off", [{"airplane", "aeroplane", "flight", "plane"}, OFF], set(),
+     ["nmcli", "radio", "all", "on"], "Airplane mode is off — Wi-Fi is back"),
+    ("bt-on", "Turn Bluetooth on", [{"bluetooth", "bt"}, ON], OFF,
+     ["bluetoothctl", "power", "on"], "Bluetooth is on"),
+    ("bt-off", "Turn Bluetooth off", [{"bluetooth", "bt"}, OFF], ON,
+     ["bluetoothctl", "power", "off"], "Bluetooth is off"),
+    ("bt-connect", "Connect a Bluetooth device", [{"bluetooth", "headphones", "earbuds", "airpods", "speaker"}, {"connect", "pair", "devices", "device"}], OFF,
+     [B("prime-bluetooth")], ""),
+    ("mute", "Mute the sound", [{"mute", "silence", "silent", "shush"}], {"unmute", "microphone", "mic"},
+     ["wpctl", "set-mute", SINK, "1"], "Sound is muted"),
+    ("unmute", "Unmute the sound", [{"unmute", "sound"}, {"unmute", "on", "back"}], {"microphone", "mic"},
+     ["wpctl", "set-mute", SINK, "0"], "Sound is on"),
+    ("vol-up", "Louder", [{"louder", "volume", "sound"}, UP], DOWN,
+     ["sh", "-c", f"wpctl set-mute {SINK} 0; wpctl set-volume -l 1.5 {SINK} 10%+"], "Louder"),
+    ("vol-down", "Quieter", [{"quieter", "volume", "sound", "softer"}, DOWN], UP,
+     ["wpctl", "set-volume", SINK, "10%-"], "Quieter"),
+    ("mic-off", "Turn the microphone off", [{"microphone", "mic"}, OFF | {"mute"}], ON | {"unmute"},
+     ["wpctl", "set-mute", SOURCE, "1"], "Microphone is off"),
+    ("mic-on", "Turn the microphone on", [{"microphone", "mic"}, ON | {"unmute"}], OFF,
+     ["wpctl", "set-mute", SOURCE, "0"], "Microphone is on"),
+    ("sound-out", "Choose speakers or headphones", [{"speakers", "headphones", "headset", "output", "audio"}, {"choose", "switch", "use", "change", "output"}], set(),
+     [B("prime-sound")], ""),
+    ("bright-up", "Brighter screen", [{"brightness", "brighter", "screen", "display"}, UP], DOWN,
+     ["brightnessctl", "-c", "backlight", "set", "10%+"], "Brighter"),
+    ("bright-down", "Dimmer screen", [{"brightness", "dimmer", "dim", "screen", "display", "darker"}, DOWN | {"dim", "darker"}], UP,
+     ["brightnessctl", "-c", "backlight", "set", "10%-"], "Dimmer"),
+    ("dnd-on", "Do not disturb on", [{"do not disturb", "dnd", "focus", "quiet"}], OFF,
+     [B("prime-toggle"), "dnd", "on"], "Do not disturb is on — notifications wait quietly"),
+    ("dnd-off", "Do not disturb off", [{"do not disturb", "dnd", "focus", "notifications"}, OFF | {"show"}], set(),
+     [B("prime-toggle"), "dnd", "off"], "Do not disturb is off"),
+    ("awake-on", "Keep the computer awake", [{"awake", "keep awake", "caffeine", "no sleep", "dont sleep", "don't sleep", "stay on"}], OFF,
+     [B("prime-toggle"), "idle", "on"], "Keep awake is on — no dimming or locking"),
+    ("awake-off", "Let the computer sleep again", [{"awake", "caffeine"}, OFF], set(),
+     [B("prime-toggle"), "idle", "off"], "Keep awake is off"),
+    ("night-on", "Night light on", [{"night light", "nightlight", "night mode", "warm", "warmer", "blue light"}], OFF,
+     tb("night_light", "on"), "Night light is on"),
+    ("night-off", "Night light off", [{"night light", "nightlight", "night mode"}, OFF], set(),
+     tb("night_light", "off"), "Night light is off"),
+    ("text-bigger", "Bigger text", [{"text", "font", "letters", "words"}, {"bigger", "larger", "large", "big"}], set(),
+     [B("prime-theme"), "--set-text", "large"], "Text is bigger"),
+    ("text-biggest", "Biggest text", [{"text", "font", "letters"}, {"biggest", "largest", "huge"}], set(),
+     [B("prime-theme"), "--set-text", "larger"], "Text is at its biggest"),
+    ("text-smaller", "Smaller text", [{"text", "font", "letters"}, {"smaller", "small", "tiny"}], set(),
+     [B("prime-theme"), "--set-text", "small"], "Text is smaller"),
+    ("text-normal", "Normal text size", [{"text", "font"}, {"normal", "default", "regular", "reset"}], set(),
+     [B("prime-theme"), "--set-text", "default"], "Text is back to normal"),
+    ("anim-off", "Calmer: no animations", [{"animations", "animation", "motion"}, OFF | {"reduce", "less", "fewer"}], set(),
+     tb("animations", "off"), "Animations are off"),
+    ("anim-on", "Animations on", [{"animations", "animation"}, ON], OFF,
+     tb("animations", "on"), "Animations are on"),
+    ("perf", "Performance mode (fastest)", [{"performance", "fastest", "faster", "turbo", "speed"}], {"battery", "saver"},
+     [B("prime-power-profile"), "performance"], "Performance mode is on"),
+    ("saver", "Battery saver", [{"battery saver", "power saver", "save battery", "saver", "battery"}], {"health", "status", "level"},
+     [B("prime-power-profile"), "power-saver"], "Battery saver is on"),
+    ("balanced", "Balanced power mode", [{"balanced", "normal power", "power normal"}], set(),
+     [B("prime-power-profile"), "balanced"], "Balanced power mode"),
+    ("snip", "Take a screenshot", [{"screenshot", "snip", "screen shot", "capture", "print screen", "screengrab"}], {"ask", "explain", "what"},
+     [B("prime-snip"), "area"], ""),
+    ("snip-full", "Screenshot of the whole screen", [{"screenshot", "snip", "capture"}, {"whole", "full", "everything", "entire", "whole screen", "full screen", "entire screen", "all screens"}], set(),
+     [B("prime-snip"), "full"], ""),
+    ("record", "Record the screen", [{"record", "recording", "video"}, {"screen", "record", "recording"}], {"stop"},
+     [B("prime-record")], ""),
+    ("lock", "Lock the screen", [{"lock"}], {"caps", "unlock"},
+     [B("prime-lock")], ""),
+    ("power", "Restart, shut down or sleep…", [{"restart", "reboot", "shutdown", "shut down", "power off", "sleep", "suspend", "log out", "logout", "sign out"}], {"no sleep", "dont", "don't"},
+     [B("prime-power-menu")], ""),
+    ("update", "Update everything", [{"update", "updates", "upgrade"}], {"settings", "undo", "policy"},
+     [B("prime-update")], ""),
+    ("update-undo", "Undo the last update", [{"update", "upgrade"}, {"undo", "rollback", "roll back", "revert"}], set(),
+     [B("prime-update"), "--undo"], ""),
+    ("undo", "Undo the last change", [{"undo", "revert", "put back", "change back"}], {"update", "upgrade"},
+     [B("prime-settings"), "undo"], ""),
+    ("doctor", "Check and fix the computer", [{"fix", "repair", "broken", "wrong", "doctor", "health", "check", "slow", "problem", "glitch", "not working", "isn't working", "crashed", "crashing"}], {"spelling", "file", "update"},
+     [B("prime-doctor")], ""),
+    ("help", "Get help (a report to send)", [{"help", "support", "report"}], {"keys", "shortcuts"},
+     [B("prime-help")], ""),
+    ("file-back", "Get a file back", [{"file", "files", "document", "photo"}, {"back", "restore", "recover", "lost", "deleted", "undelete", "history", "older", "previous"}], set(),
+     [B("prime-file-history")], ""),
+    ("trash", "Empty the Trash", [{"trash", "bin", "recycle"}, {"empty", "clear", "clean"}], set(),
+     ["gio", "trash", "--empty"], "Trash emptied"),
+    ("activity", "What's using the computer", [{"activity", "task manager", "processes", "frozen", "stuck", "not responding", "using", "cpu", "memory", "ram"}], {"settings"},
+     [B("prime-activity")], ""),
+    ("shortcuts", "Every keyboard shortcut", [{"shortcuts", "shortcut", "keybinds", "hotkeys", "keys"}], set(),
+     [B("prime-keys")], ""),
+    ("wallpaper", "Change the wallpaper", [{"wallpaper", "background", "backdrop"}], set(),
+     [B("prime-theme"), "--wallpaper"], ""),
+    ("apps-get", "Get apps (App Store)", [{"app store", "install", "get apps", "software", "store"}], set(),
+     ["gnome-software"], ""),
+    ("settings", "Open Settings", [{"settings", "preferences", "control panel", "system settings"}], set(),
+     [B("prime-system-settings")], ""),
+]
+# "accent blue", "make it purple", "blue theme"
+for word, hexv in ACCENT_WORDS.items():
+    INTENTS.append((f"accent-{word}", f"Accent colour: {word}", [{word}, {"accent", "colour", "color", "theme", "make", "it"}],
+                    set(), [B("prime-theme"), "--set-accent", hexv], f"Accent colour is {word}"))
+
+# "mouse settings", "keyboard settings"… open that page of Settings
+PAGE_WORDS = {
+    "network": {"network", "wifi", "wireless", "internet", "ethernet", "vpn", "hotspot"}, "bluetooth": {"bluetooth"},
+    "sound": {"sound", "audio", "speakers", "microphone"}, "display": {"display", "displays", "monitor", "monitors", "screen", "resolution", "refresh"},
+    "appearance": {"appearance", "theme", "look"}, "notifications": {"notifications", "notification"},
+    "power": {"power", "battery"}, "mouse": {"mouse", "touchpad", "trackpad", "pointer", "cursor"},
+    "keyboard": {"keyboard", "typing", "layout", "repeat"}, "processor": {"processor", "cpu"},
+    "graphics": {"graphics", "gpu", "nvidia", "amd", "intel", "driver", "drivers"},
+    "storage": {"storage", "disk", "space", "drive"}, "gaming": {"gaming", "games", "steam", "game"},
+    "assistant": {"ai", "assistant", "model"}, "apps": {"apps", "default", "startup", "autostart"},
+    "updates": {"updates", "update"}, "security": {"security", "privacy", "firewall"},
+    "datetime": {"time", "date", "clock", "timezone"}, "region": {"language", "region", "locale"},
+    "accounts": {"account", "accounts", "password", "user", "users"}, "accessibility": {"accessibility", "a11y"},
+    "about": {"about", "specs", "version", "system info"},
+}
+PAGE_TITLES = {"network": "Wi-Fi & Network", "bluetooth": "Bluetooth", "sound": "Sound", "display": "Displays",
+               "appearance": "Appearance", "notifications": "Notifications", "power": "Power & Battery",
+               "mouse": "Mouse & Touchpad", "keyboard": "Keyboard", "processor": "Processor",
+               "graphics": "Graphics", "storage": "Storage", "gaming": "Gaming", "assistant": "AI Assistant",
+               "apps": "Apps", "updates": "Updates", "security": "Privacy & Security", "datetime": "Date & Time",
+               "region": "Language & Region", "accounts": "Users & Accounts", "accessibility": "Accessibility",
+               "about": "About & Help"}
+for pid, words in PAGE_WORDS.items():
+    INTENTS.append((f"page-{pid}", f"Settings → {PAGE_TITLES[pid]}", [words],
+                    set(), [B("prime-system-settings"), "--page", pid], ""))
+
+BY_ID = {i[0]: i for i in INTENTS}
+
+
+def words_of(text: str) -> tuple:
+    t = text.lower().replace("wi-fi", "wifi").replace("’", "'")
+    t = re.sub(r"[^a-z0-9' ]+", " ", t)
+    return t, [w for w in t.split() if w]
+
+
+def _hit(group: set, text: str, toks: list) -> set:
+    """The words of the query this group accounts for (empty: not present)."""
+    used = set()
+    for syn in group:
+        if " " in syn:
+            if re.search(rf"\b{re.escape(syn)}\b", text):
+                used |= set(syn.split())
+        elif syn in toks:
+            used.add(syn)
+    return used
+
+
+def match(query: str, limit: int = 5) -> list:
+    """[(score, id, title)] best first. Score 1.0: every meaningful word understood."""
+    text, toks = words_of(query)
+    meaningful = [w for w in toks if w not in FILLER and w not in SOFT] or [w for w in toks if w not in FILLER]
+    if not meaningful:
+        return []
+    out = []
+    for iid, title, groups, avoid, _cmd, _done in INTENTS:
+        used = set()
+        ok_ = True
+        for g in groups:
+            u = _hit(g, text, toks)
+            if not u:
+                ok_ = False
+                break
+            used |= u
+        if not ok_ or _hit(avoid, text, toks):
+            continue
+        covered = sum(1 for w in meaningful if w in used)
+        score = round(covered / len(meaningful), 2)
+        if score >= 0.5:
+            out.append((score, -len(groups), iid, title))
+    out.sort(key=lambda r: (-r[0], r[1]))
+    return [(s, iid, title) for s, _g, iid, title in out[:limit]]
+
+
+def available(iid: str) -> bool:
+    cmd = BY_ID[iid][4]
+    c = cmd[0]
+    if c == "sh":       # a small chain: its first real tool must be there
+        c = cmd[2].split()[0]
+    return os.access(c, os.X_OK) if os.path.isabs(c) else shutil.which(c) is not None
+
+
+def run(iid: str) -> int:
+    _id, title, _g, _a, cmd, done = BY_ID[iid]
+    if os.environ.get("PRIME_DO_DRY"):
+        print("DO", " ".join(cmd))
+        print(done or title)
+        return 0
+    if not available(iid):
+        print(f"{title}: this computer doesn't have what that needs.")
+        return 1
+    if not done:           # opens a window of its own: detach and return at once
+        subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL, start_new_session=True)
+        print(title)
+        return 0
+    try:
+        ok_ = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30).returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        ok_ = False
+    msg = done if ok_ else f"{title}: that didn't work — Check and fix the computer (Super+H) can help."
+    print(msg)
+    if shutil.which("notify-send"):
+        subprocess.run(["notify-send", "-a", "Prime", "-t", "2500", msg], stderr=subprocess.DEVNULL)
+    return 0 if ok_ else 1
+
+
+def main(argv: list) -> int:
+    if not argv or argv[0] in ("-h", "--help"):
+        print(__doc__.strip())
+        return 0 if argv else 2
+    if argv[0] == "--list":
+        for iid, title, *_ in INTENTS:
+            print(f"{iid}\t{title}")
+        return 0
+    if argv[0] == "--match":
+        for s, iid, title in match(" ".join(argv[1:])):
+            print(f"{iid}\t{title}\t{s}")
+        return 0
+    if argv[0] == "--id":
+        if len(argv) < 2 or argv[1] not in BY_ID:
+            print("no such action", file=sys.stderr)
+            return 2
+        return run(argv[1])
+    hits = match(" ".join(argv))
+    if not hits or hits[0][0] < 1.0:
+        print("I don't know how to do that yet." + (f" Did you mean: {hits[0][2]}?" if hits else ""))
+        return 3
+    return run(hits[0][1])
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

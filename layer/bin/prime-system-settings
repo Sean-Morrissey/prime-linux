@@ -203,7 +203,7 @@ PAGES = [
     ("network", "Wi-Fi & Network", "network-wireless-symbolic", "wifi internet wireless ethernet cable vpn hotspot ip"),
     ("bluetooth", "Bluetooth", "bluetooth-symbolic", "headphones mouse speaker pair devices"),
     ("sound", "Sound", "audio-volume-high-symbolic", "volume speakers headphones microphone mute output input"),
-    ("display", "Displays", "video-display-symbolic", "screen monitor resolution scale brightness night light refresh hz"),
+    ("display", "Displays", "video-display-symbolic", "screen monitor resolution scale brightness night light refresh hz screenshot snip print capture"),
     ("appearance", "Appearance", "preferences-desktop-appearance-symbolic", "theme wallpaper background accent colour color dark text size corners animations"),
     ("notifications", "Notifications", "preferences-system-notifications-symbolic", "do not disturb alerts banners"),
     ("power", "Power & Battery", "battery-full-symbolic", "battery sleep performance power saver keep awake laptop"),
@@ -549,6 +549,15 @@ def gui(page: str = "", screenshots: str = "", selftest: bool = False) -> int:
         st = managed()
         switch(win, g2, "Night light", "Warmer colours in the evening, easier on the eyes",
                st.get("night_light", "off") != "off", lambda on: tb("night_light", "on" if on else "off"))
+        g3 = group(page, "Screenshots", "Print Screen or Super+Shift+S: the picture is saved in Pictures › Screenshots "
+                   "and copied, straight away")
+        after = [("Show what I can do next (Edit, Show, Delete…)", "buttons"), ("Just save and copy it", "save")]
+        if "ai" in enabled_addons():
+            after.insert(1, ("Ask Prime about it", "ask"))
+            after[0] = ("Show what I can do next (Edit, Ask Prime…)", "buttons")
+        choice(win, g3, "After a screenshot", "", after, st.get("after_screenshot", "buttons"),
+               lambda v: tb("after_screenshot", v))
+        opener(g3, "Take a screenshot now", "Drag over the part you want", ["prime-snip", "area"], "Take")
         return page
 
     def p_appearance(win):

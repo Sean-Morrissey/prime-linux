@@ -422,6 +422,23 @@ def test():
         print(f"failed: {e}"); return 1
 
 
+def just_do(q):
+    """Everyday requests ("wifi off", "louder", "mouse settings") are done at once by
+    prime-do, without the model: instant, offline, always the same. True if done."""
+    do = os.path.join(LAYER, "bin/prime-do")
+    if not q or not os.access(do, os.X_OK):
+        return False
+    try:
+        first = subprocess.run([do, "--match", q], capture_output=True, text=True, timeout=5).stdout.splitlines()
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    parts = first[0].split("\t") if first else []
+    if len(parts) == 3 and parts[2] == "1.0":
+        subprocess.run([do, "--id", parts[0]], timeout=40)
+        return True
+    return False
+
+
 def main(argv):
     if not argv:
         print(__doc__); return 2
@@ -445,8 +462,12 @@ def main(argv):
         return answer(text, image, "--new" in rest, tutor, source)
     if argv[0] == "--box":
         q = box(tutor)
+        if q and not tutor and just_do(q):
+            return 0
         if q:
             window([q] + (["--tutor"] if tutor else []), tutor)
+        return 0
+    if not tutor and len(argv) == 1 and not argv[0].startswith("--") and just_do(argv[0]):
         return 0
     window(argv + (["--tutor"] if tutor else []), tutor)
     return 0

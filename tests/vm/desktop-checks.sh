@@ -14,11 +14,12 @@ layer_up() { # layer_up <namespace> — a layer-shell surface with that name is 
 }
 gone() { for _ in $(seq 20); do pgrep -f "$1" >/dev/null || return 0; sleep 0.5; done; return 1; }
 
-ck 'bar: top bar and dock on screen'         'layer_up waybar && [ "$(hyprctl -j layers | jq "[.. | objects | select(.namespace? == \"waybar\")] | length")" -ge 2 ]'
+ck 'bar: top bar on screen, dock waiting at the bottom' 'layer_up waybar && pgrep -f "^nwg-dock-hyprland|/nwg-dock-hyprland"'
 ck 'bar: the P logo opens the Start menu'    '"$L/bin/prime-bar" --print top | jq -e "[.. | objects | select(has(\"on-click\")) | .\"on-click\" | select(test(\"prime-start\"))] | length > 0"'
 ck 'Start menu (P logo, Super+X) opens'      '( setsid "$L/bin/prime-start" >/tmp/start.log 2>&1 & ); layer_up prime-start'
 grim /tmp/start-menu.png 2>/dev/null
-ck 'Start menu closes again (toggle)'        '"$L/bin/prime-start"; gone "bin/prime-start"'
+# (match the Start program itself: the dock's command line names prime-start too)
+ck 'Start menu closes again (toggle)'        '"$L/bin/prime-start"; gone "python3? [^ ]*bin/prime-start"'
 ck 'Spotlight (Super+Space) opens'           '( setsid "$L/bin/prime-spotlight" >/tmp/spotlight.log 2>&1 & ); layer_up prime-spotlight'
 grim /tmp/spotlight.png 2>/dev/null
 pkill -f bin/prime-spotlight; gone bin/prime-spotlight

@@ -698,8 +698,11 @@ def other_instance() -> int:
         return 0
     try:
         with open(f"/proc/{pid}/cmdline", "rb") as fh:
-            if b"prime-start" not in fh.read():
-                return 0                        # a stale file pointing at someone else
+            argv = fh.read().split(b"\0")
+        # the program itself (python3 …/prime-start), not one that only mentions it —
+        # the dock carries "-c …/prime-start" for its Start button
+        if not any(a.endswith(b"prime-start") for a in argv[:2]):
+            return 0                            # a stale file pointing at someone else
     except OSError:
         return 0
     return pid

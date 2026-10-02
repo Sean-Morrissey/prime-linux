@@ -333,6 +333,12 @@ def gui(screenshots=None):
             self.a = {"name": default_name(), "accent": th["ACCENT"], "accent_name": "",
                       "wallpaper": th["WALL"], "uses": [], "updates": "automatic", "autonomy": "suggest",
                       "text_scale": "normal", "ai_connected": False}
+            adw = os.path.join(os.path.expanduser("~"), ".config/prime/theme/adw.css")
+            if os.path.exists(adw):            # Prime's surfaces (prime-theme); the accent below follows the picker
+                theme = Gtk.CssProvider()
+                theme.load_from_path(adw)
+                Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(), theme,
+                                                          Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
             self.accent_css = Gtk.CssProvider()
             Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(), self.accent_css,
                                                       Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION + 1)

@@ -1096,6 +1096,13 @@ def gui(page: str = "", screenshots: str = "", selftest: bool = False) -> int:
         prov = Gtk.CssProvider()
         prov.load_from_string(CSS) if hasattr(prov, "load_from_string") else prov.load_from_data(CSS.encode())
         Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(), prov, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+        # the exact accent and Prime's own surfaces, written by prime-theme (absent: libadwaita's)
+        adw = os.path.join(CFG, "theme/adw.css")
+        if os.path.exists(adw):
+            theme = Gtk.CssProvider()
+            theme.load_from_path(adw)
+            Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(), theme,
+                                                      Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
         win = app_.get_active_window() or Settings(app_)
         if page and page in win.rows:
             win.show(page)

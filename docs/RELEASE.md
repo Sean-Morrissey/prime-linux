@@ -26,6 +26,27 @@ then `stable`). Switching channel on an installed machine:
 checked-out branch. (A `prime-channel` menu row is a small follow-up for the
 Updates owner.)
 
+### Staged rollout, once `stable` has real users
+
+`stable` fast-forwarding to a tag is instant and total: every machine on that
+channel gets the new tag the next time `prime-update` runs, with no gradient
+between "nobody has it" and "everybody has it." That's fine for a handful of
+people the owner knows personally; it stops being fine once "ask Sean on
+Discord" isn't how most users would find out something's wrong. Before that
+point, a cheap staged rollout — no new infrastructure, just discipline:
+
+1. Tag the release as normal, but don't fast-forward `stable` yet. Let the
+   owner's own machine and `edge` users run the tag for a few days first (this
+   is exactly what `edge` already is).
+2. Fast-forward `stable` only after that soak period is clean — no new
+   `prime-doctor` failures, no rollback events logged from anyone running the
+   tag.
+3. If the user base outgrows "the owner would notice," the next cheap step is
+   a percentage-of-machines gate in `prime-update` itself (hash the machine ID,
+   fast-forward to the new tag only once that hash falls under a published
+   rollout percentage that climbs over a few days) — not needed yet, worth
+   having the shape in mind before it is.
+
 ## What "releasable" means — the gate
 
 All of these, on the commit being tagged:

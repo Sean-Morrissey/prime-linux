@@ -131,6 +131,7 @@ nwg-displays
 pciutils
 pkgconf
 plocate
+python-cairo
 python-gobject
 satty
 uwsm

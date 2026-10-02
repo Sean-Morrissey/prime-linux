@@ -19,6 +19,7 @@ scan "author's GPU model or overrides"     'RX ?9060|Navi ?44|gfx1200|HSA_OVERRI
 scan "fixed GPU card or sensor numbers"    '/sys/class/drm/card[0-9]|hwmon/hwmon[0-9]'
 scan "named screens (DP-1, HDMI-A-1, eDP-1…)" '(^|[^a-z])(DP|HDMI-A|eDP|DVI-D)-[0-9]' --exclude=prime-import
 scan "named sound devices"                 'alsa_(output|input)\.[a-z0-9]'
+scan "the author's own agent (Hermes setup, ledger, his API provider)" '\.hermes/|hermes-gateway|ledger-(note|flush|handle|inbox)|DEEPSEEK_API_KEY'
 # the personal add-on is made on your own machine by prime-import, never shipped
 if [ -e layer/addons/my-desktop ] || git ls-files | grep -q 'addons\.d/'; then echo "  FAIL  a personal add-on is in the repo"; fail=$((fail+1))
 else echo "  PASS  no personal add-on in the repo"; fi

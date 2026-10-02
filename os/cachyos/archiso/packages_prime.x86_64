@@ -19,6 +19,7 @@ qt6-wayland
 
 # --- the two bars + the launcher ----------------------------------------------------
 waybar
+nwg-dock-hyprland
 rofi
 wofi
 

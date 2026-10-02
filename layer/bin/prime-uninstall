@@ -40,7 +40,7 @@ echo "This removes Prime Linux from your account and restores what it changed."
 if [ $YES = 0 ] && [ $DRY = 0 ]; then read -rp "Continue? [y/N] " ok; [ "${ok,,}" = y ] || exit 0; fi
 
 # ── the desktop session's pieces ─────────────────────────────────────────────
-run systemctl --user stop prime-session.target 'prime-bar@top' 'prime-bar@side' prime-cliphist-text \
+run systemctl --user stop prime-session.target 'prime-bar@top' 'prime-bar@side' prime-dock prime-cliphist-text \
     prime-cliphist-image prime-clip-persist prime-osd prime-battery-alert 2>/dev/null
 for u in "$HOME"/.config/systemd/user/prime-*; do
     [ -L "$u" ] && [[ "$(readlink "$u")" == "$PRIME_HOME"/* ]] && run rm -f "$u"

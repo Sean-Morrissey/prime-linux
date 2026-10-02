@@ -54,7 +54,7 @@ write_hudconf() {
     cat > "$HUDCONF" <<'EOF'
 # Prime gaming pack — MangoHud settings (Prime only writes this file if it doesn't exist;
 # it's yours now). Show/hide in a running game: Right Shift + F12.
-# Prime menu → Gaming → "FPS overlay" sets whether it's shown when a game starts.
+# Settings → Gaming → "FPS overlay" sets whether it's shown when a game starts.
 no_display
 toggle_hud=Shift_R+F12
 position=top-left
@@ -130,7 +130,7 @@ tips() {
   • Steam runs Windows games through Proton. In Steam → Settings → Compatibility,
     switch on "Enable Steam Play for all other titles".
   • On CachyOS, choose "proton-cachyos" there too: it's tuned for this system.
-    Other Proton versions (e.g. GE-Proton): Prime menu → Gaming → Proton versions.
+    Other Proton versions (e.g. GE-Proton): Settings → Gaming → Proton versions.
   • Make one game faster: right-click it in Steam → Properties → Launch Options:
         gamemoderun %command%          (GameMode: CPU priority while it runs)
         game-performance %command%     (CachyOS: Performance mode while it runs)
@@ -142,7 +142,7 @@ tips() {
     discs, emulators): Lutris.  Both are in the Gaming menu.
   • Controllers: Xbox, PlayStation, Switch and Steam controllers work over USB.
     Bluetooth: pair them in Settings → Bluetooth.
-  • Something wrong? Prime menu → Gaming → Check my gaming setup.
+  • Something wrong? Settings → Gaming → Check my gaming setup.
 EOF
 }
 

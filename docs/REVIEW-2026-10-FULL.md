@@ -400,3 +400,38 @@ not a reason to wait.
   preview coverage + preview-harness fix (F5), staged-rollout guidance in
   `docs/RELEASE.md`, the AI-onboarding correction, the GTK4-layer-shell
   de-risking research for F6, and this document's score update
+
+---
+
+## 11. Follow-up rounds (PRs #23–#31) and the design audit
+
+After §10, the owner asked for the distro to be "complete, standalone and
+managed by Prime, no AI required", and later for a ruthless design audit
+("it all is kinda ugly — not seamless like Windows or a Mac"). What shipped:
+
+| PR | What it closed |
+|---|---|
+| [#23](https://github.com/Sean-Morrissey/prime-linux/pull/23) | Signed releases: the stable channel only fast-forwards to a tag signed by a key the computer already trusts (L4, mechanism) |
+| [#24](https://github.com/Sean-Morrissey/prime-linux/pull/24) | A second account on the same computer can't take over or remove the first one's desktop |
+| [#25](https://github.com/Sean-Morrissey/prime-linux/pull/25) | Daily checkup (no AI): disk, failed services, version jumps — speaks up only about something new |
+| [#26](https://github.com/Sean-Morrissey/prime-linux/pull/26) | Weekly CI check on whether CachyOS's installer works again (the ISO blocker) |
+| [#27](https://github.com/Sean-Morrissey/prime-linux/pull/27) | File History: get a file back from an hour, a day or a week ago |
+| [#28](https://github.com/Sean-Morrissey/prime-linux/pull/28) | Settings: one GTK4/libadwaita window for everything (now 23 pages), Super+I |
+| [#29](https://github.com/Sean-Morrissey/prime-linux/pull/29) | Prime, one voice: everyday requests without AI (`prime-do`), screenshots that never ask first, the Prime/Hermes roles (`docs/PRIME-AND-HERMES.md`) |
+| [#30](https://github.com/Sean-Morrissey/prime-linux/pull/30) | Design round 1: windows float like a Mac/Windows (Tidy = tiling, a setting), solid windows, calm default look, one highlight style, tearing + VRR for games |
+| [#31](https://github.com/Sean-Morrissey/prime-linux/pull/31) | Design round 2: three front doors (Start, Spotlight, Settings), a Mac-style auto-hide dock, title bars that rebuild themselves after a Hyprland update, a guard against the owner's own agent leaking into a friend's install |
+
+**Scores for the design audit** (the panel scored the shipped desktop, from
+real renders and the VM boot, not the code):
+
+| Reviewer | At the audit | Now | Why |
+|---|---|---|---|
+| **Steve Jobs** | 4 | **7** | The two things that made it feel unlike a Mac or Windows — tiling by default and see-through windows — are gone; one look, one highlight, three doors, a dock that stays out of the way. Held back: the pickers are still rofi (a different toolkit from Start/Settings), and nobody has yet looked at it on the owner's real screen. |
+| **Linus Torvalds** | 7 | **8** | Tearing and VRR now actually work (the old `immediate` rule was inert), lighter blur, one bar process instead of two, a fragile plugin rebuild made self-healing and tested. The kernel is correctly left to CachyOS. Held back: F6 (GTK3 windows) is still open. |
+| **Bill Gates** | 6 | **7** | It now holds together as a product for two people: Settings for everything, no terminal, updates and repair that run by themselves. Held back from 9: no working ISO (upstream), and the release-signing key doesn't exist yet — signed updates can't be verified until the owner runs `tools/release-sign.sh --new-key` once. |
+
+**Still open, in order:** the owner's release key (a decision, not a PR); the
+ISO, blocked upstream (watched weekly by #26); F6, GTK3 → GTK4; a look at the
+desktop on the owner's own monitor (VRR, scaling) — the only check CI can't do;
+`layer/branding/previews/bar.png` predates the new default look (rendering it
+needs a Wayland compositor the build sandbox lacks).

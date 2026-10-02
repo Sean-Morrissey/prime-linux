@@ -92,7 +92,7 @@ if pull_err="$(GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=/bin/false SSH_ASKPASS=/bin/fal
         warn "couldn't update Prime Linux itself: this copy doesn't follow a release channel — carrying on"
     elif ! verdict="$("$BIN/prime-release-verify" "$REPO" "$target" 2>&1)"; then
         warn "didn't install the new Prime Linux: it isn't signed by Prime's release key. Your computer is unchanged."
-        warn "(${verdict}) If this keeps happening, use Get help in the Prime menu."
+        warn "(${verdict}) If this keeps happening, use Get help in Settings → About & Help."
     elif ! merge_err="$(git -C "$REPO" merge --ff-only --quiet "$target" 2>&1)"; then
         warn "couldn't update Prime Linux itself (files in $REPO were edited) — carrying on"
         printf '%s\n' "$merge_err" >&2
@@ -154,7 +154,7 @@ if [ "$ONLY_PRIME" = 0 ]; then
     attention) warn "system updated — see the ! lines above (nothing urgent)" ;;
     skipped)   stop "The system wasn't updated this time." "The reason is just above. Nothing was changed — try again later." ;;
     failed)    stop "The system update didn't go through." "The reason is just above. Your computer is exactly as it was." \
-                    "If it keeps happening: Prime menu → Update → Check for problems, or ask for help with the log in $STATE." ;;
+                    "If it keeps happening: Settings → Updates, or ask for help with the log in $STATE." ;;
     broken)    stop "The system update stopped part-way." \
                     "Your computer still works. Please don't restart it yet." \
                     "Run Update everything once more — it usually finishes the job." \
@@ -199,7 +199,9 @@ if [ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]; then
 fi
 if [ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]; then
     hyprctl reload >/dev/null
-    systemctl --user restart prime-session.target prime-bar@top prime-bar@side 2>/dev/null
+    systemctl --user stop prime-bar@side 2>/dev/null     # the dock replaced the side bar
+    systemctl --user daemon-reload 2>/dev/null
+    systemctl --user restart prime-session.target prime-bar@top prime-dock 2>/dev/null
 fi
 rm -f "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/waybar-updates.json"
 mkdir -p "${XDG_STATE_HOME:-$HOME/.local/state}/prime"

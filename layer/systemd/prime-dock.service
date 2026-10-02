@@ -1,0 +1,9 @@
+[Unit]
+Description=Prime Linux dock (pinned and open apps, hidden until the pointer reaches the bottom)
+PartOf=prime-session.target
+After=graphical-session.target prime-bar@top.service
+
+[Service]
+ExecStart=%h/.local/share/prime-linux/layer/bin/prime-dock
+Restart=on-failure
+RestartSec=2

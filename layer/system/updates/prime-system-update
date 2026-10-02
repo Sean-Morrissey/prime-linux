@@ -598,11 +598,11 @@ report_result() { # after apply_update in nightly mode: tell the person, in plai
       notify_users low "$t" "$b" ;;
     attention)
       t="Updated — one thing to look at"
-      b="$R_COUNT update(s) installed, but: ${R_PROBLEMS[0]}. Your computer works; Prime menu → Update → Check shows details."
+      b="$R_COUNT update(s) installed, but: ${R_PROBLEMS[0]}. Your computer works; Settings → Updates shows details."
       notify_users normal "$t" "$b" ;;
     broken)
       t="The update didn't finish — please read"
-      b="Your computer still works, but don't restart it yet if you can avoid it. Open Prime menu → Update → Undo last update for the safe way back."
+      b="Your computer still works, but don't restart it yet if you can avoid it. Open Settings → Updates → Undo the last update for the safe way back."
       [ -n "$R_SNAP" ] && b="$b If it won't start: pick snapshot #$R_SNAP ('before update') in the boot menu."
       notify_users critical "$t" "$b" ;;
     failed)
@@ -885,7 +885,7 @@ cmd_undo() {
   if [ "$(root_fs)" != btrfs ] || ! has_snapper_root; then
     say "  This computer can't take system snapshots, so an update can't be undone with one click."
     say "  Your files are never touched by updates. Desktop settings can be put back from:"
-    say "    Prime menu → Style & repair → Restore desktop settings"
+    say "    Settings → About & Help → Restore desktop settings"
     return 0
   fi
   say "  Your files (Documents, Pictures, …) are never touched by this — only the system."
@@ -896,7 +896,7 @@ cmd_undo() {
       say "  1. Restart the computer."
       say "  2. In the boot menu, open ${Bo}Snapshots${N} and pick the one marked ${Bo}Prime: before update${N}${snap:+ (#$snap)}."
       say "  3. The computer starts as it was before the update. Check that it works."
-      say "  4. To keep it that way: Prime menu → Update → Undo last update again (it will offer to make it permanent),"
+      say "  4. To keep it that way: Settings → Updates → Undo the last update again (it will offer to make it permanent),"
       say "     or run:  sudo limine-snapper-restore" ;;
     grub)
       say "  1. Restart the computer."

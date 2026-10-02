@@ -16,6 +16,7 @@ qt6-wayland
 
 # bar, menus, notifications, clipboard
 waybar
+nwg-dock-hyprland
 rofi
 swaync
 libnotify

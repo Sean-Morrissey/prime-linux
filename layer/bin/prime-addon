@@ -6,7 +6,7 @@
 #   prime-addon disable <name>     switch it off: its menu, shortcuts and bar items go (apps stay)
 #   prime-addon info <name>        what it would install and add, before you turn it on
 #   prime-addon check [name]       health check for one, or for everything that's on
-#   prime-addon pick               choose from a menu (Prime menu → Settings → Add-ons)
+#   prime-addon pick               choose from a menu (Settings → Apps → Packs and add-ons)
 #   prime-addon toggle <name>      on if it's off, off if it's on
 #   prime-addon open <app|app2…> [args]  start an app a pack installs, or offer to install it
 #   prime-addon get <package|flatpak-id>…  install extra apps (the "Get more…" rows)
@@ -280,10 +280,10 @@ cmd_enable() {
     say "Menu, shortcuts and bar updated."
 
     printf '\n  %s✓ %s is on.%s\n' "$_B" "$TITLE" "$_R"
-    if [ -f "$d/menu.json" ]; then echo "    In the Prime menu (Super+Alt+Space):"; menu_of "$d"; fi
+    if [ -f "$d/menu.json" ]; then echo "    In Settings (Super+I) → Apps:"; menu_of "$d"; fi
     if [ -f "$d/hypr.conf" ] && grep -qE '^bind' "$d/hypr.conf"; then echo "    Shortcuts:"; binds_of "$d"; fi
     [ -n "$CHECK" ] && note "Health check any time: prime-addon check $n"
-    notify "$TITLE is ready — find it in the Prime menu."
+    notify "$TITLE is ready — find it in Settings (Super+I)."
     return 0
 }
 
@@ -431,7 +431,7 @@ cmd_get() {   # get <package|flatpak-id>…
 }
 
 case "${1:-}" in
-    ""|list)   list_all; echo; echo "  Switch them on or off in the Prime menu → Settings → Add-ons"
+    ""|list)   list_all; echo; echo "  Switch them on or off in the Settings → Apps → Packs and add-ons"
                echo "  (or: prime-addon enable <name>  ·  disable <name>  ·  info <name>  ·  check)" ;;
     enable)    cmd_enable "${2:-}" ;;
     disable)   cmd_disable "${2:-}" ;;

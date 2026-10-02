@@ -72,7 +72,7 @@ status() {
     local lvl msg fix=""
     if ! possible; then lvl=info; msg="File History isn't possible on this disk (it needs btrfs, which CachyOS uses by default)"
     elif ! configured; then lvl=warn; msg="File History is off — your own files have no undo"; fix="Update everything switches it on"
-    else lvl=ok; msg="File History is on — get any file back from the last hours, days or weeks (Prime menu → Get a file back)"; fi
+    else lvl=ok; msg="File History is on — get any file back from the last hours, days or weeks (Settings → Storage → Get a file back)"; fi
     if [ $tsv = 1 ]; then printf '%s\t%s\t%s\n' "$lvl" "$msg" "$fix"; else echo "$msg${fix:+ — $fix}"; fi
 }
 

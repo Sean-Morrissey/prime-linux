@@ -30,7 +30,7 @@ git_setup() {
     if [ -n "${PRIME_GIT_EMAIL:-}" ]; then email="$PRIME_GIT_EMAIL"; git config --global user.email "$email"; fi
     if [ -z "$name" ] || [ -z "$email" ] || [ "${1:-}" = ask ]; then
         if nonint; then
-            [ -n "$name" ] && [ -n "$email" ] || note "git: name/email not set yet — Prime menu → Coding → Set up git"
+            [ -n "$name" ] && [ -n "$email" ] || note "git: name/email not set yet — Settings → Apps → Coding → Set up git"
         else
             echo; say "git labels every change you save with your name and email."
             say "Use the email you'll use on GitHub/GitLab (it can be a private 'noreply' one)."
@@ -149,9 +149,9 @@ setup() {
     say "Your code lives in ~/Projects (it's in the file manager's sidebar)."
     git_setup
     shell_on; say "Terminal: a git-aware prompt, 'z' to jump to folders, Ctrl+R history search, ll/la/tree."
-    subids || warn "Couldn't give your account its container ID range — Podman may not start containers. Prime menu → Coding → Check my coding setup says what to do $USER"
+    subids || warn "Couldn't give your account its container ID range — Podman may not start containers. Settings → Apps → Coding → Check my coding setup says what to do $USER"
     say "Containers: Podman, without admin rights ('podman run …'). Docker on request."
-    note "Add a language any time: Prime menu → Coding → Add a programming language"
+    note "Add a language any time: Settings → Apps → Coding → Add a programming language"
     if [ -n "${PRIME_LANGS:-}" ]; then lang $PRIME_LANGS; fi
 }
 teardown() { shell_off; bookmark_remove "$PROJECTS"; }
@@ -160,11 +160,11 @@ check() {
     have code && ck_ok "Editor: Code - OSS ($(code --version 2>/dev/null | head -1))" || ck_bad "Code - OSS missing — fix: prime-addon enable coding"
     local n e; n="$(git config --global user.name)"; e="$(git config --global user.email)"
     if [ -n "$n" ] && [ -n "$e" ]; then ck_ok "git knows you: $n <$e>"
-    else ck_warn "git doesn't know your name/email yet — Prime menu → Coding → Set up git"; fi
+    else ck_warn "git doesn't know your name/email yet — Settings → Apps → Coding → Set up git"; fi
     [ -d "$PROJECTS" ] && ck_ok "~/Projects exists" || ck_warn "~/Projects is missing — fix: prime-addon enable coding"
     if have mise; then
         local l; l="$(mise ls --global 2>/dev/null | awk '{print $1"@"$2}' | paste -sd' ')"
-        ck_ok "Languages (mise): ${l:-none yet — Prime menu → Coding → Add a programming language}"
+        ck_ok "Languages (mise): ${l:-none yet — Settings → Apps → Coding → Add a programming language}"
     else ck_bad "mise missing — fix: prime-addon enable coding"; fi
     if grep -q "^$USER:" /etc/subuid 2>/dev/null; then ck_ok "Rootless containers allowed (sub-IDs set)"
     else ck_bad "No container sub-IDs for $USER — fix: prime-addon enable coding"; fi

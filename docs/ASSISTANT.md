@@ -12,7 +12,7 @@ The first time you log in, a window called **Welcome to Prime Linux** opens. It
 takes about two minutes and every step has **Skip**:
 
 1. **Hello** — what should Prime call you, and the three keys worth knowing:
-   **Super+Space** finds anything, **Super+Alt+Space** opens the Prime menu,
+   **Super+Space** finds anything, **Super+I** opens Settings,
    **Super+/** lists every shortcut (Super is the Windows-logo key). A **Larger
    text** switch is right there.
 2. **Pick a look** — accent colours and wallpapers. The preview *and your real
@@ -30,7 +30,7 @@ takes about two minutes and every step has **Skip**:
    small stuff* · *Just do it*.
 7. **Done** — what was set up, plus tips.
 
-Closing the window early is fine. Run it again any time: Prime menu → **Set up my
+Closing the window early is fine. Run it again any time: Settings → Users & Accounts → **Set up my
 computer again** (or `prime-welcome`).
 
 ### Asking Prime
@@ -55,13 +55,13 @@ Allow? [y/N]
 
 Nothing happens unless you type **y**. Prime then says what it did in one line.
 
-**Undo** — say "undo that", or Prime menu → Ask Prime → *Undo Prime's last change*,
+**Undo** — say "undo that", or Settings → About & Help → *Undo the last change made here*,
 or `prime-settings undo`. Repeat to step further back.
-**What did Prime change?** — Prime menu → *What Prime changed*, or `prime-settings log`.
+**What did Prime change?** — Settings → AI Assistant → *What Prime changed*, or `prime-settings log`.
 
 ### Prime Tutor (students)
 
-Prime menu → Ask Prime → **Prime Tutor — learn step by step** (also in the app
+Settings → AI Assistant → **Prime Tutor — learn step by step** (also in the app
 list). The tutor finds out what you know, goes one step at a time, gives a worked
 example on a similar problem, asks you to try, and explains mistakes. For graded
 work it helps you plan and improve *your* work rather than writing it for you. It

@@ -161,3 +161,17 @@ tooltip label {
     padding: 6px 10px;
     font-size: 0.75rem;
 }
+
+/* workspaces: a dot per desktop in use; the one you're on is a longer accent pill */
+#workspaces { margin: 0 4px; }
+#workspaces button {
+    padding: 0 5px;
+    margin: 6px 1px;
+    border-radius: 8px;
+    color: rgba(236, 236, 239, 0.45);
+    background: transparent;
+    min-height: 0;
+}
+#workspaces button:hover { background: rgba(255, 255, 255, 0.10); color: #ececef; }
+#workspaces button.active { color: @accent; background: alpha(@accent, 0.16); padding: 0 12px; }
+#workspaces button.urgent { color: #fbbf24; }

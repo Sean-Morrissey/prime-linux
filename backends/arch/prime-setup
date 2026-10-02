@@ -191,7 +191,7 @@ beat_1() { # who are you
 
 beat_2() { # what are you studying
   beat "2. What are you studying?"
-  dim "  Type your courses like this: MATH-1099 Bridge to College Math, ENGL-0155 Basic"
+  dim "  Type your courses like this: MATH-1010 College Algebra, ENGL-1100 Basic"
   dim "  Composition. I will make you a folder for each one and keep an eye on dates."
   dim "  Say 'skip' and the machine still works — you can tell me later."
 

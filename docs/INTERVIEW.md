@@ -111,8 +111,8 @@ identity seed.
 **Writes:**
 ```yaml
 # ~/.config/prime/identity.yaml
-name: Sean
-pronouns: he/him
+name: Alex
+pronouns: they/them
 language: en
 ```
 
@@ -139,14 +139,14 @@ skip this if you're not a student."
 ```
 ~/College/
   Autumn-2026/
-    MATH-1099/
+    MATH-1010/
       notes/
       assignments/
-    ENGL-0155/
+    ENGL-1100/
       notes/
       assignments/
       essays/
-    COLS-1100/
+    COLL-1000/
       notes/
       assignments/
 ```
@@ -157,20 +157,20 @@ StudyHub dashboard data file is initialized with the courses.
 **Writes:**
 ```yaml
 # ~/.config/prime/identity.yaml (appended)
-school: Columbus State Community College
+school: Example Community College
 term: Autumn-2026
 courses:
-  - code: MATH-1099
-    name: Bridge to College Math
-    instructor: Prof. John Wallace
+  - code: MATH-1010
+    name: College Algebra
+    instructor: Prof. Sam Patel
     schedule: "MWF 10:00"
-  - code: ENGL-0155
-    name: Basic Composition
-    instructor: Prof. Rebecca Baker
+  - code: ENGL-1100
+    name: Composition I
+    instructor: Prof. Dana Reyes
     schedule: "async"
-  - code: COLS-1100
-    name: First Year Experience
-    instructor: Prof. James Evans
+  - code: COLL-1000
+    name: First Year Seminar
+    instructor: Prof. Jordan Lee
     schedule: "async"
 ```
 ```
@@ -331,7 +331,7 @@ confirms: "Got it. I'll keep this in mind."
 # ~/.config/prime/identity.yaml (appended)
 freeform: |
   I learn better with examples than explanations. I hate being talked at
-  in long command lists. I play Dark and Darker on Steam. I want to learn
+  in long command lists. I play games on Steam. I want to learn
   to use the terminal but I don't know where to start.
 ```
 
@@ -363,7 +363,7 @@ When the user clicks "Done" (or skips to the end), Prime:
    ```
    ✓ Machine: healthy (AMD Ryzen 7, 16 GB, 460 GB free)
    ✓ Desktop: KDE Plasma, dark theme
-   ✓ Courses: MATH-1099, ENGL-0155, COLS-1100 → ~/College/Autumn-2026/
+   ✓ Courses: MATH-1010, ENGL-1100, COLL-1000 → ~/College/Autumn-2026/
    ✓ Apps: LibreOffice, Obsidian, Firefox, Terminal
    ✓ AI: Connected (DeepSeek) · Budget: $5.00/month
    ✓ Autonomy: Ask me first

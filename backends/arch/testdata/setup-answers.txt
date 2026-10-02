@@ -16,9 +16,9 @@ Alex
 =
 
 # --- Beat 2: school, term, courses
-Columbus State Community College
+Example Community College
 Autumn-2026
-MATH-1099 Bridge to College Math, ENGL-0155 Basic Composition
+MATH-1010 College Algebra, ENGL-1100 Composition I
 
 # --- Beat 3: languages, creative
 python, javascript

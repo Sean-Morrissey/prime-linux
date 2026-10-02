@@ -41,8 +41,8 @@ assert d['name']=='Alex', d['name']
 assert d['pronouns']=='they/them', d['pronouns']       # took the suggestion
 assert d['term']=='Autumn-2026'
 assert len(d['courses'])==2, d['courses']
-assert d['courses'][0]['code']=='MATH-1099', d['courses'][0]
-assert d['courses'][0]['name']=='Bridge to College Math', d['courses'][0]
+assert d['courses'][0]['code']=='MATH-1010', d['courses'][0]
+assert d['courses'][0]['name']=='College Algebra', d['courses'][0]
 assert d['preferences']['session']=='prime'
 assert d['preferences']['accessibility']['text_scale']=='huge'   # overrode the suggestion
 assert d['preferences']['autonomy']=='suggest', d['preferences']['autonomy']
@@ -64,9 +64,9 @@ hasnt "$CFG/identity.yaml" 'sk-|api[_-]?key|token|password' "no key material in 
 hasnt "$CFG/identity.yaml" 'anthropic|openai|deepseek|google' "no provider names either"
 
 head "4. course folders exist and are named after the courses"
-[ -d "$COLLEGE/Autumn-2026/MATH-1099" ] && good "MATH-1099 folder created" || nope "MATH-1099 folder missing"
-[ -d "$COLLEGE/Autumn-2026/ENGL-0155" ] && good "ENGL-0155 folder created" || nope "ENGL-0155 folder missing"
-[ -s "$COLLEGE/Autumn-2026/MATH-1099/README.md" ] && good "each course has a README to work in" || nope "README missing"
+[ -d "$COLLEGE/Autumn-2026/MATH-1010" ] && good "MATH-1010 folder created" || nope "MATH-1010 folder missing"
+[ -d "$COLLEGE/Autumn-2026/ENGL-1100" ] && good "ENGL-1100 folder created" || nope "ENGL-1100 folder missing"
+[ -s "$COLLEGE/Autumn-2026/MATH-1010/README.md" ] && good "each course has a README to work in" || nope "README missing"
 
 head "5. what got remembered is where they disagreed"
 has "$CFG/answers.log" '"outcome":"chose their own"' "recorded an override as a strong signal"

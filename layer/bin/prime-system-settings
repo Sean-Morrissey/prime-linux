@@ -197,6 +197,189 @@ def battery() -> dict:
     return {}
 
 
+# ── screens (hyprctl), saved in ~/.config/hypr/monitors.conf ──────────────────
+
+MONITORS_CONF = os.path.join(HOME, ".config/hypr/monitors.conf")
+HYPRCTL = "hyprctl"                         # the window manager's control command
+SCALES = [("100%", 1.0), ("125%", 1.25), ("150%", 1.5), ("175%", 1.75), ("200%", 2.0)]
+VRR_MODES = [("Off", 0), ("Always", 1), ("Full-screen games and video", 2)]
+
+
+def monitors() -> list:
+    try:
+        return json.loads(sh("hyprctl", "monitors", "-j") or "[]")
+    except ValueError:
+        return []
+
+
+def modes_of(mon: dict) -> list:
+    """[(label, "WxH@R")] best first: highest resolution, then highest refresh rate."""
+    seen, out = set(), []
+    for m in mon.get("availableModes", []):
+        mm = re.match(r"(\d+)x(\d+)@([\d.]+)Hz", m)
+        if not mm:
+            continue
+        w, h, r = int(mm.group(1)), int(mm.group(2)), float(mm.group(3))
+        key = (w, h, round(r))
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append((w * h, r, f"{w} × {h} at {round(r)} Hz", f"{w}x{h}@{r:.2f}"))
+    out.sort(key=lambda t: (-t[0], -t[1]))
+    return [(lab, val) for _a, _b, lab, val in out]
+
+
+def current_mode(mon: dict) -> str:
+    return f"{mon.get('width')}x{mon.get('height')}@{float(mon.get('refreshRate', 60)):.2f}"
+
+
+def monitor_line(name: str, mode: str, x: int, y: int, scale: float, vrr: int | None = None) -> str:
+    """One Hyprland monitor rule: name, mode, position, scale[, vrr]."""
+    line = f"{name}, {mode}, {int(x)}x{int(y)}, {scale:g}"
+    if vrr is not None:
+        line += f", vrr, {int(vrr)}"
+    return line
+
+
+def save_monitor(name: str, line: str, path: str = MONITORS_CONF) -> None:
+    """Replace this screen's rule in monitors.conf (or add it); other screens stay as they are."""
+    try:
+        lines = open(path).read().splitlines()
+    except OSError:
+        lines = ["# Screens — Settings → Displays rewrites this file."]
+    pat = re.compile(r"^\s*monitor\s*=\s*" + re.escape(name) + r"\s*,")
+    out, done = [], False
+    for ln in lines:
+        if pat.match(ln):
+            if not done:
+                out.append(f"monitor = {line}")
+                done = True
+            continue
+        out.append(ln)
+    if not done:
+        out.append(f"monitor = {line}")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path + ".tmp", "w") as fh:
+        fh.write("\n".join(out) + "\n")
+    os.replace(path + ".tmp", path)
+
+
+# ── sound (PipeWire) ─────────────────────────────────────────────────────────────
+
+def audio_devices(kind: str) -> tuple:
+    """([(id, name)], default id) for "Sinks" (speakers) or "Sources" (microphones)."""
+    text = sh("wpctl", "status")
+    out, default, section, in_audio = [], "", "", False
+    for line in text.splitlines():
+        clean = line.replace("│", " ").replace("├", " ").replace("└", " ").replace("─", " ")
+        st = clean.strip()
+        if st.startswith("Audio"):
+            in_audio = True
+        elif st.startswith("Video") or st.startswith("Settings"):
+            in_audio = False
+        if not in_audio:
+            continue
+        if st.endswith(":") and st[:-1] in ("Devices", "Sinks", "Sources", "Filters", "Streams"):
+            section = st[:-1]
+            continue
+        if section != kind:
+            continue
+        m = re.match(r"(\*)?\s*(\d+)\.\s+(.*?)(\s*\[vol:.*)?$", st)
+        if m:
+            out.append((m.group(2), m.group(3).strip()))
+            if m.group(1):
+                default = m.group(2)
+    return out, default
+
+
+def app_streams() -> list:
+    """[(index, app name, volume 0-150)] for every app playing sound right now."""
+    try:
+        data = json.loads(sh("pactl", "-f", "json", "list", "sink-inputs") or "[]")
+    except ValueError:
+        return []
+    out = []
+    for d in data:
+        props = d.get("properties", {})
+        name = props.get("application.name") or props.get("media.name") or "An app"
+        vols = [int(str(v.get("value_percent", "100%")).rstrip("%")) for v in d.get("volume", {}).values()] or [100]
+        out.append((d.get("index"), name, max(vols)))
+    return out
+
+
+# ── graphics cards and the processor, live ──────────────────────────────────────
+
+SYS = os.environ.get("PRIME_SYS_ROOT", "")     # tests point this at a made-up /sys
+
+
+def gpu_cards() -> list:
+    """Every graphics card with its live numbers (where the driver reports them)."""
+    out = []
+    drm = f"{SYS}/sys/class/drm"
+    for card in sorted(os.listdir(drm)) if os.path.isdir(drm) else []:
+        if not re.fullmatch(r"card\d+", card):
+            continue
+        dev = f"{drm}/{card}/device"
+        driver = os.path.basename(os.path.realpath(f"{dev}/driver")) if os.path.exists(f"{dev}/driver") else ""
+        info = {"card": card, "driver": driver}
+        vt, vu = read(f"{dev}/mem_info_vram_total"), read(f"{dev}/mem_info_vram_used")
+        if vt.isdigit() and int(vt):
+            info["vram"] = (int(vu) if vu.isdigit() else 0, int(vt))
+        busy = read(f"{dev}/gpu_busy_percent")
+        if busy.isdigit():
+            info["busy"] = int(busy)
+        for hw in sorted(os.listdir(f"{dev}/hwmon")) if os.path.isdir(f"{dev}/hwmon") else []:
+            t = read(f"{dev}/hwmon/{hw}/temp1_input")
+            if t.isdigit():
+                info["temp"] = int(t) // 1000
+            pw = read(f"{dev}/hwmon/{hw}/power1_average") or read(f"{dev}/hwmon/{hw}/power1_input")
+            if pw.isdigit():
+                info["watts"] = int(pw) / 1e6
+        clk = re.search(r"(\d+)Mhz \*", read(f"{dev}/pp_dpm_sclk"))
+        if clk:
+            info["clock"] = int(clk.group(1))
+        info["level"] = read(f"{dev}/power_dpm_force_performance_level")
+        out.append(info)
+    return out
+
+
+def package_versions(*names) -> str:
+    out = sh("pacman", "-Q", *names)
+    return " · ".join(" ".join(l.split()[:2]) for l in out.splitlines() if l.strip())
+
+
+def cpu_live() -> dict:
+    """Speed now (average of every core), the most it can boost to, and how it's tuned."""
+    base = f"{SYS}/sys/devices/system/cpu"
+    freqs = []
+    for c in os.listdir(base) if os.path.isdir(base) else []:
+        f = read(f"{base}/{c}/cpufreq/scaling_cur_freq")
+        if re.fullmatch(r"cpu\d+", c) and f.isdigit():
+            freqs.append(int(f))
+    mx = read(f"{base}/cpu0/cpufreq/cpuinfo_max_freq")
+    temp = ""
+    hwm = f"{SYS}/sys/class/hwmon"
+    for hw in sorted(os.listdir(hwm)) if os.path.isdir(hwm) else []:
+        if read(f"{hwm}/{hw}/name") in ("k10temp", "coretemp", "zenpower"):
+            t = read(f"{hwm}/{hw}/temp1_input")
+            if t.isdigit():
+                temp = f"{int(t) // 1000} °C"
+                break
+    return {"ghz": (sum(freqs) / len(freqs) / 1e6) if freqs else 0.0,
+            "max": int(mx) / 1e6 if mx.isdigit() else 0.0,
+            "driver": read(f"{base}/cpu0/cpufreq/scaling_driver"),
+            "governor": read(f"{base}/cpu0/cpufreq/scaling_governor"),
+            "epp": read(f"{base}/cpu0/cpufreq/energy_performance_preference"),
+            "temp": temp}
+
+
+def memory() -> dict:
+    m = {k: int(v.split()[0]) * 1024 for k, v in (l.split(":", 1) for l in read("/proc/meminfo").splitlines() if ":" in l)
+         if v.split() and v.split()[0].isdigit()}
+    return {"total": m.get("MemTotal", 0), "available": m.get("MemAvailable", 0),
+            "swap_total": m.get("SwapTotal", 0), "swap_free": m.get("SwapFree", 0)}
+
+
 # ── the pages: id, title, icon, search words ──────────────────────────────────
 
 PAGES = [
@@ -293,6 +476,8 @@ def gui(page: str = "", screenshots: str = "", selftest: bool = False) -> int:
             self.content = Adw.NavigationPage(title="", child=self.content_view)
             self.split.set_content(self.content)
             self.built = {}
+            self.live_rows = []                 # (row, fn): numbers that change, refreshed while shown
+            GLib.timeout_add_seconds(2, self.tick)
             self.show(page if page in self.rows else "network")
 
         # sidebar search
@@ -310,7 +495,16 @@ def gui(page: str = "", screenshots: str = "", selftest: bool = False) -> int:
         def toast(self, text: str):
             self.toasts.add_toast(Adw.Toast(title=GLib.markup_escape_text(text), timeout=4))
 
+        def tick(self) -> bool:
+            for row, fn in list(self.live_rows):
+                try:
+                    row.set_subtitle(GLib.markup_escape_text(str(fn())))
+                except Exception:                  # noqa: BLE001 — a sensor that went away just stops updating
+                    pass
+            return True
+
         def show(self, pid: str):
+            self.live_rows = []
             title = next(t for p, t, *_ in PAGES if p == pid)
             try:
                 page = BUILDERS[pid](self)
@@ -343,6 +537,16 @@ def gui(page: str = "", screenshots: str = "", selftest: bool = False) -> int:
         if icon:
             r.add_prefix(Gtk.Image.new_from_icon_name(icon))
         g.add(r)
+        return r
+
+    def live(win, g, title, fn, icon=None):
+        """A fact that changes (speed, temperature, memory): refreshed every 2 seconds."""
+        try:
+            first = fn()
+        except Exception:                          # noqa: BLE001
+            first = "—"
+        r = info(g, title, first, icon)
+        win.live_rows.append((r, fn))
         return r
 
     def opener(g, title, subtitle, cmd, label="Open"):
@@ -515,50 +719,125 @@ def gui(page: str = "", screenshots: str = "", selftest: bool = False) -> int:
 
     def p_sound(win):
         page = Adw.PreferencesPage()
-        g = group(page, "Output")
-        if has("wpctl"):
-            v = sh("wpctl", "get-volume", "@DEFAULT_AUDIO_SINK@")
-            m = re.search(r"Volume:\s*([0-9.]+)", v)
-            vol = round(float(m.group(1)) * 100) if m else 50
-            name = ""
-            for line in sh("wpctl", "inspect", "@DEFAULT_AUDIO_SINK@").splitlines():
-                if "node.description" in line:
-                    name = line.split("=", 1)[1].strip().strip('"')
-            info(g, "Sound comes out of", name or "the default speakers", "audio-speakers-symbolic")
-            slider(win, g, "Volume", "", 0, 150, 1, vol,
-                   lambda x: done(ok("wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", f"{x / 100:.2f}"), ""),
+        if not has("wpctl"):
+            missing(group(page, "Sound"), "Sound")
+            return page
+        g = group(page, "Output", "Where sound plays")
+        outs, out_default = audio_devices("Sinks")
+        if outs:
+            choice(win, g, "Play sound through", "Speakers, headphones, the screen's speakers…",
+                   [(n, i) for i, n in outs], out_default,
+                   lambda i: done(ok("wpctl", "set-default", i), "Sound now plays there"))
+        v = sh("wpctl", "get-volume", "@DEFAULT_AUDIO_SINK@")
+        m = re.search(r"Volume:\s*([0-9.]+)", v)
+        slider(win, g, "Volume", "", 0, 150, 1, round(float(m.group(1)) * 100) if m else 50,
+               lambda x: done(ok("wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", f"{x / 100:.2f}"), ""),
+               fmt=lambda x: f"{x:.0f}%")
+        switch(win, g, "Mute", "Silence everything", "[MUTED]" in v,
+               lambda on: done(ok("wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", "1" if on else "0"),
+                               "Muted" if on else "Sound is on"))
+        gi_ = group(page, "Input", "The microphone apps hear")
+        ins, in_default = audio_devices("Sources")
+        if ins:
+            choice(win, gi_, "Microphone", "", [(n, i) for i, n in ins], in_default,
+                   lambda i: done(ok("wpctl", "set-default", i), "Microphone changed"))
+        mv = sh("wpctl", "get-volume", "@DEFAULT_AUDIO_SOURCE@")
+        mm = re.search(r"Volume:\s*([0-9.]+)", mv)
+        slider(win, gi_, "Microphone level", "How loud you are to others", 0, 150, 1,
+               round(float(mm.group(1)) * 100) if mm else 100,
+               lambda x: done(ok("wpctl", "set-volume", "@DEFAULT_AUDIO_SOURCE@", f"{x / 100:.2f}"), ""),
+               fmt=lambda x: f"{x:.0f}%")
+        switch(win, gi_, "Microphone off", "Nobody can hear you until you switch it back", "[MUTED]" in mv,
+               lambda on: done(ok("wpctl", "set-mute", "@DEFAULT_AUDIO_SOURCE@", "1" if on else "0"),
+                               "Microphone off" if on else "Microphone on"))
+        ga = group(page, "Apps playing sound", "Each app's own volume")
+        streams = app_streams()
+        for idx, name, vol in streams:
+            slider(win, ga, name, "", 0, 150, 1, vol,
+                   lambda x, idx=idx: done(ok("pactl", "set-sink-input-volume", str(idx), f"{x:.0f}%"), ""),
                    fmt=lambda x: f"{x:.0f}%")
-            switch(win, g, "Mute", "Silence everything", "[MUTED]" in v,
-                   lambda on: done(ok("wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", "1" if on else "0"),
-                                   "Muted" if on else "Sound is on"))
-            gi_ = group(page, "Input")
-            mv = sh("wpctl", "get-volume", "@DEFAULT_AUDIO_SOURCE@")
-            switch(win, gi_, "Microphone off", "Nobody can hear you until you switch it back", "[MUTED]" in mv,
-                   lambda on: done(ok("wpctl", "set-mute", "@DEFAULT_AUDIO_SOURCE@", "1" if on else "0"),
-                                   "Microphone off" if on else "Microphone on"))
-            g3 = group(page, "Devices")
-            opener(g3, "Choose speakers, headphones and microphone", "Where sound goes, and which microphone is used",
-                   ["prime-sound"], "Choose")
-            opener(g3, "Volume for each app", "The full mixer", ["pavucontrol"])
-        else:
-            missing(g, "Sound")
+        if not streams:
+            info(ga, "Nothing is playing right now", "Apps show up here while they play sound")
+        g3 = group(page, "More")
+        opener(g3, "Advanced mixer", "Every device, profile and stream", ["pavucontrol"])
         return page
+
+    def keep_or_revert(win, name, new_line, old_line):
+        """Like a Mac: a new screen setting is tried at once and goes back by itself in 15 s
+        unless you keep it — a mode the screen can't show never leaves you stuck."""
+        if os.environ.get("PRIME_SETTINGS_DRY"):
+            print("MONITOR", new_line, flush=True)
+            return True, ""
+        if not ok(HYPRCTL, "keyword", "monitor", new_line):
+            return False, "The screen didn't accept that — nothing changed"
+        state = {"left": 15, "done": False}
+        Dialog = getattr(Adw, "AlertDialog", None) or Adw.MessageDialog
+        d = Dialog(heading="Keep these display settings?", body="Going back in 15 seconds…")
+        d.add_response("revert", "Go back")
+        d.add_response("keep", "Keep")
+        d.set_response_appearance("keep", Adw.ResponseAppearance.SUGGESTED)
+        d.set_default_response("keep")
+        d.set_close_response("revert")
+
+        def finish(keep):
+            if state["done"]:
+                return
+            state["done"] = True
+            if keep:
+                save_monitor(name, new_line)
+                win.toast("Saved — it stays like this")
+            else:
+                ok(HYPRCTL, "keyword", "monitor", old_line)
+                win.toast("Back to how it was")
+            GLib.timeout_add(300, lambda: win.refresh() and False)
+
+        def countdown():
+            if state["done"]:
+                return False
+            state["left"] -= 1
+            if state["left"] <= 0:
+                finish(False)
+                (d.force_close() if hasattr(d, "force_close") else d.close())
+                return False
+            d.set_body(f"Going back in {state['left']} seconds…")
+            return True
+        d.connect("response", lambda _d, r: finish(r == "keep"))
+        GLib.timeout_add_seconds(1, countdown)
+        if Dialog is getattr(Adw, "AlertDialog", None):
+            d.present(win)
+        else:
+            d.set_transient_for(win)
+            d.present()
+        return True, ""
 
     def p_display(win):
         page = Adw.PreferencesPage()
-        g = group(page, "Screens")
-        mons = []
-        try:
-            mons = json.loads(sh("hyprctl", "monitors", "-j") or "[]")
-        except ValueError:
-            pass
+        mons = monitors()
         for mo in mons:
-            desc = (mo.get("description") or mo.get("name") or "Screen").split(" 0x")[0]
-            info(g, desc, f"{mo.get('width')}×{mo.get('height')} at {round(mo.get('refreshRate', 0))} Hz · "
-                          f"scale {mo.get('scale', 1):g}", "video-display-symbolic")
+            name = mo.get("name", "")
+            desc = (mo.get("description") or name or "Screen").split(" 0x")[0]
+            g = group(page, desc, f"{name} · now {mo.get('width')} × {mo.get('height')} at "
+                                  f"{round(mo.get('refreshRate', 0))} Hz, {round(mo.get('scale', 1) * 100)}%")
+            cur_mode, scale, x, y = current_mode(mo), float(mo.get("scale", 1)), mo.get("x", 0), mo.get("y", 0)
+            old = monitor_line(name, cur_mode, x, y, scale)
+            modes = modes_of(mo)
+            if modes:
+                choice(win, g, "Resolution and refresh rate", "Highest first — the best your screen can do is at the top",
+                       modes, cur_mode,
+                       lambda m, name=name, x=x, y=y, scale=scale, old=old:
+                       keep_or_revert(win, name, monitor_line(name, m, x, y, scale), old))
+            choice(win, g, "Size of everything (scale)", "Bigger makes text and windows larger on a sharp screen",
+                   SCALES, min((v for _l, v in SCALES), key=lambda v: abs(v - scale)),
+                   lambda sc, name=name, cur_mode=cur_mode, x=x, y=y, old=old:
+                   keep_or_revert(win, name, monitor_line(name, cur_mode, x, y, sc), old))
+            choice(win, g, "Adaptive sync (FreeSync)", "Smooth games and video without tearing — needs a screen that has it",
+                   VRR_MODES, 1 if mo.get("vrr") else 0,
+                   lambda v, name=name, cur_mode=cur_mode, x=x, y=y, scale=scale, old=old:
+                   keep_or_revert(win, name, monitor_line(name, cur_mode, x, y, scale, v), old))
         if not mons:
-            info(g, "Screens", "Shown here while you're on the Prime desktop")
-        opener(g, "Arrange screens", "Resolution, refresh rate, scale, and where each screen sits", ["nwg-displays"], "Arrange")
+            info(group(page, "Screens"), "Screens", "Shown here while you're on the Prime desktop")
+        ga = group(page, "Arrangement")
+        opener(ga, "Arrange screens", "Drag screens into place, and pick which one is on the left", ["nwg-displays"], "Arrange")
         g2 = group(page, "Comfort")
         if has("brightnessctl") and sh("brightnessctl", "-m", "-c", "backlight", "info"):
             cur = sh("brightnessctl", "-m", "-c", "backlight", "info").split(",")
@@ -593,10 +872,10 @@ def gui(page: str = "", screenshots: str = "", selftest: bool = False) -> int:
                lambda h: done(ok("prime-theme", "--set-accent", h), "Accent colour changed"))
         choice(win, g, "Text size", "One size for the whole desktop", TEXT_SIZES, th.get("TEXT", "default"),
                lambda t: done(ok("prime-theme", "--set-text", t), "Text size changed"))
-        choice(win, g, "Window layout", "Free: windows float and open in the middle, like a Mac or Windows. "
-               "Tidy: they sit side by side. Super+Shift+V flips one window either way.",
-               [("Free (like a Mac or Windows)", "free"), ("Tidy (side by side)", "tidy")],
-               st.get("window_layout", "free"), lambda v: tb("window_layout", v))
+        choice(win, g, "Window layout", "Tidy: windows snap into place side by side and never cover the bar. "
+               "Free: they float like on a Mac and snap to edges when dragged. Super+Shift+V flips one window.",
+               [("Tidy — snap into place (recommended)", "tidy"), ("Free — float like a Mac", "free")],
+               st.get("window_layout", "tidy"), lambda v: tb("window_layout", v))
         choice(win, g, "Window style", "Corners and the space between windows", LOOKS, st.get("look", ""),
                lambda p: toolbox("set_look", {"preset": p}))
         g2 = group(page, "Motion")
@@ -685,40 +964,78 @@ def gui(page: str = "", screenshots: str = "", selftest: bool = False) -> int:
 
     def p_processor(win):
         page = Adw.PreferencesPage()
-        c = cpu_info()
+        c, l = cpu_info(), cpu_live()
         g = group(page, "Processor")
         info(g, "Model", c["model"], "cpu-symbolic")
-        info(g, "Cores", f"{c['cores']} (threads the processor can run at once)")
-        info(g, "How busy, right now", f"{c['busy']}% of its capacity" + (f" · {c['speed']}" if c["speed"] else ""))
-        if c["temp"]:
-            info(g, "Temperature", c["temp"])
+        info(g, "Cores", f"{c['cores']} threads at once" + (f" · boosts up to {l['max']:.1f} GHz" if l["max"] else ""))
+        g1 = group(page, "Right now", "Updates every 2 seconds")
+        live(win, g1, "How busy", lambda: f"{cpu_info()['busy']}% — " + {True: "very busy", False: "fine"}[cpu_info()["busy"] >= 80])
+        if l["ghz"]:
+            live(win, g1, "Speed", lambda: f"{cpu_live()['ghz']:.2f} GHz on average across the cores")
+        if l["temp"]:
+            live(win, g1, "Temperature", lambda: cpu_live()["temp"] or "—")
+        mem = memory()
+        if mem["total"]:
+            live(win, g1, "Memory in use", lambda: (lambda m: f"{gb(m['total'] - m['available'])} of {gb(m['total'])}")(memory()))
+        if mem["swap_total"]:
+            live(win, g1, "Overflow memory (swap)", lambda: (lambda m: f"{gb(m['swap_total'] - m['swap_free'])} of {gb(m['swap_total'])}")(memory()))
         g2 = group(page, "Speed and power")
         cur = sh("prime-power-profile", "current")
         if cur:
-            choice(win, g2, "Power mode", "Performance runs the processor fastest", POWER, cur,
+            choice(win, g2, "Power mode", "Performance runs the processor fastest; Battery saver lasts longest", POWER, cur,
                    lambda p: done(ok("prime-power-profile", p), "Power mode changed"))
+        if l["driver"]:
+            info(g2, "How it's tuned", f"{l['driver']} · {l['governor'] or '—'}" + (f" · {l['epp'].replace('_', ' ')}" if l["epp"] else ""))
         opener(g2, "What's using it", "Every app, busiest first — quit a stuck one (Ctrl+Shift+Esc)", ["prime-activity"])
         return page
 
+    def gpu_name(card: str) -> str:
+        addr = os.path.basename(os.path.realpath(f"/sys/class/drm/{card}/device"))
+        line = sh("lspci", "-s", addr) if has("lspci") and re.fullmatch(r"[0-9a-f:.]+", addr) else ""
+        name = re.sub(r"^\S+\s+[^:]+:\s*", "", line)
+        return re.sub(r"\s*\(rev [0-9a-f]+\)$", "", name) or card
+
     def p_graphics(win):
         page = Adw.PreferencesPage()
-        g = group(page, "Graphics cards")
-        cards = gpus()
-        for name, drv in cards or [("Graphics", "")]:
-            info(g, name, f"driver: {drv}" if drv else "driver: not reported", "video-display-symbolic")
-        load = sh("prime-gpu-monitor")
-        if load:
-            try:
-                j = json.loads(load)
-                info(g, "How busy, right now", re.sub(r"<[^>]+>", "", j.get("tooltip") or j.get("text", "")))
-            except ValueError:
-                pass
+        cards = gpu_cards()
+        for gc in cards:
+            card = gc["card"]
+            g = group(page, gpu_name(card), f"driver: {gc['driver'] or 'not reported'}")
+
+            def stat(key, card=card):
+                return next((x for x in gpu_cards() if x["card"] == card), {}).get(key)
+            if "busy" in gc:
+                live(win, g, "How busy", lambda stat=stat: f"{stat('busy')}%", "video-display-symbolic")
+            if "vram" in gc:
+                live(win, g, "Video memory in use", lambda stat=stat: (lambda v: f"{gb(v[0])} of {gb(v[1])}")(stat("vram")))
+            if "clock" in gc:
+                live(win, g, "Speed", lambda stat=stat: f"{stat('clock')} MHz")
+            if "temp" in gc:
+                live(win, g, "Temperature", lambda stat=stat: f"{stat('temp')} °C")
+            if "watts" in gc:
+                live(win, g, "Power draw", lambda stat=stat: f"{stat('watts'):.0f} W")
+            if gc.get("level"):
+                info(g, "Power level", {"auto": "automatic (recommended)", "high": "always fastest",
+                                         "low": "always slowest"}.get(gc["level"], gc["level"]))
+        if not cards:
+            for name, drv in gpus() or [("Graphics", "")]:
+                info(group(page, name), "Driver", drv or "not reported")
+        gs = group(page, "Games and video")
+        st = managed()
+        choice(win, gs, "Adaptive sync (FreeSync / G-Sync)", "Smooth motion without tearing, on screens that support it",
+               VRR_MODES, int(st.get("vrr", 2)), lambda v: tb("vrr", {0: "off", 1: "always", 2: "fullscreen"}[v]))
+        switch(win, gs, "Lowest delay in games (allow tearing)", "Games that ask for it skip a frame of waiting; "
+               "you may see a faint line on very fast motion", st.get("game_tearing", "on") == "on",
+               lambda on: tb("game_tearing", "on" if on else "off"))
         hw = read(os.path.join(HOME, ".config/hypr/hardware.conf"))
-        g2 = group(page, "Video decoding")
         m = re.search(r"LIBVA_DRIVER_NAME,(\S+)", hw)
-        info(g2, "Hardware video decoding", f"on ({m.group(1)})" if m else "default")
-        if any("nvidia" in n.lower() for n, _ in cards):
-            info(g2, "NVIDIA", "Prime set the NVIDIA options the desktop needs when it was installed")
+        info(gs, "Hardware video decoding", f"on ({m.group(1)}) — videos play smoothly and save power" if m else "default")
+        gd = group(page, "Drivers", "Updated with the rest of the system")
+        info(gd, "Graphics driver (Mesa)", package_versions("mesa", "vulkan-radeon", "vulkan-intel", "nvidia-utils") or "—")
+        info(gd, "Firmware", package_versions("linux-firmware") or "—")
+        info(gd, "Kernel", sh("uname", "-r") or "—")
+        if "gaming" in enabled_addons():
+            opener(gd, "Game settings", "Steam, Proton, the FPS overlay, Performance mode", ["prime-system-settings", "--page", "gaming"], "Open")
         return page
 
     def p_storage(win):
@@ -1117,6 +1434,9 @@ def gui(page: str = "", screenshots: str = "", selftest: bool = False) -> int:
 
 
 def main(argv: list) -> int:
+    if "--hardware" in argv:
+        print(describe_hardware())
+        return 0
     if "--list-pages" in argv:
         for pid, title, _icon, words in PAGES:
             print(f"{pid}\t{title}\t{words}")
@@ -1127,6 +1447,27 @@ def main(argv: list) -> int:
         return 2
     shots = argv[argv.index("--screenshots") + 1] if "--screenshots" in argv else ""
     return gui(page=page, screenshots=shots, selftest="--selftest" in argv)
+
+
+def describe_hardware() -> str:
+    """What the Graphics and Processor pages read, as text (tests, Get help)."""
+    lines = []
+    for g in gpu_cards():
+        bits = [g["card"], g["driver"] or "?"]
+        if "busy" in g:
+            bits.append(f"busy {g['busy']}%")
+        if "vram" in g:
+            bits.append(f"vram {gb(g['vram'][0])}/{gb(g['vram'][1])}")
+        if "clock" in g:
+            bits.append(f"clock {g['clock']} MHz")
+        if "temp" in g:
+            bits.append(f"temp {g['temp']} °C")
+        if "watts" in g:
+            bits.append(f"power {g['watts']:.0f} W")
+        lines.append("gpu " + " · ".join(bits))
+    c = cpu_live()
+    lines.append(f"cpu {c['ghz']:.2f} GHz (max {c['max']:.1f}) · {c['driver']} · {c['governor']} · {c['epp']} · {c['temp']}")
+    return "\n".join(lines)
 
 
 if __name__ == "__main__":

@@ -150,10 +150,11 @@ Everything in this guide is also in Settings or Spotlight, so you never *need* a
 - Mouse, keyboard, look and the other saved settings can be undone: About & Help → **Undo the last change made here**.
 
 ### Windows and workspaces
-- New windows float and open in the middle of the screen, like on a Mac or Windows.
-  Drag one by its title bar; **Super+F** makes it fill the screen.
-- Prefer them side by side? Settings → Appearance → **Window layout → Tidy** (or type
-  "tidy windows" in Super+Space). **Super+Shift+V** flips one window either way.
+- Windows snap into place side by side and never cover the bar or the dock; with one
+  window open it fills the screen. **Super+F** makes any window full screen.
+- Prefer windows that float like on a Mac? Settings → Appearance → **Window layout →
+  Free** (or type "floating windows" in Super+Space): they open at a sensible size in the
+  middle and snap to edges when you drag them. **Super+Shift+V** flips one window either way.
 - **Super+1 … Super+9** switch between workspaces (separate desktops).
   **Super+Shift+1…9** moves the current window there.
 - **Alt+Tab** switches windows. On a touchpad, swipe sideways with three fingers

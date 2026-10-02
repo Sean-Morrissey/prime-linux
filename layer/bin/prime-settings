@@ -441,6 +441,10 @@ def render_block(state):
         out += ["decoration {", f"    rounding = {int(s['rounding'])}", "}"]
     if "animations" in s:
         out += ["animations {", f"    enabled = {'true' if s['animations'] == 'on' else 'false'}", "}"]
+    if "vrr" in s:
+        out += ["misc {", f"    vrr = {int(s['vrr'])}", "}"]
+    if "game_tearing" in s:
+        out += ["general {", f"    allow_tearing = {'true' if s['game_tearing'] == 'on' else 'false'}", "}"]
     if s.get("night_light", "off") != "off":
         out.append(f"exec-once = hyprsunset -t {int(s['night_light'])}")
     for sc in state["shortcuts"]:
@@ -519,7 +523,7 @@ def sync_layout(state):
     """Free (windows float, like a Mac or Windows) or Tidy (tiled). The rules live in the
     theme file Hyprland reads first, which prime-theme writes from settings.json — so a
     change (or its undo) regenerates it, and Hyprland reloads."""
-    want_free = state["settings"].get("window_layout", "free") != "tidy"
+    want_free = state["settings"].get("window_layout", "tidy") == "free"
     try:
         has_free = "windowrule = float on, match:class .*" in open(os.path.join(CFG, "theme/hyprland.conf")).read()
     except OSError:
@@ -797,8 +801,20 @@ def t_change_setting(a):
         if v is None:
             raise Refuse("window_layout is free (windows float, like a Mac or Windows) or tidy (side by side)")
         val = v
-        summary = ("let new windows float, like a Mac or Windows" if v == "free"
-                   else "arrange new windows side by side (tidy)")
+        summary = ("let new windows float, like a Mac" if v == "free"
+                   else "snap new windows into place side by side (tidy)")
+    elif name == "vrr":
+        v = str(raw).strip().lower()
+        v = {"off": 0, "0": 0, "no": 0, "always": 1, "on": 1, "1": 1,
+             "fullscreen": 2, "games": 2, "2": 2}.get(v)
+        if v is None:
+            raise Refuse("vrr (adaptive sync, FreeSync/G-Sync) is off, fullscreen (games and video) or always")
+        val = v
+        summary = {0: "turn adaptive sync off", 1: "use adaptive sync all the time",
+                   2: "use adaptive sync for full-screen games and video"}[v]
+    elif name == "game_tearing":
+        val = _onoff(raw)
+        summary = f"turn tearing for games {val} (lowest delay, may show a line on fast motion)"
     elif name == "after_screenshot":
         v = str(raw).strip().lower()
         v = {"buttons": "buttons", "options": "buttons", "save": "save", "just save": "save", "nothing": "save",
@@ -833,7 +849,7 @@ def t_change_setting(a):
     else:
         raise Refuse("I can change: animations, natural_scroll, keyboard_layout, night_light, gaps, rounding, "
                      "mouse_speed, mouse_acceleration, left_handed, tap_to_click, touchpad_while_typing, "
-                     "key_repeat_rate, key_repeat_delay, after_screenshot, window_layout")
+                     "key_repeat_rate, key_repeat_delay, after_screenshot, window_layout, vrr, game_tearing")
 
     def mutate(st):
         st["settings"][name] = val

@@ -53,6 +53,7 @@ ck "web app: refuses non-web addresses"     "! $L/bin/prime-webapp install Bad '
 ck "battery alert exits quietly on a desktop" "timeout 5 $L/bin/prime-battery-alert --once"
 ck "OSD helpers parse"                      "for f in prime-titlebars prime-osd prime-toggle prime-record prime-wifi prime-bluetooth prime-sound prime-keyboard prime-power-profile prime-colour prime-emoji prime-webapp prime-migrate; do bash -n $L/bin/\$f || exit 1; done"
 ck "new services linked"                    "[ -L ~/.config/systemd/user/prime-osd.service ] && [ -L ~/.config/systemd/user/prime-battery-alert.service ]"
+ck "auto-started notifications use Prime's look" "[ -L ~/.config/systemd/user/swaync.service.d ] && grep -q 'theme/swaync.css' ~/.config/systemd/user/swaync.service.d/prime.conf"
 
 echo "-- migrations"
 ck "fresh install has no pending migrations" "$L/bin/prime-migrate --pending"

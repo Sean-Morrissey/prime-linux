@@ -86,7 +86,7 @@ case "\$*" in *--action*) cat "$T/pick" 2>/dev/null ;; esac
 EOF
 printf '#!/bin/sh\necho "$*" > "%s/opened"\n' "$T" > "$F/xdg-open"
 chmod +x "$F"/*
-snip() { rm -f "$T/notes" "$T/clip" "$T/opened"; HOME="$H" XDG_RUNTIME_DIR="$T" PATH="$F:$PATH" timeout 20 bash "$REPO/layer/bin/prime-snip" area "$@"; }
+snip() { rm -f "$T/notes" "$T/clip" "$T/opened"; HOME="$H" XDG_RUNTIME_DIR="$T" PATH="$F:$PATH" timeout 20 bash "$REPO/layer/bin/prime-snip" area; }
 shots() { find "$H/Pictures/Screenshots" -name 'snip_*.png' 2>/dev/null | wc -l; }
 
 : > "$T/pick"; snip

@@ -65,11 +65,22 @@ if [ -z "$REGISTRY" ]; then
         [ -f "$d/menu.json" ] && frags+=("$d/menu.json")
     done < <(enabled_addon_dirs)
     [ -f "$HOME/.config/prime/menu.json" ] && frags+=("$HOME/.config/prime/menu.json")
-    jq -s 'reduce .[1:][] as $f (.[0];
+    # Appended rows that repeat one already in the section (same id, label or
+    # command — an older personal menu.json often copies Prime's own rows) are left
+    # out, and so are rows of a kind this menu can't run: both used to show up as
+    # doubled or dead rows.
+    jq -s 'def runnable: (.kind // "") as $k | ["run", "panel", "term"] | index($k) != null;
+           def key: (.label // "" | ascii_downcase | gsub("[^a-z0-9]"; ""));
+           def fresh($have): . as $i | runnable and
+               ([$have[] | select(.id == $i.id or key == ($i | key)
+                                  or ((.cmd // "") != "" and .cmd == $i.cmd))] | length == 0);
+           reduce .[1:][] as $f (.[0];
              reduce ($f.sections // [])[] as $s (.;
                if any(.sections[]; .id == $s.id)
-               then .sections |= map(if .id == $s.id then .items += ($s.items // []) else . end)
-               else .sections += [$s] end))' "${frags[@]}" > "$REGISTRY.tmp" 2>>"$LOG" \
+               then .sections |= map(if .id == $s.id
+                      then reduce ($s.items // [])[] as $i (.; .items as $have | if ($i | fresh($have)) then .items += [$i] else . end)
+                      else . end)
+               else .sections += [$s | .items = [(.items // [])[] | select(runnable)]] end))' "${frags[@]}" > "$REGISTRY.tmp" 2>>"$LOG" \
         && mv -f "$REGISTRY.tmp" "$REGISTRY"
 fi
 BACK_ID="__back__"
@@ -134,7 +145,8 @@ try:
     from importlib.machinery import SourceFileLoader
     spec = importlib.util.spec_from_loader("spot", SourceFileLoader("spot", os.environ["PRIME_SPOTLIGHT"]))
     m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
-    apps = [(n, did) for n, _exe, did, _c in m.load_apps()]
+    # system plumbing (Avahi browsers, webcam test tools…) stays out of the list
+    apps = [(n, did) for n, _exe, did, _c in m.load_apps() if m.listed(did)]
 except Exception:
     dirs = ["/usr/share/applications", "/usr/local/share/applications",
             os.path.expanduser("~/.local/share/applications")]

@@ -78,4 +78,18 @@ ck "the logo opens it, the right-click menu stays"  "grep -A8 '\"image#logo\"' $
 ck "it has a described shortcut (listed by Super+/)" "grep -qE '^bindd = SUPER, X, Start menu.*prime-start' $L/default/hypr/bindings.conf"
 ck "Spotlight and Start are blurred like rofi"      "grep -qx 'layerrule = blur prime-spotlight' $L/default/hypr/looknfeel.conf && grep -qx 'layerrule = blur prime-start' $L/default/hypr/looknfeel.conf"
 
+echo "== a personal menu.json that repeats Prime's rows"
+cat > "$HOME/.config/prime/menu.json" <<'EOF2'
+{ "sections": [ { "id": "power", "items": [
+    { "id": "power.lock", "label": "Lock the screen", "kind": "run", "cmd": "exec hyprlock" },
+    { "id": "mine.menu", "label": "Lock · sleep · restart · shut down", "kind": "run", "cmd": "exec my-power-menu" },
+    { "id": "mine.ask", "label": "Ask something", "kind": "ask" },
+    { "id": "mine.new", "label": "My own thing", "kind": "run", "cmd": "echo mine" } ] } ] }
+EOF2
+rows() { env -u PRIME_MENU bash "$L/bin/prime-menu" --list --section power | cut -f2; }
+ck "same id or same label: shown once"     "[ \"\$(rows | grep -c 'Lock the screen')\" = 1 ] && [ \"\$(rows | grep -c 'restart')\" = 1 ]"
+ck "a kind the menu can't run: left out"   "! rows | grep -q 'Ask something'"
+ck "a new row of your own: kept"            "rows | grep -q 'My own thing'"
+rm -f "$HOME/.config/prime/menu.json"
+
 echo; [ $fail = 0 ] && echo "ALL PASSED" || echo "$fail FAILED"; exit $fail

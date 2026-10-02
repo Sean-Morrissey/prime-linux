@@ -47,6 +47,7 @@ done < <(enabled_addon_dirs)
 row "Version"       "Prime $ver${when:+ · $when}"
 row "Prime means"   "P.R.I.M.E — Please Relax I'll Manage Everything"
 [ -n "$base" ] && row "Built on" "$base"
+row "Start menu"    "Super+X, or click the P at the top left — apps, recent files, power"
 row "Search"        "Super+Space — apps, files, sums, the web"
 row "Prime menu"    "Super+Alt+Space — settings, theme, updates, power"
 row "Bar, by keys"  "Super+Alt+B — every bar item from the keyboard"

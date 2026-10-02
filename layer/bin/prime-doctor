@@ -186,7 +186,7 @@ fi
 while IFS=$'\t' read -r lvl msg fix; do
     [ "$lvl" = bad ] && row bad "$msg" "$fix"
 done < <("$BIN/prime-security" status --tsv 2>/dev/null)
-say note "The full safety report: Prime menu → Settings → Security (prime-security)"
+say note "The full safety report: Prime menu → Update → Security check"
 
 # 11 — packs and add-ons check themselves
 if [ $QUIET = 0 ] && [ -x "$BIN/prime-addon" ]; then

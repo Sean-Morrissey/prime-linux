@@ -412,8 +412,8 @@ def gui(screenshots=None):
             body.append(grp)
             keys = Adw.PreferencesGroup(title="Three keys are all you need",
                                         description="Super is the key with the Windows logo on it.")
-            for caps, title, sub in [(("Super", "Space"), "Find anything", "apps, files, maths, the web — just type"),
-                                     (("Super", "Alt", "Space"), "The Prime menu", "settings, style, updates, power"),
+            for caps, title, sub in [(("Super", "X"), "Start menu", "or click the P at the top left — your apps, files, settings, power"),
+                                     (("Super", "Space"), "Find anything", "apps, files, maths, the web — just type"),
                                      (("Super", "/"), "Every shortcut", "a searchable list of all the keys")]:
                 row = Adw.ActionRow(title=title, subtitle=sub)
                 row.add_suffix(self.keycaps(*caps))
@@ -741,7 +741,8 @@ def gui(screenshots=None):
                 grp.add(r)
             self.done_box.append(grp)
             tips = Adw.PreferencesGroup(title="Good to know")
-            tip_rows = [(("Super", "Space"), "Find anything"),
+            tip_rows = [(("Super", "X"), "Start menu — or click the P at the top left"),
+                        (("Super", "Space"), "Find anything"),
                         (("Super", "Alt", "Space"), "Settings, style, updates — and \"Set up my computer again\""),
                         (("Super", "/"), "Every shortcut"),
                         (("Right-click",), "Anything on the bar for its options")]

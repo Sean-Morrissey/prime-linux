@@ -15,7 +15,7 @@
    heights, and a soft rounded accent fill on the selected row. */
 * {
     font:                        @prime-font-body;
-    bg-base:                     rgba(20, 20, 26, 0.92);
+    bg-base:                     rgba(20, 20, 26, 0.97);
     bg-input:                    rgba(255, 255, 255, 0.06);
     hairline:                    rgba(255, 255, 255, 0.10);
     fg-primary:                  #ececf0;
@@ -94,7 +94,7 @@ listview {
     columns:                     1;
     lines:                       12;
     spacing:                     2px;
-    fixed-height:                true;
+    fixed-height:                false;
     fixed-num-lines:             false;
     dynamic:                     true;
     cycle:                       true;

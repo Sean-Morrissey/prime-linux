@@ -27,6 +27,18 @@ else G=; Y=; Rd=; D=; Bo=; N=; fi
 TSV=0; problems=0; warnings=0
 row() { # row <ok|warn|bad|info> <text> [fix]
   if [ $TSV = 1 ]; then printf '%s\t%s\t%s\n' "$1" "$2" "${3:-}"; return; fi
+  # in a Prime window (Prime menu → Update → Security check) every line is a row
+  # with a word badge; plain text would all end up folded under "Details"
+  if [ -n "${PRIME_PANEL:-}" ]; then
+    case "$1" in
+      ok)   echo "@ok $2" ;;
+      warn) echo "@note $2${3:+ — $3}"; warnings=$((warnings+1)); return ;;
+      bad)  echo "@bad $2${3:+ — $3}"; problems=$((problems+1)); return ;;
+      *)    echo "@note $2" ;;
+    esac
+    [ -n "${3:-}" ] && echo "@note $3"
+    return 0
+  fi
   case "$1" in
     ok)   printf '  %s✓%s %s\n' "$G" "$N" "$2" ;;
     warn) printf '  %s!%s %s\n' "$Y" "$N" "$2"; warnings=$((warnings+1)) ;;
@@ -289,10 +301,13 @@ sig_status() {
 
 status() {
   [ "${1:-}" = --tsv ] && TSV=1
-  say "${Bo}Security check${N}"
-  say
+  [ -n "${PRIME_PANEL:-}" ] || { say "${Bo}Security check${N}"; say; }
   firewall_status; ssh_status; updates_status; sig_status; aur_status; kernel_status; lock_status; perm_status; disk_status
-  if [ $TSV = 0 ]; then
+  if [ -n "${PRIME_PANEL:-}" ] && [ $TSV = 0 ]; then
+    if [ $problems -gt 0 ]; then echo "@summary $problems thing(s) to fix — each says how."
+    elif [ $warnings -gt 0 ]; then echo "@summary Safe. $warnings suggestion(s) above."
+    else echo "@summary Everything looks good."; fi
+  elif [ $TSV = 0 ]; then
     echo
     if [ $problems -gt 0 ]; then echo "$problems thing(s) to fix — each one has its fix underneath."
     elif [ $warnings -gt 0 ]; then echo "Safe. $warnings suggestion(s) above."

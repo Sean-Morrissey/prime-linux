@@ -125,7 +125,10 @@ menu_items() {                    # "id<TAB>label": ask group · separators · e
         jq -e '(.generic_items // []) | length > 0' "$REGISTRY" >/dev/null 2>&1 && printf 'SEP\t%s\n' "$SEP_ROW"
         printf '%s\n' "$extras"
     fi
-    if jq -e '(.utility_items // []) | length > 0' "$REGISTRY" >/dev/null 2>&1; then
+    # "Copy this value" only where the value is worth copying (a reading, a song):
+    # an element marks "no_copy" when it has nothing to copy or its own Copy row
+    if jq -e --arg id "$ELEMENT" '(.utility_items // []) | length > 0' "$REGISTRY" >/dev/null 2>&1 \
+       && ! jq -e --arg id "$ELEMENT" '.elements[$id].no_copy == true' "$REGISTRY" >/dev/null 2>&1; then
         printf 'SEP\t%s\n' "$SEP_ROW"
         jq -r '.utility_items[] | "\(.id)\t\(.label)"' "$REGISTRY" 2>/dev/null
     fi

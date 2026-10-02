@@ -97,7 +97,7 @@ SECTION = {"app": "Applications", "path": "Files", "recent": "Recent",
 CSS = """
 window, .background { background: transparent; }
 #card {
-    background-color: rgba(22, 22, 28, 0.90);
+    background-color: rgba(22, 22, 28, 0.96);
     border: 1px solid rgba(255, 255, 255, 0.10);
     border-radius: 18px;
     box-shadow: inset 0 1px rgba(255, 255, 255, 0.06);
@@ -475,8 +475,29 @@ def icon_for(kind: str, sub: str):
 
 
 def pretty_path(p: str) -> str:
+    """Where a file is, in words: "Home", "Downloads", "Projects/notes" — or the full
+    folder outside the home folder."""
     d = os.path.dirname(p.rstrip("/"))
-    return "~" + d[len(HOME):] if d.startswith(HOME) else d
+    if d == HOME:
+        return "Home"
+    return d[len(HOME) + 1:] if d.startswith(HOME + "/") else d
+
+
+# Plumbing that comes with the system but nobody opens from an app list (network
+# browsers for Avahi, webcam test tools, the hardware map, another desktop's About
+# box…). Lists of apps (Start → All apps, Prime menu → Apps) leave them out;
+# searching for one by name still finds it.
+LIST_HIDDEN = {
+    "avahi-discover", "bssh", "bvnc", "qv4l2", "qvidcap", "lstopo", "xfce4-about",
+    "rofi", "rofi-theme-selector", "nemo-autorun-software", "vim", "nvim", "gvim",
+    "uxterm", "xterm", "cmake-gui", "electron", "org.freedesktop.Xwayland",
+    "assistant", "designer", "linguist", "qdbusviewer", "jconsole", "jshell",
+}
+
+
+def listed(desktop_id: str) -> bool:
+    """True when an app belongs in an app list (see LIST_HIDDEN)."""
+    return desktop_id not in LIST_HIDDEN and not re.fullmatch(r"(electron|qt[56]?-?)[\d.-]*", desktop_id)
 
 
 # ── window ─────────────────────────────────────────────────────────────────────

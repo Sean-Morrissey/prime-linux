@@ -342,6 +342,13 @@
           "label": "Reload window settings",
           "kind": "run",
           "cmd": "hyprctl reload && notify-send -a Prime 'Window settings reloaded'"
+        },
+        {
+          "id": "style.help",
+          "label": "Get help",
+          "hint": "a report to send to whoever helps you",
+          "kind": "run",
+          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-help"
         }
       ]
     },
@@ -417,6 +424,13 @@
       "label": "About",
       "icon": "󰋽",
       "items": [
+        {
+          "id": "about.help",
+          "label": "Get help",
+          "hint": "a report to send to whoever helps you",
+          "kind": "run",
+          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-help"
+        },
         {
           "id": "about.prime",
           "label": "About Prime",

@@ -60,6 +60,8 @@ jobs:
         run: bash tests/check-update-private.sh
       - name: hardware.conf picks the GPU that runs the desktop
         run: bash tests/check-gpu-detect.sh
+      - name: Get help report (no home path, no secrets)
+        run: bash tests/check-help.sh
 
   container:
     name: Clean install (fresh Arch container)

@@ -310,7 +310,7 @@ else
     run mkdir -p "$HOME/.config/systemd/user" "$HOME/.local/bin"
     for u in "$LAYER"/systemd/*; do run ln -sfn "$u" "$HOME/.config/systemd/user/$(basename "$u")"; done
     run systemctl --user daemon-reload 2>/dev/null || info "(user services load at next login)"
-    for c in prime-update prime-uninstall prime-addon prime-theme prime-doctor prime-about prime-migrate prime-webapp \
+    for c in prime-update prime-uninstall prime-addon prime-theme prime-doctor prime-about prime-migrate prime-webapp prime-help \
              prime-security prime-update-policy prime-updates-settings prime-settings prime-welcome; do
         run ln -sfn "$LAYER/bin/$c" "$HOME/.local/bin/$c"
     done

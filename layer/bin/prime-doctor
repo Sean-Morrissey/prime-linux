@@ -154,6 +154,10 @@ if findmnt -no OPTIONS / 2>/dev/null | grep -q 'subvol=[^,]*\.snapshots/[0-9]'; 
 fi
 while IFS=$'\t' read -r lvl msg fix; do [ -n "$lvl" ] && row "$lvl" "$msg" "$fix"; done < <("$ENGINE" snapshots --tsv 2>/dev/null)
 
+# 8b — File History: an undo for your own files
+while IFS=$'\t' read -r lvl msg fix; do [ -n "$lvl" ] && row "$lvl" "$msg" "$fix"; done < <("$BIN/prime-file-history" status --tsv 2>/dev/null)
+[ -n "$("$BIN/prime-file-history" status --tsv 2>/dev/null | grep '^warn')" ] && need_update=1
+
 # 9 — automatic updates: on, recent, not stuck
 if [ -x "$ENGINE" ] && j="$("$ENGINE" status --json 2>/dev/null)"; then
     pol="$(jq -r .policy <<<"$j")"; last="$(jq -r .last_success <<<"$j")"; fails="$(jq -r .failures <<<"$j")"

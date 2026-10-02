@@ -19,6 +19,7 @@
 #   /etc/prime/updates.conf                              settings (kept if it exists)
 #   /etc/pacman.d/hooks/zz-prime-desktop-backup.hook     + /usr/share/libalpm/scripts/prime-desktop-backup-all
 #   /etc/sysctl.d/90-prime-security.conf + firewall      (prime-security apply)
+#   File History: snapper "home" config + timers         (prime-file-history setup)
 set -uo pipefail
 HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 LAYER="$(readlink -f "$HERE/..")"
@@ -41,6 +42,7 @@ LIB=/usr/local/lib/prime-linux
 FILES=(
   "system/updates/prime-system-update|$LIB/prime-system-update|755"
   "bin/prime-security|$LIB/prime-security|755"
+  "bin/prime-file-history|$LIB/prime-file-history|755"
   "system/security/90-prime-security.conf|$LIB/90-prime-security.conf|644"
   "system/updates/prime-system-update.service|/etc/systemd/system/prime-system-update.service|644"
   "system/updates/prime-system-update.timer|/etc/systemd/system/prime-system-update.timer|644"
@@ -101,6 +103,8 @@ install_all() {
     [ "$ENABLE" = 1 ] && [ "${policy:-auto}" != off ] && mkdir -p "$ROOT/etc/systemd/system/timers.target.wants" \
       && ln -sfn /etc/systemd/system/prime-system-update.timer "$ROOT/etc/systemd/system/timers.target.wants/prime-system-update.timer"
   fi
+  # File History: automatic snapshots of the home disk (btrfs only; says so otherwise)
+  if live; then "$LIB/prime-file-history" setup ${USER_NAME:+--user "$USER_NAME"} | sed 's/^  /    /'; fi
   if [ "$SECURITY" = 1 ]; then
     PRIME_SEC_ROOT="$ROOT" PRIME_TEST_ALLOW_NONROOT="$([ -n "$ROOT" ] && echo 1 || echo 0)" "$ROOT$LIB/prime-security" apply | sed 's/^  /    /' | tail -n +2
   fi

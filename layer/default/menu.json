@@ -318,6 +318,13 @@
           "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-doctor"
         },
         {
+          "id": "style.filehistory",
+          "label": "Get a file back",
+          "hint": "your files as they were an hour, a day or a week ago",
+          "kind": "run",
+          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-file-history"
+        },
+        {
           "id": "style.restore",
           "label": "Restore desktop settings",
           "hint": "undo — back to a copy saved before an update",

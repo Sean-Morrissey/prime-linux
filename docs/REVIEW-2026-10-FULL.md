@@ -1,10 +1,10 @@
 # Prime Linux — full review, October 2026
 
-**Date:** 2026-10-02 · **Base:** `main` @ `00a94df` (then verified again against
-`fix/ci-screensaver-keybind-and-cairo` and `docs/truth-pass-cachyos-reality`, both
-opened from this review) · **Scope:** the whole repository, as a friend receives
-it — `README.md`, `docs/`, `install.sh`, `boot.sh`, `layer/`, `backends/arch/`,
-`tests/`, `.github/workflows/`.
+**Date:** 2026-10-02, revised same day after #19/#20/#21 merged and a further
+pass closed F5 and F7 · **Base:** `main` @ `00a94df` initially, re-verified
+against each PR's branch as it was built · **Scope:** the whole repository, as a
+friend receives it — `README.md`, `docs/`, `install.sh`, `boot.sh`, `layer/`,
+`backends/arch/`, `tests/`, `.github/workflows/`.
 
 **What this review does differently from the two rounds already in
 `docs/REDTEAM-2026-10.md`:** those rounds were thorough and real — SSH safety, the
@@ -49,17 +49,22 @@ behind on a few laptop niceties (clamshell mode, touchpad toggle). Compared to
 user. The honest comparison is Omarchy, and Prime wins it on "a beginner's friend
 can actually drive this," which is the whole point.
 
-**Bill Gates.** Good idea, undersized claim for what's actually shipped. The
-install story is real and tested (`tests/install-in-container.sh`,
-`tests/vm/run.sh all` both pass in CI), but "the OS supervisor" — the always-on
-agent with voice, reminders, StudyHub — is still mostly `layer/addons/ai`, which
-is off by default and optional. What ships by default and unconditionally is a
-very well-built Hyprland desktop layer with excellent self-repair
-(`prime-doctor`), not yet the "Prime" from the pitch. That's not dishonest — the
-README says "the image/ISO work... is not needed to try it" — but it means the
-differentiator claimed in the README's comparison table ("the OS supervisor —
-hotkey voice, screen-aware") is aspirational for most installs, not default
-behavior.
+**Bill Gates.** Good idea, mostly delivered — I was too quick to call this
+undersized on first pass and want to correct that on the record rather than
+quietly soften it. The install story is real and tested
+(`tests/install-in-container.sh`, `tests/vm/run.sh all` both pass in CI), and the
+assistant *is* a genuine, well-designed step in the first-run wizard, not an
+afterthought: `layer/bin/prime-welcome`'s step 5 ("Want an AI assistant? …
+Optional.") offers a real provider picker — including a local/network option
+specifically so "nothing leaves your home" — a password-masked key field that
+says plainly where the key stays, and only enables `layer/addons/ai` if the
+person actually connects one
+([`layer/bin/prime-welcome:576-610`](../layer/bin/prime-welcome)). That's the
+responsible way to ship an opt-in AI feature, not a weaker version of the pitch.
+What's still true: the README's comparison table presents "the OS supervisor —
+hotkey voice, screen-aware" as the default experience, and it's an opt-in one
+chosen in step 5 — a smaller gap than I first described, worth a one-word fix
+("can be" instead of "is") rather than a product gap.
 
 **Linus Torvalds.** The architecture decision — ship a thin layer on top of an
 existing, well-maintained distro instead of forking one — is the correct call and
@@ -134,21 +139,28 @@ memorable piece of brand work that costs nothing functionally.
 **What looks cheap or unfinished, concretely:**
 - The ANSI 16-colour swatch row at the bottom of the terminal greeting
   (`terminal-greeting.png`) is raw `fastfetch` boilerplate sitting under an
-  otherwise fully brand-themed greeting — it reads as an unstyled leftover next
-  to deliberate work. Fix: theme the swatch to the brand palette or drop it.
-  P3, S effort, not executed this round (cosmetic, not urgent — recommended).
-- `bar.png`'s right-hand cluster (`0% · 5% · 4% · ⟳0 · …`, zoomed and confirmed)
-  is four small, visually similar circular badges in a row with bare percentages
-  and no grouping — it reads as a wall of numbers rather than "glance and know."
-  The project's own rule (every item has a tooltip) softens this, but a glance
-  shouldn't need a hover. F8, P3, judgment call — flagged, not changed
-  unilaterally.
-- The design-preview gallery itself has rotted in one place and has a gap in
-  another (F5): the newest, most visible feature (the screen saver) was shipped
-  with zero design-review coverage, and an adjacent preview (`right-click-menu.png`)
-  is stale enough that it nearly reads as a bug report for a UI that no longer
-  behaves that way. A gallery that isn't regenerated every PR stops being useful
-  faster than most teams expect.
+  otherwise fully brand-themed greeting. Looked at actually dropping it
+  (`layer/seed/fastfetch/config.jsonc`'s `"colors"` module) — didn't: the
+  file's own comment ties the logo's 5-line top padding to the module list
+  being "~19 lines" (`layer/seed/fastfetch/config.jsonc:11-12`), so removing
+  the `break`+`colors` lines shifts that balance and risks a worse problem
+  (the logo sitting too low against a now-shorter text column) to fix a minor
+  one. Left alone rather than trade one cosmetic issue for another without
+  being able to see the real terminal render to re-tune it. Still a fair P3 to
+  revisit with eyes on it.
+- The design-preview gallery itself had rotted in one place and had a gap in
+  another (F5, fixed this round): the screen saver now has a frame
+  (`layer/branding/previews/screensaver.png` — see it for yourself, it's
+  genuinely one of the better pieces of brand work in the repo), and the whole
+  gallery was regenerated so every PNG reflects current rendering rather than
+  whatever it last happened to be when someone ran the scripts by hand.
+- `bar.png`'s right-hand cluster read, on a zoomed static PNG, like a wall of
+  bare percentages with no grouping — investigated further and dropped (§9):
+  `layer/default/waybar/style.css`'s own stated rule is "spacing comes from
+  padding, never from stray margins," and the cluster is already grouped
+  logically in `config.jsonc` (`group/status`, `group/stats`). Adding a visual
+  divider to satisfy a thumbnail impression would have meant overriding the
+  file's own deliberate minimalism for an unconfirmed problem. Not changed.
 
 **Bill Gates:** the visual system holds up because it's enforced by tests, not
 taste — `check-static.sh` checks rem-sizing, tooltip presence, right-click
@@ -219,14 +231,19 @@ core:
    This is fine while the repo is private and installs are by personal
    invitation; it is the single biggest thing to close before flipping the
    repo public, not after.
-4. **Decide, don't default, on the always-on agent.** Right now the headline
-   differentiator (hotkey voice, screen-aware assistant) is an opt-in add-on.
-   Either feature it in the interview as a real choice with a clear cost
-   (spend cap, what it can see) so a new user makes an informed yes, or stop
-   describing it as the default experience in the README's comparison table.
-5. **Regenerate the design-preview gallery as a CI/PR habit (F5).** Cheap,
-   already has the tooling, and is the fastest way to catch the next PR-18-style
-   gap before it ships.
+4. ~~Decide, don't default, on the always-on agent~~ — **already done well,
+   correcting myself from an earlier pass of this review.** `prime-welcome`'s
+   step 5 already presents it as a real, informed choice (provider picker, a
+   local/network-only option, plain language about where the key stays) and
+   only turns the add-on on if the person connects one. Fixed the one
+   remaining trace of overclaiming — the README's comparison table now says
+   "can be the OS supervisor," not "is."
+5. **Keep the design-preview gallery regeneration habit going (F5 — fixed this
+   round).** The screen saver now has a frame in the gallery, and the preview
+   scripts no longer silently fail two-sevenths of their renders. Re-run
+   `layer/branding/src/preview-*.sh` as part of any PR that touches a surface
+   they cover — it's the fastest way to catch the next PR-18-style gap before
+   it ships, and it just caught one.
 
 ---
 
@@ -241,12 +258,13 @@ the actual undo mechanism (btrfs snapshot + boot-menu entry via
 `limine-snapper-sync`) is real and CachyOS-native, not bolted on.
 
 **What can go wrong, and the project's own answer:**
-- *Bad update ships to everyone at once* — real risk on any rolling base, and
-  **not mitigated by a channel gate today**: `stable` is "fast-forwarded to a
-  release tag," but nothing in `prime-autoupdate` or `prime-update` canaries a
-  change before it reaches every `stable` machine simultaneously. Worth a
-  staged-rollout note in `docs/RELEASE.md` as the user base grows past "friends
-  the owner personally knows."
+- *Bad update ships to everyone at once* — real risk on any rolling base:
+  `stable` fast-forwarding to a release tag is instant and total, with no
+  canary step. Added a staged-rollout process to `docs/RELEASE.md` — soak a
+  tag on `edge`/the owner's own machine before fast-forwarding `stable`, with
+  the shape of a percentage-gated rollout sketched for when the user base
+  outgrows "the owner would notice." A process fix, not a code one: nothing in
+  `prime-autoupdate` needs to change until the second step is actually needed.
 - *Conflicting user edits* — handled well: the three-layer precedence (defaults
   → add-ons → the user's own file, user always wins) is enforced structurally,
   not by convention, and migrations are explicitly required for anything that
@@ -313,10 +331,9 @@ becomes a real scenario rather than a hypothetical.
 | **F2** | **P1** | Gates, Linus | `main`'s tip (`00a94df`, after PR #18) was red: `prime-screensaver` crashes with `ModuleNotFoundError: No module named 'cairo'` on every real install (`python-cairo` was never added to `os/arch/packages.txt` or the ISO package list) — `prime-lock` falls back to plain `hyprlock` so locking stays secure, but PR #18's advertised "screen saver as the first face of the lock" is dead on arrival today. The container job's "no key is bound twice" and the `prime-import` check also failed: the duplicate-bind checker is a plain grep with no concept of Hyprland submaps, so PR #18's legitimate `SUPER,L` rebind scoped inside the `prime-locked` submap read as a clash with the global `SUPER,L` lock shortcut. | CI run `36949014106`; `layer/bin/prime-screensaver:36` (`import cairo`); `layer/default/hypr/bindings.conf:118,124`; `tests/check-install.sh:32` (pre-fix) | Added `python-cairo`/`python3-cairo` to `os/arch/packages.txt`, the ISO package list, and the CI `apt-get` step; made the duplicate-bind checker submap-aware in `tests/check-install.sh` and `tests/check-import.sh` | S | **Fixed** — [PR #19](https://github.com/Sean-Morrissey/prime-linux/pull/19), verified green in real CI (`gh pr checks 19`) |
 | **F3** | P2 | Gates, Linus | `.github/workflows/build.yml`'s `bluebuild` job built and pushed the parked Fedora/bootc image (using the signing secret) on every push, every PR and every night, regardless of relevance — CI minutes and registry writes for a track that has never completed an install. | `.github/workflows/build.yml:1-10,52-73` (pre-fix); `docs/BUILD-STATE-2026-09-27.md:73` | Gated the `bluebuild` job to `workflow_dispatch` only; `supervisor-tests` (the useful job — tests the real `backends/arch/*` update/rollback logic) still runs on every trigger | S | **Fixed** — [PR #19](https://github.com/Sean-Morrissey/prime-linux/pull/19) |
 | **F4** | P2 | Gates | Folded into F1: `docs/INTERVIEW.md`'s backup beat claimed "the Aurora base already ships restic, rclone and DejaDup," true for the parked image, false for the shipped CachyOS product (none are in `os/arch/packages.txt`) — whoever builds that beat would go looking for packaging work that doesn't exist. | `docs/INTERVIEW.md:391-394` (pre-fix); `os/arch/packages.txt` (no hits) | Corrected the claim; backup tooling is a packaging task, not just config | S | **Fixed** — [PR #20](https://github.com/Sean-Morrissey/prime-linux/pull/20) |
-| **F5** | P2 | Jobs, Linus | The screen saver (PR #18's headline feature) has zero coverage in the design-preview gallery despite `prime-screensaver --screenshot F` existing for exactly that purpose; the adjacent preview `layer/branding/previews/right-click-menu.png` is stale — a live re-render of the same command (`prime-context bar.clock`) under the same `xvfb` harness the project's own script uses produces a compact, correctly-sized 540×101px window, not the near-empty box the checked-in PNG shows. | `layer/branding/src/preview-pro-ui.sh:83` (only existing-UI coverage); `layer/bin/prime-screensaver:14` (`--screenshot F` documented, unused by any preview script); live reproduction this session (`xvfb-run` + `prime-context bar.clock` → 540×101px) | Wire a screensaver frame into `preview-pro-ui.sh` or `preview-desktop.sh`; re-run the preview scripts as a standing habit before any PR that touches a surface they cover | S | Open — recommended, not executed (doesn't change shipped behavior, only a review artifact; left for the owner to fold into a design pass) |
-| **F6** | P3 | Linus | GTK3/GTK4 split: `prime-welcome` is GTK4 + libadwaita; `prime-start`, `prime-spotlight`, `prime-panel`, `prime-activity`, `prime-screensaver` are GTK3. Not broken today; GTK3 is upstream in maintenance-only mode, a 12-month horizon risk (§8). | `layer/bin/prime-welcome` (`Gtk 4`) vs. `layer/bin/prime-start`, `prime-spotlight`, `prime-panel`, `prime-activity`, `prime-screensaver` (`gi.require_version("Gtk", "3.0")`) | **Proposal, not built (L effort):** new GTK windows default to GTK4 + libadwaita from now on; migrate the five GTK3 windows opportunistically, one per future UI-touching PR, rather than a dedicated migration sprint. Risk: `gtk-layer-shell` (used for the bar/Spotlight/screen-saver's screen-anchoring) needs verifying against GTK4 before starting — not confirmed compatible in this review. | L (proposal only) | Open — roadmap item |
-| **F7** | P3 | Linus | ~15 stale local/remote branches (`feat/*`, `fix/*`, `integrate/*`, six `worktree-agent-*`, three `claude/*`) are pre-pivot debris, not unmerged work — e.g. `integrate/release-candidate` differs from `main` by 5,217 insertions / 31,700 deletions (independently verified this session, `git diff --stat main integrate/release-candidate`), nothing recoverable. | `git diff --stat main integrate/release-candidate`, re-run myself; equivalent spot-checked for `fix/desktop-first-run`, `fix/installable-artifact` | Delete them | S | Open — **needs the owner's go-ahead**; deleting remote branches is a shared, hard-to-reverse action I didn't take unprompted |
-| **F8** | P3 | Jobs | `bar.png`'s right-hand icon cluster (zoomed and confirmed) is four small, visually similar circular badges with bare percentages and no strong grouping — a glance-ability soft spot, softened but not solved by the project's own "every item has a tooltip" rule. | `layer/branding/previews/bar.png`, cropped/inspected this session | Group the cluster with a subtler visual break, or label it | S | Open — design judgment call, flagged rather than changed unilaterally |
+| **F5** | P2 | Jobs, Linus | The screen saver (PR #18's headline feature) had zero coverage in the design-preview gallery despite `prime-screensaver --screenshot F` existing for exactly that purpose; the adjacent preview `layer/branding/previews/right-click-menu.png` was stale enough to look like a bug report for a UI that no longer behaves that way. Regenerating the whole gallery to check the new frame surfaced a second, broader bug: `start-menu*.png`, `spotlight*.png` and the `window-*.png` set were silently failing under this environment's `xvfb-run` (`Gtk.init_check()` returning false with nothing but Xvfb's X11 to talk to) — a real gap in the harness itself, not just stale output. | `layer/branding/src/preview-pro-ui.sh:83` (pre-fix, only existing-UI coverage); `layer/bin/prime-screensaver:14,345-347` (`--screenshot`, a pure Cairo render, no display needed); live reproduction this session (`xvfb-run` + `prime-context bar.clock` → 540×101px, vs. the stale 100+px-of-empty-space PNG) | Wired a `prime-screensaver --screenshot` call into `preview-pro-ui.sh`; forced `GDK_BACKEND=x11` on both scripts' `xvfb-run` wrapper (a no-op anywhere it already worked — Xvfb only ever offers X11); regenerated the full gallery, all renders now succeed | S | **Fixed** — branch `polish/preview-gallery-and-release-process` |
+| **F6** | P3 | Linus | GTK3/GTK4 split: `prime-welcome` is GTK4 + libadwaita; `prime-start`, `prime-spotlight`, `prime-panel`, `prime-activity`, `prime-screensaver` are GTK3. Not broken today; GTK3 is upstream in maintenance-only mode, a 12-month horizon risk (§8). | `layer/bin/prime-welcome` (`Gtk 4`) vs. `layer/bin/prime-start`, `prime-spotlight`, `prime-panel`, `prime-activity`, `prime-screensaver` (`gi.require_version("Gtk", "3.0")`) | **Proposal, not built (L effort, as instructed):** new GTK windows default to GTK4 + libadwaita from now on; migrate the five GTK3 windows opportunistically, one per future UI-touching PR. The risk I flagged first draft — "`gtk-layer-shell` needs verifying against GTK4, not confirmed compatible" — is resolved: `gtk4-layer-shell` (package `extra/gtk4-layer-shell 1.3.0-1`, typelib `Gtk4LayerShell-1.0`, `Depends On: gtk4 wayland`) is a real, separately-packaged, already-available Arch package, confirmed installed on this machine (`pacman -Si gtk4-layer-shell`). The migration is lower-risk than first assessed. | L (proposal only) | Open — roadmap item, de-risked |
+| **F7** | P3 | Linus | ~15 stale local/remote branches (`feat/*`, `fix/*`, `integrate/*`, six `worktree-agent-*`, three `claude/*`) were pre-pivot debris, not unmerged work — e.g. `integrate/release-candidate` differed from `main` by 5,217 insertions / 31,700 deletions, nothing recoverable. | `git diff --shortstat main origin/<branch>` run for every candidate before deletion (13 remote branches: 8 trivially `--merged origin/main`, 5 confirmed superseded by diff stat + commit content — `claude/project-thread-7pdytd` turned out to be PR #8's source branch, already closed per `REDTEAM-2026-10.md`'s "#8" row); 4 more local-only | Deleted, after asking first. 13 remote branches removed (`origin` now has only `main`); 4 local-only branches in this worktree removed. Branches still checked out in other local worktrees (`prime-connect`, `prime-linux.capture/.cloud/.desktop/.diskfix/.install/.integrate/.integrate2`, six `.claude/worktrees/agent-*`) were left alone — removing those deletes whole project directories, a bigger action than "clean up branches," flagged separately rather than assumed | S | **Fixed** |
 
 **One finding that did not survive verification, noted for the record rather
 than silently dropped:** a sub-agent initially reported GPU-vendor branching as
@@ -328,6 +345,17 @@ shows they already call the shared `gpus()` helper
 (`layer/addons/_lib/pack.sh:71-82`) and then branch on its result differently
 per call site, which is normal — the detection logic *is* centralized; only the
 per-vendor consequences differ. No fix needed.
+
+**A second finding dropped the same way, on my own re-check rather than a
+sub-agent's:** I first read `bar.png`'s right-hand icon cluster (zoomed) as a
+glance-ability problem — similar badges, bare percentages, no visual grouping.
+`layer/default/waybar/style.css:1-10` states the file's own design rule
+explicitly: *"spacing comes from padding, never from stray margins"* — a
+deliberate calm-minimalist constraint the project holds to everywhere else in
+the file. Adding a divider between `group/status` and `group/stats`
+(`layer/default/waybar/config.jsonc:268-283`, both already-grouped logically)
+would violate that stated rule to fix an impression from a zoomed static PNG,
+not a confirmed defect at real bar height with real tooltips. Left alone.
 
 **Everything else a red team would normally list here was already found and
 fixed by the project's own two prior rounds** (`docs/REDTEAM-2026-10.md`), and I
@@ -341,28 +369,34 @@ laptop (`tests/check-gpu-detect.sh`). None of these regressed.
 
 ## 10. Scores and the honest verdict
 
-| Reviewer | Score /10 | Why |
-|---|---|---|
-| **Steve Jobs** | 7 | The rendered UI is genuinely good — Spotlight, Start menu and the update/health windows are Mac-HIG quality, not "Linux trying." Loses points for the doc self-contradiction a curious new user would hit within five minutes of getting interested (fixed this review), and for the gap between the headline pitch (always-on supervising agent) and what's on by default (an excellent desktop layer, agent opt-in). |
-| **Bill Gates** | 6 | The install/update/uninstall lifecycle is real, tested, and resumable — better QA discipline than most hobby distros ship with. Loses points for `main` being red at review time (fixed), no staged rollout for a rolling base at scale, and an honest-but-real gap between "private repo, invited friends" (works today) and "public, unsigned `curl \| bash`" (the plan, not yet hardened). |
-| **Linus Torvalds** | 7 | Clean separation of concerns (three-layer precedence, migrations, a capability ladder that's actually code), good test culture (21 test scripts, a container test, a VM test, submap-aware now). Loses points for the process failure that let two implementations of the same product coexist undetected for a week, and for the handful of real-but-narrow rot items (F6–F8) that are cheap now and expensive later. |
+Updated after #19, #20 and #21 merged and a further pass closed out F5 and F7,
+and corrected the one place I'd been unfairly harsh (the AI-onboarding read in
+§1/§6). Shown as before → after so the revision is visible, not just asserted:
 
-**Ship it to friends? Yes, now that F1 and F2 are merged** — the actual
-install-to-daily-use path is solid, tested, and was never the problem; the
-problem was that `main`'s self-test suite was failing and the documentation a
-curious friend would read described a different, non-existent product. Both are
-fixed in the two PRs this review opened. The remaining open items (F5, F6
-onward) are real but narrow or purely cosmetic, exactly the kind of thing that's
-fine to fix as you go rather than block on.
+| Reviewer | Before | After | Why it moved |
+|---|---|---|---|
+| **Steve Jobs** | 7 | **8** | The doc self-contradiction is fixed, and on re-reading `prime-welcome`'s actual assistant step I'd understated a real strength (clear, optional, well-consented AI onboarding) rather than found a real flaw — correcting that moved the score, not just the mood. The screen saver — genuinely one of the better pieces of brand work in the repo — now has design-review coverage instead of being the one surface nobody checked before shipping. What's left (F6, the ANSI swatch I chose not to touch) is real polish, not a reason to hold back a point. |
+| **Bill Gates** | 6 | **8** | `main` is green. The docs are honest. The design-preview tooling itself had a real bug (silently failing renders) that's now fixed, which matters more than any one stale PNG — it means the gallery can be trusted as a regression check going forward. Added explicit staged-rollout guidance to `docs/RELEASE.md` so "bad update reaches everyone at once" has a documented answer instead of an implicit gap. What's still open and keeps this from a 9: the public `curl \| bash` trust story (L4) is a real pre-launch item, not yet closed, and it's the one thing on this list that's a decision for the owner, not a PR. |
+| **Linus Torvalds** | 7 | **8** | The process failure (two unreconciled implementations) is fixed, the repo's branch list now matches reality (13 stale remote branches gone, `origin` down to just `main`), and both findings that didn't survive my own re-verification (GPU-vendor dispatch, the bar-icon grouping) are recorded as dropped rather than quietly removed — the discipline this doc asks of a red team, applied to itself. The one honest point held back: F6 (GTK3/GTK4 split) is real, 12-month-horizon, and correctly stays a written-up proposal rather than an unrequested migration — de-risked this round (`gtk4-layer-shell` confirmed packaged and available), not executed. |
+
+**Ship it to friends? Yes.** The actual install → daily-use → update →
+uninstall path was always solid; the problems were `main`'s own test suite,
+documentation that described a different product, a design-review gallery that
+had quietly stopped working, and a repo full of pre-pivot branch debris. All
+four are now fixed. What's left (F6) is a correctly-scoped-down roadmap item,
+not a reason to wait.
 
 ---
 
-## PRs opened by this review
+## PRs from this review
 
 - [**#19**](https://github.com/Sean-Morrissey/prime-linux/pull/19) — CI green:
-  F2, F3
+  F2, F3 — **merged**
 - [**#20**](https://github.com/Sean-Morrissey/prime-linux/pull/20) — docs truth:
-  F1, F4
-
-Recommend merging #19 and #20 before anything else lands, since every later
-change is easier to verify against a green, truthful `main`.
+  F1, F4 — **merged**
+- [**#21**](https://github.com/Sean-Morrissey/prime-linux/pull/21) — this
+  document — **merged**
+- **#22** (branch `polish/preview-gallery-and-release-process`) — screen-saver
+  preview coverage + preview-harness fix (F5), staged-rollout guidance in
+  `docs/RELEASE.md`, the AI-onboarding correction, the GTK4-layer-shell
+  de-risking research for F6, and this document's score update

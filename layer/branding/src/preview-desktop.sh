@@ -28,7 +28,9 @@ for p in python3 /usr/bin/python3.14 /usr/bin/python3.13 /usr/bin/python3.12; do
     command -v "$p" >/dev/null && "$p" -c 'import gi; gi.require_version("Gtk", "3.0")' 2>/dev/null && { PY="$p"; break; }
 done
 IM=magick; command -v magick >/dev/null || IM=convert
-XV=(xvfb-run -a -s "-screen 0 1600x1000x24")
+# GDK_BACKEND=x11: some GTK builds probe a Wayland/portal backend first and fail
+# outright instead of falling back, even with nothing but Xvfb's X11 to talk to.
+XV=(xvfb-run -a -s "-screen 0 1600x1000x24" env GDK_BACKEND=x11)
 bash "$L/bin/prime-theme" --apply >/dev/null 2>&1
 WALL="$L/wallpapers/prime-emblem.jpg"
 

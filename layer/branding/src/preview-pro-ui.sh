@@ -20,7 +20,10 @@ PY=python3
 for p in python3 /usr/bin/python3.14 /usr/bin/python3.13 /usr/bin/python3.12; do
     command -v "$p" >/dev/null && "$p" -c 'import gi; gi.require_version("Gtk", "3.0")' 2>/dev/null && { PY="$p"; break; }
 done
-XV=(xvfb-run -a -s "-screen 0 1600x1000x24")
+# GDK_BACKEND=x11: some GTK builds probe a Wayland/portal backend first and fail
+# outright instead of falling back, even with no WAYLAND_DISPLAY set and nothing
+# but Xvfb's X11 to talk to — force the backend Xvfb actually provides.
+XV=(xvfb-run -a -s "-screen 0 1600x1000x24" env GDK_BACKEND=x11)
 mkdir -p "$HOME/.config/fontconfig"   # your fonts, and no catch-all bitmap font stealing icon glyphs
 cat > "$HOME/.config/fontconfig/fonts.conf" <<EOF
 <?xml version="1.0"?><!DOCTYPE fontconfig SYSTEM "fonts.dtd">
@@ -81,6 +84,9 @@ echo '{"text":"1"}' > "$XDG_RUNTIME_DIR/waybar-updates.json"
 shoot "$OUT/prime-menu.png" bash "$L/bin/prime-menu"
 shoot "$OUT/prime-menu-settings.png" bash "$L/bin/prime-menu" --section settings
 shoot "$OUT/right-click-menu.png" bash "$L/bin/prime-context" bar.clock
+
+# the screen saver: a pure Cairo render to a PNG, no display needed
+"$PY" "$L/bin/prime-screensaver" --screenshot "$OUT/screensaver.png" >/dev/null
 
 # the terminal greeting: the real logo file beside a sample module list, drawn by Chromium
 CHROMIUM="${CHROMIUM:-$(command -v chromium || command -v chromium-browser || ls /opt/pw-browsers/chromium-*/chrome-linux/chrome 2>/dev/null | head -1)}"

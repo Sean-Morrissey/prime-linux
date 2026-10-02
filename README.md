@@ -121,7 +121,7 @@ gives you a desktop and wishes you luck. Prime Linux is built the other way arou
 
 | | Ordinary distro | Prime Linux |
 |---|---|---|
-| AI assistant | an app in the launcher | the OS supervisor — hotkey voice, screen-aware, remembers you across reboots |
+| AI assistant | an app in the launcher | can be the OS supervisor — hotkey voice, screen-aware, remembers you across reboots (your choice, step 5 of first run — your own key, nothing sent until you connect one) |
 | First run | a stack of forms | a conversation: tell Prime about yourself and it configures the machine |
 | A broken update | you fix it, or reinstall | a snapshot is taken first; pick the previous one in the boot menu and you're back |
 | Self-diagnosis | none | Prime runs the health check, reports in plain language, rolls back |

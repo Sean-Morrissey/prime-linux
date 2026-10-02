@@ -90,6 +90,9 @@ def runtime_dir() -> str:
     return tempfile.mkdtemp(prefix="prime-start-")
 
 
+# Plain names for apps whose own name is a brand or a project name
+FRIENDLY = {"kitty": "Terminal", "org.gnome.Software": "App Store"}
+
 PIDFILE = os.path.join(runtime_dir(), "prime-start.pid")
 
 # Sizes in rem: they follow the system font (Theme → Text size).
@@ -213,7 +216,11 @@ def read_pins(installed: set) -> list:
     except OSError:
         pass
     if pins is None:
-        pins = [p for p in _menu_pins() if p in installed] or sensible_defaults(installed)
+        # nobody has pinned anything yet: Prime's suggestions, topped up to a full row
+        # with the everyday apps (files, browser, terminal, store, settings)
+        pins = [p for p in _menu_pins() if p in installed]
+        pins += [p for p in sensible_defaults(installed) if p not in pins]
+        pins = pins[:COLUMNS]
     seen, out = set(), []
     for p in pins:
         if p in installed and p not in seen:
@@ -300,7 +307,7 @@ class Start:
     def __init__(self, offscreen: bool = False):
         self.offscreen = offscreen
         self.apps = spot.load_apps()
-        self.by_id = {did: (name, comment) for name, _exe, did, comment in self.apps}
+        self.by_id = {did: (FRIENDLY.get(did, name), comment) for name, _exe, did, comment in self.apps}
         self.installed = set(self.by_id)
         self.pins = read_pins(self.installed)
         self.recents = spot.load_recent(4)
@@ -558,7 +565,8 @@ class Start:
                 self.body.pack_start(lab, False, False, 0)
         elif self.page == "all":
             self.body.pack_start(self.heading("All apps", "‹ Back", self.show_pinned), False, False, 0)
-            rows = sorted(((n, d, c) for d, (n, c) in self.by_id.items()), key=lambda r: r[0].lower())
+            rows = sorted(((n, d, c) for d, (n, c) in self.by_id.items() if spot.listed(d)),
+                          key=lambda r: r[0].lower())
             scroll = Gtk.ScrolledWindow()
             scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
             scroll.set_min_content_height(420)

@@ -134,7 +134,8 @@ try:
     from importlib.machinery import SourceFileLoader
     spec = importlib.util.spec_from_loader("spot", SourceFileLoader("spot", os.environ["PRIME_SPOTLIGHT"]))
     m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
-    apps = [(n, did) for n, _exe, did, _c in m.load_apps()]
+    # system plumbing (Avahi browsers, webcam test tools…) stays out of the list
+    apps = [(n, did) for n, _exe, did, _c in m.load_apps() if m.listed(did)]
 except Exception:
     dirs = ["/usr/share/applications", "/usr/local/share/applications",
             os.path.expanduser("~/.local/share/applications")]

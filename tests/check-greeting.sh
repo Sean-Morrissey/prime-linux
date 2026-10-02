@@ -49,6 +49,15 @@ ck "someone's own fastfetch config: left alone" \
    "mkdir -p $T/h4/.config/fastfetch && echo '{\"logo\":\"arch\"}' > $T/h4/.config/fastfetch/config.jsonc && run_mig $T/h4 && grep -q arch $T/h4/.config/fastfetch/config.jsonc"
 ck "running it twice changes nothing"          "run_mig $T/h3 && cmp $T/h3/.config/fastfetch/config.jsonc $CONF && [ \$(ls -d $T/h3/.config-backups/* | wc -l) = 1 ]"
 ck "a fresh install seeds it (only if absent)" "grep -q 'create \"\$HOME/.config/fastfetch/config.jsonc\"' $REPO/install.sh"
+MIG2="$L/migrations/1790899482.sh"
+echo "== upgrading a copy of an earlier seed ($(basename "$MIG2"); copies in tests/fixtures/fastfetch-seeds)"
+for c in 0f38e22 583afe3; do
+  ck "untouched seed from $c: replaced with today's" \
+     "mkdir -p $T/s$c/.config/fastfetch && cp $REPO/tests/fixtures/fastfetch-seeds/$c.jsonc $T/s$c/.config/fastfetch/config.jsonc && HOME=$T/s$c PRIME_LAYER=$L bash -eu $MIG2 && cmp $T/s$c/.config/fastfetch/config.jsonc $CONF"
+done
+ck "an edited copy: left alone" \
+   "mkdir -p $T/s3/.config/fastfetch && { cat $REPO/tests/fixtures/fastfetch-seeds/583afe3.jsonc; echo '// mine'; } > $T/s3/.config/fastfetch/config.jsonc && HOME=$T/s3 PRIME_LAYER=$L bash -eu $MIG2 && grep -q '// mine' $T/s3/.config/fastfetch/config.jsonc"
+ck "no config at all: nothing created"  "mkdir -p $T/s4 && HOME=$T/s4 PRIME_LAYER=$L bash -eu $MIG2 && [ ! -e $T/s4/.config/fastfetch ]"
 ck "About says what Prime means"              "PRIME_PANEL=1 bash $L/bin/prime-about | grep -q \"P.R.I.M.E — Please Relax I'll Manage Everything\""
 
 echo; [ $fail = 0 ] && echo "ALL PASSED" || echo "$fail FAILED"; exit $fail

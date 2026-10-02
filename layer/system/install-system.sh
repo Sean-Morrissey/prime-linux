@@ -5,6 +5,7 @@
 #                             [--no-enable] [--no-security]
 #   install-system.sh uninstall      remove everything this installed
 #   install-system.sh main-user --user NAME   make NAME the computer's main account
+#   install-system.sh forget-user --user NAME NAME no longer uses Prime (prime-uninstall)
 #   install-system.sh status         what is installed, and is it current
 #   install-system.sh needs-update   exit 1 if the installed copies are older than this
 #                                    checkout (no root needed; prime-update uses it)
@@ -91,6 +92,12 @@ install_all() {
   fi
   [ ${#sets[@]} -gt 0 ] && sed_set "$conf" "${sets[@]}"     # values validated above
   mkdir -p "$ROOT/var/lib/prime-linux/updates"; chmod 755 "$ROOT/var/lib/prime-linux" "$ROOT/var/lib/prime-linux/updates"
+  # which accounts use Prime: home folders are private, so this list (readable by
+  # everyone, written only here) is how one account knows another still needs the
+  # shared pieces. Installs from before the list existed: the main account counts.
+  local main_; main_="$(sed -n 's/^MAIN_USER=//p' "$conf" | tail -1)"
+  [ -n "$main_" ] && remember_user "$main_"
+  [ -n "$USER_NAME" ] && [[ "$USER_NAME" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] && remember_user "$USER_NAME"
   [ -e "$ROOT/var/lib/prime-linux/updates/installed-at" ] || date +%s > "$ROOT/var/lib/prime-linux/updates/installed-at"
 
   local policy; policy="$(sed -n 's/^POLICY=//p' "$conf" | tail -1)"
@@ -110,6 +117,13 @@ install_all() {
     PRIME_SEC_ROOT="$ROOT" PRIME_TEST_ALLOW_NONROOT="$([ -n "$ROOT" ] && echo 1 || echo 0)" "$ROOT$LIB/prime-security" apply | sed 's/^  /    /' | tail -n +2
   fi
   return 0
+}
+
+USERS_FILE="$ROOT/var/lib/prime-linux/users"
+remember_user() { # remember_user NAME — once, kept sorted
+  mkdir -p "$(dirname "$USERS_FILE")"
+  { cat "$USERS_FILE" 2>/dev/null; echo "$1"; } | grep -E '^[a-z_][a-z0-9_-]{0,31}$' | sort -u > "$USERS_FILE.new"
+  chmod 644 "$USERS_FILE.new"; mv -f "$USERS_FILE.new" "$USERS_FILE"
 }
 
 sed_set() { # fallback when the updater can't run here: same validation, plain edit
@@ -134,6 +148,12 @@ uninstall_all() {
 
 case "$cmd" in
   install)      install_all ;;
+  forget-user)  # an account left Prime (prime-uninstall): prints how many still use it
+    need_root
+    [[ "$USER_NAME" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] || { echo "forget-user needs --user NAME" >&2; exit 2; }
+    if [ -f "$USERS_FILE" ]; then grep -vx "$USER_NAME" "$USERS_FILE" > "$USERS_FILE.new"; chmod 644 "$USERS_FILE.new"; mv -f "$USERS_FILE.new" "$USERS_FILE"; fi
+    n="$(grep -c . "$USERS_FILE" 2>/dev/null)"; echo "${n:-0}"
+    exit 0 ;;
   main-user)    # hand the "main account" role on (prime-uninstall, when its owner leaves)
     need_root
     [[ "$USER_NAME" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] || { echo "main-user needs --user NAME" >&2; exit 2; }
@@ -146,5 +166,5 @@ case "$cmd" in
     if [ -z "$s" ]; then echo "Prime system pieces: installed and current"
     else echo "Prime system pieces: missing or older than this copy:"; printf '  %s\n' $s; fi
     live && echo "nightly timer: $(systemctl is-enabled prime-system-update.timer 2>/dev/null)" ;;
-  *) sed -n '2,25p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
+  *) sed -n '2,26p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
 esac

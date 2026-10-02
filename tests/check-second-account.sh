@@ -16,7 +16,8 @@ case "$STEP" in
     ck "sam has their own copy of Prime"          "[ -x /home/sam/.local/share/prime-linux/layer/bin/prime-menu ] && [ \$(stat -c %U /home/sam/.local/share/prime-linux) = sam ]"
     ck "alex is still the computer's main account" "grep -qx MAIN_USER=alex /etc/prime/updates.conf"
     ck "nothing of alex's was touched"            "alex_files | cmp -s - $SNAP"
-    ck "sam's add-ons list is sam's own"          "[ \$(stat -c %U /home/sam/.config/prime/addons) = sam ]" ;;
+    ck "sam's add-ons list is sam's own"          "[ \$(stat -c %U /home/sam/.config/prime/addons) = sam ]"
+    ck "the computer lists both Prime accounts"   "[ \"\$(cat /var/lib/prime-linux/users)\" = \"\$(printf 'alex\nsam')\" ] && [ \$(stat -c %a /var/lib/prime-linux/users) = 644 ]" ;;
   left)
     ck "sam's Prime is gone"                      "[ ! -d /home/sam/.local/share/prime-linux ]"
     ck "nightly updates stay (alex uses them)"    "[ -x /usr/local/lib/prime-linux/prime-system-update ] && [ -f /etc/systemd/system/prime-system-update.timer ]"
@@ -24,6 +25,7 @@ case "$STEP" in
     ck "Prime stays on the login screen"          "[ -f /usr/share/wayland-sessions/prime.desktop ]"
     ck "--packages left alex's desktop installed" "pacman -Qq hyprland waybar rofi >/dev/null"
     ck "alex is still the main account"           "grep -qx MAIN_USER=alex /etc/prime/updates.conf"
+    ck "the list now holds only alex"            "[ \"\$(cat /var/lib/prime-linux/users)\" = alex ]"
     ck "nothing of alex's was touched"            "alex_files | cmp -s - $SNAP" ;;
 esac
 [ "$STEP" = before ] && exit 0

@@ -26,6 +26,8 @@ plain() { sed -e 's/\x1b\[[0-9;]*m//g' -e "s|$HOME|~|g"; }
 
 report() {
     printf 'Prime Linux help report — %s\n' "$(date '+%Y-%m-%d %H:%M')"
+    echo "This report says which services on this computer can be reached from your network."
+    echo "Send it to a person you trust — not to a public forum."
     section "Prime"
     echo "version: $(git -C "$LAYER/.." describe --tags --always 2>/dev/null || echo unknown) ($(git -C "$LAYER/.." rev-parse --abbrev-ref HEAD 2>/dev/null))"
     echo "add-ons: $(grep -vE '^\s*(#|$)' "$HOME/.config/prime/addons" 2>/dev/null | paste -sd' ' || true)"

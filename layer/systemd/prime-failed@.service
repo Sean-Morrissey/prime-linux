@@ -1,0 +1,6 @@
+[Unit]
+Description=Tell the person that a part of the desktop stopped (%i)
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/share/prime-linux/layer/bin/prime-failed %i

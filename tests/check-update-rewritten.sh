@@ -28,6 +28,7 @@ new="$(git -C "$T/origin.git" rev-parse main)"
 upd "$T/copy"
 ck "an untouched copy follows the new history"   "[ \"\$(git -C '$T/copy' rev-parse HEAD)\" = '$new' ] && [ -e '$T/copy/FRESH' ]"
 ck "… and says so in words"                       "grep -q 'started afresh' '$T/out'"
+ck "it says out loud that the main channel isn't signature-checked" "grep -q \"test channel (main), so Prime's own updates aren't checked for a signature\" '$T/out'"
 upd "$T/edited"
 ck "a copy with edits is left alone"              "[ \"\$(git -C '$T/edited' rev-parse HEAD)\" != '$new' ] && grep -q 'changed here' '$T/edited/README.md'"
 [ $fail = 0 ] || sed 's/^/      | /' "$T/out" | tail -20

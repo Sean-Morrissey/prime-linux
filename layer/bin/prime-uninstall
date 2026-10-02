@@ -32,6 +32,11 @@ for a in "$@"; do
     esac
 done
 run() { if [ $DRY = 1 ]; then echo "    [dry-run] $*"; else "$@"; fi; }
+# in a Prime window (Settings → Troubleshooting → Remove Prime) the password is asked in a window
+if [ -n "${PRIME_PANEL:-}" ]; then
+    sudo() { command sudo -A "$@"; }
+    export PRIME_ASKPASS_REASON="Prime needs your password to remove its system parts."
+fi
 say() { printf '    %s\n' "$*"; }
 
 [ -d "$PRIME_HOME" ] || [ -f "$MANIFEST" ] || { echo "Prime Linux isn't installed for $(id -un)."; exit 0; }
@@ -158,4 +163,8 @@ if [ -d "$HOME/.config/prime" ]; then
 fi
 run rm -f "$STATE_DIR/install.progress" "$STATE_DIR/install.manifest" "$STATE_DIR/nightlight"
 run rm -rf "$PRIME_HOME"
-echo "Prime Linux removed. Log out and back in (choose your previous desktop on the login screen)."
+echo "Prime Linux removed. Log out and back in, and choose your previous desktop on the login screen."
+if [ -n "${PRIME_PANEL:-}" ]; then
+    echo "@summary Prime is removed — log out, then choose your previous desktop on the login screen."
+fi
+exit 0

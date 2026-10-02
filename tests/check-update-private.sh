@@ -30,6 +30,6 @@ env -u GIT_TERMINAL_PROMPT -u GIT_ASKPASS -u WAYLAND_DISPLAY -u DISPLAY -u HYPRL
 took=$(( $(date +%s) - start ))
 ck "doesn't wait for a username (finished in ${took}s)" "[ $took -lt 60 ]"
 ck "says GitHub didn't let it in"                      "grep -q \"GitHub didn't let this computer in\" $T/out"
-ck "says how to sign in (gh auth login)"               "grep -q 'gh auth login' $T/out"
+ck "says what to do in words, not a command"          "grep -q 'Get help' $T/out && ! grep -qE 'gh auth|sudo ' $T/out"
 [ $fail = 0 ] || sed 's/^/      | /' "$T/out" | tail -20
 echo; [ $fail = 0 ] && echo "ALL PASSED" || echo "$fail FAILED"; exit $fail

@@ -18,7 +18,6 @@ bash install.sh            # --dry-run to see what it would do
 
 Log out, choose **Hyprland** on the login screen (after the first *Update everything* it is
 listed as **Prime**). Undo: `prime-uninstall`.
-(The repo is private today; the curl line works once it is public.)
 
 ## How it is put together
 

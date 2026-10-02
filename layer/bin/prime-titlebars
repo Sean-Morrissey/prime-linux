@@ -27,6 +27,9 @@ if [ "${1:-}" != --rebuild ] && enabled; then
     for _ in 1 2 3; do loaded && exit 0; sleep 1; done
     again=1      # built for the Hyprland before an update: build again, quietly
 fi
+# one build at a time: the health check at login may want one too (hyprpm takes no lock)
+exec 9>"$HOME/.cache/prime-hyprpm.lock"
+flock -n 9 || { echo "== $(date) another title-bar build is already running" >>"$LOG"; exit 0; }
 if [ $again = 1 ]; then
     note "Updating window title bars" "Hyprland was updated, so they're rebuilt for it — about a minute. Everything works meanwhile."
 else

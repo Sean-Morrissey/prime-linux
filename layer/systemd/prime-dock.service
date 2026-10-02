@@ -1,4 +1,8 @@
 [Unit]
+# a part that keeps crashing stops after 10 tries in 2 minutes, and says so (prime-failed)
+StartLimitIntervalSec=120
+StartLimitBurst=10
+OnFailure=prime-failed@%p.service
 Description=Prime Linux dock (pinned and open apps, hidden until the pointer reaches the bottom)
 PartOf=prime-session.target
 After=graphical-session.target prime-bar@top.service

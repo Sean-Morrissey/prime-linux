@@ -84,4 +84,14 @@ ck "its service link is gone, yours stays"        "[ ! -e $HOME/.config/systemd/
 ck "the add-on folder itself is untouched"        "diff -r $T/studio.orig $P"
 ck "relink (what prime-update runs) leaves it be" "$L/bin/prime-addon --relink && diff -r $T/studio.orig $P"
 
+echo "-- its own setup script"
+K="$HOME/.config/prime/addons.d/kit"; mkdir -p "$K/bin"
+printf 'TITLE="Kit"\nDESCRIPTION="Runs a setup script"\nSETUP="bin/setup"\n' > "$K/addon.conf"
+printf '#!/bin/sh\necho setup >> "%s/order"\n' "$T" > "$K/bin/setup"; chmod +x "$K/bin/setup"
+printf '#!/bin/sh\necho "sudo $*" >> "%s/order"\n' "$T" > "$T/fake/sudo"; chmod +x "$T/fake/sudo"
+"$L/bin/prime-addon" enable kit >/dev/null 2>&1
+ck "a personal add-on's script runs only after the remembered password is forgotten (sudo -k first)" \
+   "[ \"\$(grep -E '^(sudo -k|setup)\$' '$T/order' | tr '\n' ' ')\" = 'sudo -k setup ' ]"
+ck "the picker says Prime didn't check it"        "$L/bin/prime-addon pick --rows 2>/dev/null | grep -q 'kit.*Prime did not check it' || grep -q 'made on this computer — Prime did not check it' $L/bin/prime-addon"
+
 echo; [ $fail = 0 ] && echo "ALL PASSED" || echo "$fail FAILED"; exit $fail

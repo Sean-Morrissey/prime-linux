@@ -29,21 +29,24 @@ fi
 args=("${mode[@]}" -p "$pos" -i "$size" "$margin" 8 -s prime.css -c "$BIN/prime-start")
 if [ "${1:-}" = --args ]; then printf '%s\n' nwg-dock-hyprland "${args[@]}"; exit 0; fi
 
-# how far the pointer is from the left edge of the screen it is on (logical pixels)
+# how far the pointer is from the left edge of the screen it is on (logical pixels);
+# the screen layout ($MONS) changes rarely, so it's read now and then, not every check
+MONS=""
 edge_x() {
-    local pos mons
+    local pos
     pos="$(hyprctl cursorpos -j 2>/dev/null)" || return 1
-    mons="$(hyprctl monitors -j 2>/dev/null)" || return 1
-    jq -rn --argjson p "$pos" --argjson m "$mons" \
+    [ -n "$MONS" ] || return 1
+    jq -rn --argjson p "$pos" --argjson m "$MONS" \
         '($m | map(select($p.x >= .x and $p.y >= .y and $p.x < .x + (.width / .scale) and $p.y < .y + (.height / .scale))) | first // empty) as $on
          | if $on then ($p.x - $on.x | floor) else empty end'
 }
 
 side_bar() {
-    PRIME_SIDE_AUTOHIDE=1 "$BIN/prime-bar" side & local bar=$! shown=0 x
+    PRIME_SIDE_AUTOHIDE=1 "$BIN/prime-bar" side & local bar=$! shown=0 x n=0
     trap 'kill $bar 2>/dev/null' EXIT TERM INT
     while kill -0 "$bar" 2>/dev/null; do
-        sleep 0.15
+        sleep 0.3
+        if [ $((n++ % 30)) = 0 ]; then MONS="$(hyprctl monitors -j 2>/dev/null)"; fi
         x="$(edge_x)" || continue
         [ -n "$x" ] || continue
         if [ "$shown" = 0 ] && [ "$x" -le 1 ]; then kill -USR1 "$bar"; shown=1

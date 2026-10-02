@@ -441,11 +441,11 @@ PAGES = [
     ("startup", "Startup Apps", "system-run-symbolic", "startup autostart login boot open automatically background apps"),
     ("updates", "Updates", "software-update-available-symbolic", "update upgrade automatic nightly undo rollback snapshot"),
     ("security", "Privacy & Security", "security-high-symbolic", "firewall ssh remote login password encryption permissions"),
-    ("printers", "Printers", "printer-symbolic", "print printer scanner paper ink"),
+    ("printers", "Printers", "printer-symbolic", "print printer paper ink"),
     ("datetime", "Date & Time", "preferences-system-time-symbolic", "clock time zone timezone date ntp"),
     ("region", "Language & Region", "preferences-desktop-locale-symbolic", "language locale region format"),
     ("accounts", "Users & Accounts", "system-users-symbolic", "account name password user login"),
-    ("accessibility", "Accessibility", "preferences-desktop-accessibility-symbolic", "text size larger motion animations zoom contrast"),
+    ("accessibility", "Accessibility", "preferences-desktop-accessibility-symbolic", "text size larger motion animations zoom magnifier magnify bigger screen reader"),
     ("troubleshoot", "Troubleshooting", "emblem-system-symbolic", "fix repair broken sound no audio wifi bar dock frozen restart reset reload title bars notifications help problem"),
     ("about", "About & Help", "help-about-symbolic", "about version computer specs help support repair health check report restore"),
 ]
@@ -745,7 +745,7 @@ def gui(page: str = "", screenshots: str = "", selftest: bool = False) -> int:
             ip = sh("ip", "-4", "-brief", "address", "show", "scope", "global")
             info(g2, "This computer's address on the network", " · ".join(l.split()[2].split("/")[0] for l in ip.splitlines() if len(l.split()) > 2) or "none")
             g3 = group(page, "More")
-            opener(g3, "Advanced network settings", "VPN, fixed address, hidden networks, hotspot",
+            opener(g3, "Advanced network settings", "VPN, fixed address, hidden networks, hotspot — opens the system's own tool, which looks different and uses more technical words",
                    ["nm-connection-editor"])
         else:
             missing(g, "Network settings")
@@ -765,7 +765,7 @@ def gui(page: str = "", screenshots: str = "", selftest: bool = False) -> int:
                 info(g2, n, "Connected" if names else "")
             g3 = group(page, "Devices")
             opener(g3, "Connect a device", "Your paired devices, one click to connect", ["prime-bluetooth"], "Connect")
-            opener(g3, "Pair a new device", "Put the device in pairing mode first", ["blueman-manager"], "Pair")
+            opener(g3, "Pair a new device", "Put the device in pairing mode first — opens the system's own Bluetooth tool", ["blueman-manager"], "Pair")
         else:
             missing(g, "Bluetooth")
         return page
@@ -812,7 +812,7 @@ def gui(page: str = "", screenshots: str = "", selftest: bool = False) -> int:
         if not streams:
             info(ga, "Nothing is playing right now", "Apps show up here while they play sound")
         g3 = group(page, "More")
-        opener(g3, "Advanced mixer", "Every device, profile and stream", ["pavucontrol"])
+        opener(g3, "Advanced mixer", "Every device, profile and stream — opens the system's own tool, which looks different and uses more technical words", ["pavucontrol"])
         return page
 
     def keep_or_revert(win, name, new_line, old_line):
@@ -890,7 +890,7 @@ def gui(page: str = "", screenshots: str = "", selftest: bool = False) -> int:
         if not mons:
             info(group(page, "Screens"), "Screens", "Shown here while you're on the Prime desktop")
         ga = group(page, "Arrangement")
-        opener(ga, "Arrange screens", "Drag screens into place, and pick which one is on the left", ["nwg-displays"], "Arrange")
+        opener(ga, "Arrange screens", "Drag screens into place, and pick which one is on the left — opens the system's own screen tool", ["nwg-displays"], "Arrange")
         g2 = group(page, "Comfort")
         if has("brightnessctl") and sh("brightnessctl", "-m", "-c", "backlight", "info"):
             cur = sh("brightnessctl", "-m", "-c", "backlight", "info").split(",")
@@ -1108,12 +1108,13 @@ def gui(page: str = "", screenshots: str = "", selftest: bool = False) -> int:
         opener(g2, "Wi-Fi won't connect", "Switch networking off and on again",
                ["sh", "-c", "nmcli networking off; sleep 2; nmcli networking on"], "Fix")
         opener(g2, "The top bar froze or vanished", "Start it again (Super+W)", ["prime-bar", "restart"], "Fix")
-        opener(g2, "The dock is missing", "Start it again", [SYSTEMCTL, "--user", "restart", "prime-dock"], "Fix")
+        opener(g2, "The dock is missing", "Start it again", ["sh", "-c", f"{SYSTEMCTL} --user reset-failed prime-dock; {SYSTEMCTL} --user restart prime-dock"], "Fix")
         opener(g2, "Notifications stopped", "Start the notification centre again",
-               [SYSTEMCTL, "--user", "restart", "swaync"], "Fix")
+               ["sh", "-c", f"{SYSTEMCTL} --user reset-failed swaync; {SYSTEMCTL} --user restart swaync"], "Fix")
         opener(g2, "Window title bars are gone", "Build them again for this version (about a minute)",
                ["prime-titlebars", "--rebuild"], "Fix")
         opener(g2, "The screen doesn't lock by itself", "Start the idle timer again", ["prime-idle", "--restart"], "Fix")
+        opener(g2, "Performance mode doesn't work", "Turn power modes on (asks for your password)", ["prime-fix", "power-modes"], "Fix")
         opener(g2, "Something looks wrong after a change", "Reload the window settings", [HYPRCTL, "reload"], "Fix")
         g3 = group(page, "Go back")
         r = Adw.ActionRow(title="Undo the last change made in Settings", subtitle="Mouse, keyboard, look, dock, bar and the rest")
@@ -1125,11 +1126,45 @@ def gui(page: str = "", screenshots: str = "", selftest: bool = False) -> int:
         opener(g3, "Save desktop settings now", "A copy you can restore later", ["prime-menu", "--run", "style.save"], "Save")
         opener(g3, "Undo the last update", "Go back to how the system was before it", ["prime-update", "--undo"], "Undo")
         opener(g3, "Get a file back", "File History", ["prime-file-history"], "Open")
+        g5 = group(page, "Remove Prime", "Takes Prime off this account and puts back what was there before. "
+                   "Your files are never touched; your Prime settings are kept in a backup folder")
+        r = Adw.ActionRow(title="Remove Prime from this computer", subtitle="You'll be asked to confirm first")
+        b = Gtk.Button(label="Remove…", valign=Gtk.Align.CENTER)
+        b.add_css_class("destructive-action")
+        b.update_property([Gtk.AccessibleProperty.LABEL], ["Remove Prime from this computer"])
+        b.connect("clicked", lambda *_: remove_prime(win))
+        r.add_suffix(b)
+        g5.add(r)
         g4 = group(page, "Still stuck?")
         opener(g4, "Update Prime", "Fixes often arrive as updates", ["prime-panel", "--title", "Updating Prime", "--",
                os.path.join(BIN, "prime-update"), "--prime"], "Update")
         opener(g4, "Get help", "A report to send to whoever helps you — no passwords, no files", ["prime-help"], "Make")
         return page
+
+    def remove_prime(win):
+        Dialog = getattr(Adw, "AlertDialog", None) or Adw.MessageDialog
+        d = Dialog(heading="Remove Prime?",
+                   body="Prime's desktop, bar, dock and settings come off this account, and what was there "
+                        "before comes back. Your documents, photos and other files stay exactly as they are.\n\n"
+                        "The apps Prime installed can stay (other things may use them) or go too.")
+        d.add_response("cancel", "Cancel")
+        d.add_response("keep", "Remove Prime, keep the apps")
+        d.add_response("all", "Remove Prime and its apps")
+        d.set_response_appearance("keep", Adw.ResponseAppearance.DESTRUCTIVE)
+        d.set_response_appearance("all", Adw.ResponseAppearance.DESTRUCTIVE)
+        d.set_default_response("cancel")
+        d.set_close_response("cancel")
+
+        def chosen(_d, r):
+            if r in ("keep", "all"):
+                launch("prime-panel", "--title", "Removing Prime", "--", os.path.join(BIN, "prime-uninstall"),
+                       "--yes", *(["--packages"] if r == "all" else []))
+        d.connect("response", chosen)
+        if Dialog is getattr(Adw, "AlertDialog", None):
+            d.present(win)
+        else:
+            d.set_transient_for(win)
+            d.present()
 
     def p_notifications(win):
         page = Adw.PreferencesPage()
@@ -1396,8 +1431,14 @@ def gui(page: str = "", screenshots: str = "", selftest: bool = False) -> int:
         for r in rows:
             lvl, msg = r[0], r[1]
             fix = r[2] if len(r) > 2 else ""
-            row = info(g, msg, f"{words.get(lvl, '')}{' — ' + fix if fix else ''}", icons.get(lvl))
+            fix_id = r[3] if len(r) > 3 else ""
+            row = info(g, msg, f"{words.get(lvl, '')}{' — ' + fix if fix and not fix_id else ''}", icons.get(lvl))
             row.update_property([Gtk.AccessibleProperty.DESCRIPTION], [words.get(lvl, "")])
+            if fix_id:                                 # a button that does it (prime-fix: a fixed list)
+                b = Gtk.Button(label=fix, valign=Gtk.Align.CENTER)
+                b.update_property([Gtk.AccessibleProperty.LABEL], [fix])
+                b.connect("clicked", lambda _b, f=fix_id: launch("prime-fix", f))
+                row.add_suffix(b)
         if not rows:
             info(g, "Safety check", "Couldn't read it right now")
         g2 = group(page, "More")
@@ -1415,7 +1456,7 @@ def gui(page: str = "", screenshots: str = "", selftest: bool = False) -> int:
             info(g, n.replace("_", " "), "Default printer" if n == default else "Ready", "printer-symbolic")
         if not names:
             info(g, "No printers yet", "Add one below")
-        opener(g, "Add or change a printer", "Find a printer on the network or a USB cable", ["system-config-printer"], "Open")
+        opener(g, "Add or change a printer", "Find a printer on the network or a USB cable — opens the system's own tool, which looks different and uses more technical words", ["system-config-printer"], "Open")
         return page
 
     def p_datetime(win):
@@ -1514,6 +1555,11 @@ def gui(page: str = "", screenshots: str = "", selftest: bool = False) -> int:
                th.get("TEXT", "default"), lambda t: done(ok("prime-theme", "--set-text", t), "Text size changed"))
         switch(win, g, "Reduce motion", "No sliding or fading animations",
                st.get("animations", "on") == "off", lambda on: tb("animations", "off" if on else "on"))
+        gz = group(page, "Magnifier", "Enlarges the screen around the pointer. Keys: Super+Alt+= bigger, "
+                   "Super+Alt+- smaller, Super+Alt+0 normal size")
+        opener(gz, "Zoom in", "Super + Alt + =", ["prime-zoom", "in"], "Bigger")
+        opener(gz, "Zoom out", "Super + Alt + -", ["prime-zoom", "out"], "Smaller")
+        opener(gz, "Normal size", "Super + Alt + 0", ["prime-zoom", "reset"], "Reset")
         g2 = group(page, "Keyboard")
         opener(g2, "Use the bar from the keyboard", "Every bar item and its menu (Super+Alt+B)", ["prime-bar", "--keys"])
         opener(g2, "Every keyboard shortcut", "(Super+/)", ["prime-keys"], "Show")

@@ -52,6 +52,9 @@ need() {   # need <name> — sets D to the add-on's folder (shipped, else person
 hook() {   # hook <dir> "bin/script arg…" — run a setup/teardown/check script
     local parts; read -r -a parts <<<"$2"
     [ -x "$1/${parts[0]}" ] || { warn "missing ${parts[0]}"; return 1; }
+    # a personal add-on's script is not Prime's code: it never runs while the password
+    # is still remembered from installing its apps (it has to ask, and you see it ask)
+    case "$(readlink -f "$1")" in "$(readlink -f "$PERSONAL_ADDONS")"/*) sudo -k 2>/dev/null ;; esac
     "$1/${parts[0]}" "${parts[@]:1}"
 }
 
@@ -230,7 +233,7 @@ rows_for_pick() {   # name<TAB>row text
         n="$(basename "$d")"; addon_name_ok "$n" || continue
         [ "$(addon_dir "$n")" = "${d%/}" ] || continue      # a personal one hidden by a shipped one
         load "$d"
-        printf '%s\t%s %s%s%s — %s\n' "$n" "${ICON:-󰏗}" "$TITLE" "$(addon_is_personal "$n" && echo ' (personal)')" \
+        printf '%s\t%s %s%s%s — %s\n' "$n" "${ICON:-󰏗}" "$TITLE" "$(addon_is_personal "$n" && echo ' (made on this computer — Prime did not check it)')" \
             "$(enabled "$n" && echo '  ✓ on' || echo '')" "$DESCRIPTION"
     done
 }
@@ -259,7 +262,7 @@ cmd_enable() {
 
     step "Installing apps"
     install_repo "$n" || { echo; warn "The apps couldn't be installed — nothing was switched on."
-                          warn "Check the internet connection, then run again: prime-addon enable $n"; exit 1; }
+                          warn "Check the internet connection, then turn it on again (Settings → Apps → Packs)."; exit 1; }
 
     if [ -n "$FLATPAKS" ]; then
         step "Installing apps from Flathub"
@@ -269,7 +272,7 @@ cmd_enable() {
 
     if [ -n "$SETUP" ]; then
         step "Setting things up"
-        hook "$d" "$SETUP" || { echo; warn "Setup didn't finish — '$n' left off. Run again to retry: prime-addon enable $n"; exit 1; }
+        hook "$d" "$SETUP" || { echo; warn "Setup didn't finish — '$n' left off. Turning it on again retries (Settings → Apps → Packs)."; exit 1; }
     fi
 
     step "Switching it on"
@@ -308,9 +311,7 @@ cmd_disable() {
     if [ $((${#kept[@]} + ${#fl[@]})) -gt 0 ]; then
         echo "    The apps it installed are still on your computer (nothing you made is lost):"
         echo "${kept[*]} ${fl[*]}" | fold -s -w 70 | sed 's/^/      /'
-        echo "    To remove them as well:"
-        [ ${#kept[@]} -gt 0 ] && echo "      sudo pacman -Rns ${kept[*]}"
-        [ ${#fl[@]} -gt 0 ]   && echo "      flatpak uninstall --user ${fl[*]}"
+        echo "    To remove them as well: the App Store (Settings → Apps) removes any of them with a click."
     fi
     echo "    Turn it back on any time: prime-addon enable $n"
 }
@@ -356,10 +357,10 @@ cmd_check() {   # check [name] — exit 1 if anything is broken
             miss=()
             for p in "${WANT[@]}"; do pacman -Qq "$p" >/dev/null 2>&1 || miss+=("$p"); done
             [ ${#miss[@]} -eq 0 ] && ck_ok "All its packages are installed" \
-                                  || ck_bad "Not installed: ${miss[*]} — fix: prime-addon enable $n"
+                                  || ck_bad "Not installed: ${miss[*]} — turning the pack on again fixes it (Settings → Apps → Packs)"
             for id in $FLATPAKS; do
                 flatpak info "$id" >/dev/null 2>&1 && ck_ok "$id installed (Flathub)" \
-                                                   || ck_warn "$id not installed — fix: prime-addon enable $n"
+                                                   || ck_warn "$id not installed — turning the pack on again fixes it (Settings → Apps → Packs)"
             done
             [ -n "$CHECK" ] && hook "$d" "$CHECK"
         )

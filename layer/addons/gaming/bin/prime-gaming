@@ -149,16 +149,16 @@ EOF
 check() {
     local g
     if pacman-conf --repo-list 2>/dev/null | grep -qx multilib; then ck_ok "32-bit software (multilib) is on"
-    else ck_bad "32-bit software (multilib) is off — fix: prime-addon enable gaming"; fi
+    else ck_bad "32-bit software (multilib) is off — turning the Gaming pack on again fixes it (Settings → Apps → Packs)"; fi
     for g in $(gpus); do
         case "$g" in
             amd)     pacman -Qq lib32-vulkan-radeon >/dev/null 2>&1 && ck_ok "AMD graphics: 32- and 64-bit Vulkan drivers" \
-                                                                  || ck_bad "AMD 32-bit Vulkan driver missing — fix: prime-addon enable gaming" ;;
+                                                                  || ck_bad "AMD 32-bit Vulkan driver missing — turning the Gaming pack on again fixes it (Settings → Apps → Packs)" ;;
             intel)   pacman -Qq lib32-vulkan-intel >/dev/null 2>&1 && ck_ok "Intel graphics: 32- and 64-bit Vulkan drivers" \
-                                                                 || ck_bad "Intel 32-bit Vulkan driver missing — fix: prime-addon enable gaming" ;;
+                                                                 || ck_bad "Intel 32-bit Vulkan driver missing — turning the Gaming pack on again fixes it (Settings → Apps → Packs)" ;;
             nvidia)
                 pacman -Qq lib32-nvidia-utils >/dev/null 2>&1 && ck_ok "NVIDIA: 32-bit driver libraries" \
-                                                                || ck_bad "NVIDIA 32-bit libraries missing — fix: prime-addon enable gaming"
+                                                                || ck_bad "NVIDIA 32-bit libraries missing — turning the Gaming pack on again fixes it (Settings → Apps → Packs)"
                 if [ -r /proc/driver/nvidia/version ]; then ck_ok "NVIDIA driver loaded"
                 else ck_warn "NVIDIA driver installed but not loaded — restart the computer"; fi ;;
             nouveau) ck_warn "NVIDIA card on the open 'nouveau' driver — games run much faster with NVIDIA's driver (CachyOS Hello → Apps/Tweaks → Install NVIDIA drivers)" ;;
@@ -169,19 +169,19 @@ check() {
         ck_ok "Vulkan works: $(vulkaninfo --summary 2>/dev/null | sed -n 's/^[[:space:]]*deviceName *= *//p' | head -1)"
     else ck_warn "Vulkan didn't answer (normal outside the desktop; otherwise a driver problem)"; fi
     ls /usr/lib/udev/rules.d/*steam* >/dev/null 2>&1 && ck_ok "Controller support (Steam's device rules) installed" \
-                                                     || ck_warn "Controller rules missing — install: steam-devices"
+                                                     || ck_warn "Some game controllers may not be recognised — turning the Gaming pack on again adds what's missing"
     if ls /usr/share/steam/compatibilitytools.d/proton-cachyos* >/dev/null 2>&1; then ck_ok "Proton-CachyOS available in Steam"
     else ck_ok "Proton comes with Steam (Proton-CachyOS needs the CachyOS repositories)"; fi
     if in_group gamemode; then
         id -nG | tr ' ' '\n' | grep -qx gamemode && ck_ok "GameMode allowed" || ck_warn "GameMode allowed after you log out and back in"
-    else ck_warn "You're not in the 'gamemode' group — fix: prime-addon enable gaming"; fi
+    else ck_warn "You're not in the 'gamemode' group — turning the Gaming pack on again fixes it (Settings → Apps → Packs)"; fi
     local p; p="$(ppd_get)"
     if [ -n "$p" ]; then ck_ok "Performance mode switch works (now: $p)"
-    else ck_warn "Power-profile service isn't running — Performance mode won't work (try: sudo systemctl enable --now power-profiles-daemon)"; fi
+    else ck_warn "Performance mode won't work yet — Settings → Troubleshooting → Performance mode doesn't work → Fix"; fi
     [ -f "$HUDCONF" ] && ck_ok "FPS overlay set up (currently $(hud status) at game start)" \
-                      || ck_warn "FPS overlay settings missing — fix: prime-addon enable gaming"
+                      || ck_warn "FPS overlay settings missing — turning the Gaming pack on again fixes it (Settings → Apps → Packs)"
     if [ "$(cat /proc/sys/vm/max_map_count 2>/dev/null || echo 0)" -ge 1048576 ]; then ck_ok "Memory map limit is game-ready"
-    else ck_warn "vm.max_map_count is low — some big games crash (CachyOS sets it; on Arch: install cachyos-settings or set 1048576)"; fi
+    else ck_warn "A memory limit is set low, so some big games may crash — CachyOS raises it; whoever helps you can (Get help names it)"; fi
 }
 
 case "${1:-}" in

@@ -184,7 +184,13 @@ def main():
         return 0
     if arg not in FILES:
         print(__doc__); return 2
-    _, cfg_out, css_out = build(arg)
+    cfg, cfg_out, css_out = build(arg)
+    if arg == "side" and os.environ.get("PRIME_SIDE_AUTOHIDE"):
+        # the dock's stand-in: hidden until the pointer reaches the left edge (prime-dock
+        # shows and hides it), and over the windows rather than pushing them aside
+        cfg.update({"start_hidden": True, "exclusive": False, "layer": "overlay"})
+        with open(cfg_out, "w") as fh:
+            json.dump(cfg, fh, indent=1, ensure_ascii=False)
     if arg == "side" and os.environ.get("HYPRLAND_INSTANCE_SIGNATURE"):
         wait_for_top_bar()
     os.execvp("waybar", ["waybar", "-c", cfg_out, "-s", css_out])

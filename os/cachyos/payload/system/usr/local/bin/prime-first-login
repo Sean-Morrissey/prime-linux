@@ -21,5 +21,5 @@ export PRIME_ASKPASS_REASON="Prime needs your password once, to finish setting u
 # the layer is there now: load it into the running session
 hyprctl reload >/dev/null 2>&1
 systemctl --user daemon-reload 2>/dev/null
-systemctl --user start prime-session.target prime-bar@top prime-bar@side 2>/dev/null
+systemctl --user start prime-session.target prime-bar@top prime-dock 2>/dev/null
 exit 0

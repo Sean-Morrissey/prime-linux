@@ -9,7 +9,7 @@
 }
 
 .control-center {
-    background: rgba(10, 10, 14, 0.85);
+    background: rgba(14, 14, 18, 0.96);
     border: 1px solid rgba(255, 255, 255, 0.12);
     border-radius: 16px;
     margin: 10px 12px;
@@ -22,7 +22,7 @@
 }
 
 .notification {
-    background: rgba(30, 30, 38, 0.75);
+    background: rgba(30, 30, 38, 0.94);
     border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 14px;
     margin: 6px 0;
@@ -31,22 +31,24 @@
 }
 
 .notification:hover {
-    background: rgba(40, 40, 50, 0.85);
+    background: rgba(40, 40, 50, 0.96);
     border-color: alpha(@accent, 0.40);
 }
 
-.notification-content {
+.body, .notification-content {
     color: #e4e4e7;
     font-size: 0.975rem;
 }
 
-.notification-summary {
+/* swaync's own class names are .summary / .time / .body; the long names above
+   are kept for older swaync. A small, dim time leaves the title room. */
+.summary, .notification-summary {
     color: @accent;
     font-size: 1.05rem;
     font-weight: 600;
 }
 
-.notification-time {
+.time, .notification-time {
     color: #8e8e93;
     font-size: 0.825rem;
 }

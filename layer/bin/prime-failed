@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# prime-failed <unit> — a part of the desktop crashed again and again and was stopped:
+# say which, in words, and where the one-click fix is (systemd runs this: OnFailure=).
+set -u
+case "${1:-}" in
+    prime-bar)            what="The top bar" ;;
+    prime-dock)           what="The dock" ;;
+    prime-osd)            what="The volume and brightness popups" ;;
+    prime-battery-alert)  what="The low-battery warning" ;;
+    prime-cliphist-*|prime-clip-persist) what="Clipboard history" ;;
+    *)                    what="A part of the desktop" ;;
+esac
+notify-send -a Prime -u critical "$what stopped working" \
+    "Settings → Troubleshooting has a Fix button for it, or log out and back in." >/dev/null 2>&1 || true

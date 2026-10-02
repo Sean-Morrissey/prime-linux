@@ -109,7 +109,7 @@ now()  { [ -n "${PRIME_NOW_EPOCH:-}" ] && [ "$TESTING" = 1 ] && { echo "$PRIME_N
 hour() { [ -n "${PRIME_NOW_HOUR:-}" ] && [ "$TESTING" = 1 ] && { echo "$PRIME_NOW_HOUR"; return; }; date +%-H; }
 
 is_root() { [ "$(id -u)" = 0 ] || [ "$TESTING" = 1 ]; }
-need_root() { is_root || { bad "this needs administrator rights (run it through prime-update, or with sudo)"; exit 4; }; }
+need_root() { is_root || { bad "this needs administrator rights — Update everything (Settings → Updates) runs it for you"; exit 4; }; }
 real_guard() {
   [ "${PRIME_ALLOW_REAL_SYSTEM_CHANGES:-no}" = yes ] && return 0
   bad "not allowed to change this computer from here"
@@ -268,45 +268,45 @@ has_snapper_root() {
 can_snapshot() { [ "$SNAPSHOTS" != off ] && [ "$(root_fs)" = btrfs ] && has_snapper_root; }
 booted_from_snapshot() { findmnt -no OPTIONS / 2>/dev/null | grep -q 'subvol=[^,]*\.snapshots/[0-9]'; }
 
-snapshots_tsv() { # level<TAB>message<TAB>fix — what doctor and status print
+snapshots_tsv() { # level<TAB>message<TAB>what to do, in words<TAB>prime-fix name (a button) — what doctor and status print
   local fs bl
   fs="$(root_fs)"; bl="$(bootloader)"
   if [ "$fs" != btrfs ]; then
-    printf 'warn\tThis disk (%s) cannot take system snapshots — updates cannot be undone from the boot menu\tOnly a reinstall with btrfs adds this; updates still run with every other safety check\n' "${fs:-unknown}"
+    printf 'warn\tThis disk (%s) cannot take system snapshots — updates cannot be undone from the boot menu\tOnly a reinstall with btrfs adds this; updates still run with every other safety check\t\n' "${fs:-unknown}"
     return
   fi
   if ! command -v snapper >/dev/null; then
-    printf 'bad\tSnapshots are possible but snapper is not installed\tsudo pacman -S snapper snap-pac cachyos-snapper-support\n'; return
+    printf 'bad\tThis computer can keep a copy of the system before each update, but it isn'"'"'t set up\tSet up snapshots\tsnapshots\n'; return
   fi
   if [ ! -e /etc/snapper/configs/root ]; then
-    printf 'bad\tSnapper has no configuration for the system disk\tsudo snapper -c root create-config /   (CachyOS: install cachyos-snapper-support)\n'; return
+    printf 'bad\tSystem snapshots aren'"'"'t switched on for the system disk\tSet up snapshots\tsnapshots\n'; return
   fi
-  printf 'ok\tSystem snapshots are on (snapper)\t\n'
-  if pacman -Qq snap-pac >/dev/null 2>&1; then printf 'ok\tEvery package change takes a snapshot first (snap-pac)\t\n'
-  else printf 'warn\tOnly Prime'"'"'s own updates take a snapshot — manual installs do not\tsudo pacman -S snap-pac\n'; fi
+  printf 'ok\tSystem snapshots are on (snapper)\t\t\n'
+  if pacman -Qq snap-pac >/dev/null 2>&1; then printf 'ok\tEvery package change takes a snapshot first (snap-pac)\t\t\n'
+  else printf 'warn\tOnly Prime'"'"'s own updates take a snapshot — apps you install yourself do not\tSnapshot every install\tsnap-pac\n'; fi
   local last; last="$(last_prime_snapshot)"
-  [ -n "$last" ] && printf 'ok\tLast "before update" snapshot: #%s\t\n' "$last"
+  [ -n "$last" ] && printf 'ok\tLast "before update" snapshot: #%s\t\t\n' "$last"
   case "$bl" in
     limine)
       if pacman -Qq limine-snapper-sync >/dev/null 2>&1; then
-        printf 'ok\tSnapshots appear in the boot menu (Limine + limine-snapper-sync)\t\n'
+        printf 'ok\tSnapshots appear in the boot menu (Limine + limine-snapper-sync)\t\t\n'
         systemctl is-enabled limine-snapper-sync.service >/dev/null 2>&1 \
-          || printf 'warn\tThe boot-menu snapshot list is only refreshed when a snapshot is taken\tsudo systemctl enable limine-snapper-sync.service\n'
+          || printf 'warn\tThe boot menu'"'"'s list of snapshots is only refreshed when a new one is taken\tKeep the list up to date\tboot-menu\n'
       else
-        printf 'bad\tSnapshots are taken but do not appear in the boot menu\tsudo pacman -S limine-snapper-sync && sudo systemctl enable --now limine-snapper-sync.service\n'
+        printf 'bad\tSnapshots are taken but don'"'"'t appear in the boot menu, so you can'"'"'t start from one\tShow them in the boot menu\tboot-menu\n'
       fi ;;
     grub)
       if pacman -Qq grub-btrfs >/dev/null 2>&1; then
-        if systemctl is-enabled grub-btrfsd.service >/dev/null 2>&1; then printf 'ok\tSnapshots appear in the boot menu (GRUB + grub-btrfs)\t\n'
-        else printf 'bad\tgrub-btrfs is installed but not watching for new snapshots\tsudo systemctl enable --now grub-btrfsd.service\n'; fi
+        if systemctl is-enabled grub-btrfsd.service >/dev/null 2>&1; then printf 'ok\tSnapshots appear in the boot menu (GRUB + grub-btrfs)\t\t\n'
+        else printf 'bad\tNew snapshots don'"'"'t appear in the boot menu, so you can'"'"'t start from one\tShow them in the boot menu\tboot-menu\n'; fi
         grep -Eq '^[[:space:]]*HOOKS=.*grub-btrfs-overlayfs' /etc/mkinitcpio.conf /etc/mkinitcpio.conf.d/*.conf 2>/dev/null \
-          || printf 'warn\tBooting a snapshot may stop at a read-only error\tadd grub-btrfs-overlayfs to HOOKS in /etc/mkinitcpio.conf, then: sudo mkinitcpio -P\n'
+          || printf 'warn\tStarting from a snapshot may stop with a read-only error\tA one-time start-up setting fixes it — whoever helps you can add it (Get help makes a report that names it)\t\n'
       else
-        printf 'bad\tSnapshots are taken but do not appear in the boot menu\tsudo pacman -S grub-btrfs && sudo systemctl enable --now grub-btrfsd.service\n'
+        printf 'bad\tSnapshots are taken but don'"'"'t appear in the boot menu, so you can'"'"'t start from one\tShow them in the boot menu\tboot-menu\n'
       fi ;;
     systemd-boot|refind)
-      printf 'warn\tThis boot menu (%s) cannot list snapshots — undo works from the desktop instead\tsudo pacman -S btrfs-assistant   (Snapper tab → Restore)\n' "$bl" ;;
-    *) printf 'warn\tCould not tell which boot menu this computer uses\t\n' ;;
+      printf 'warn\tThis boot menu (%s) can'"'"'t list snapshots — undo works from the desktop instead\tInstall the undo app\tundo-app\n' "$bl" ;;
+    *) printf 'warn\tCould not tell which boot menu this computer uses\t\t\n' ;;
   esac
 }
 
@@ -406,7 +406,7 @@ apply_update() { # apply_update <mode manual|nightly> [extra packages…]
   local fg bf; fg="$(free_gb)"; bf="$(boot_free_mb)"
   if [ "${fg:-0}" -lt "$MIN_FREE_GB" ]; then
     R_STATUS=skipped; R_SUMMARY="Only ${fg} GB of disk space is free (an update needs ${MIN_FREE_GB} GB), so nothing was changed."
-    bad "$R_SUMMARY"; dim "free some space (Downloads, Trash, old games), then try again — or: sudo paccache -rk1"; return 2
+    bad "$R_SUMMARY"; dim "free some space (Downloads, Trash, old games — Settings → Storage shows what's big), then try again"; return 2
   fi
   if [ -n "$bf" ] && [ "$bf" -lt 120 ]; then
     R_STATUS=skipped; R_SUMMARY="The boot partition is almost full (${bf} MB free) — a new kernel might not fit, so nothing was changed."
@@ -453,7 +453,7 @@ apply_update() { # apply_update <mode manual|nightly> [extra packages…]
       if R_SNAP="$(take_snapshot)"; then ok "snapshot #$R_SNAP — the system as it is now, before the update"
       else
         R_STATUS=failed; R_SUMMARY="Couldn't take a safety snapshot, so the update was not installed."
-        bad "$R_SUMMARY"; dim "check: sudo snapper -c root list"; return 1
+        bad "$R_SUMMARY"; dim "nothing was changed; Settings → Updates → System snapshots shows the saved states"; return 1
       fi
     elif [ "$SNAPSHOTS" = require ]; then
       R_STATUS=skipped; R_SUMMARY="Snapshots are required but this computer can't take one, so nothing was changed."
@@ -499,7 +499,7 @@ apply_update() { # apply_update <mode manual|nightly> [extra packages…]
 health_after() { # health_after <failed units before> <stamp file>
   local before="$1" stamp="$2" newfail k pb img
   if pacman -Dk >/dev/null 2>&1; then ok "package database is consistent"
-  else bad "package database has problems"; R_PROBLEMS+=("package database inconsistent (pacman -Dk)"); fi
+  else bad "package database has problems"; R_PROBLEMS+=("the list of installed apps has errors — Get help makes a report for whoever helps you"); fi
 
   # will it start? every installed kernel needs its kernel and startup image
   local kernels_ok=1
@@ -534,7 +534,7 @@ health_after() { # health_after <failed units before> <stamp file>
 
   R_PACNEW="$(find /etc -name '*.pacnew' -newer "$stamp" 2>/dev/null | wc -l | tr -d ' ')"
   [ "$R_PACNEW" -gt 0 ] && warn "$R_PACNEW settings file(s) have a newer version to look at (*.pacnew) — not urgent" \
-    && dim "your settings were kept; compare when convenient: sudo DIFFPROG=meld pacdiff"
+    && dim "your settings were kept — not urgent; whoever helps you can compare them when convenient"
 
   # restart needed? a new kernel, or core pieces that are only loaded at start-up
   local changed kernels
@@ -835,7 +835,7 @@ PY
     say "  last result:  $(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d["status"], "—", d["summary"] or "%d update(s)" % d["updates"])' "$STATE/last-run.json" 2>/dev/null)"
   fi
   systemctl is-enabled prime-system-update.timer >/dev/null 2>&1 && ok "nightly service is on" \
-    || { [ "$POLICY" = off ] && dim "nightly service is off" || warn "nightly service is not enabled (sudo systemctl enable --now prime-system-update.timer)"; }
+    || { [ "$POLICY" = off ] && dim "nightly service is off" || warn "nightly updates aren't switched on — Settings → Updates → Install updates turns them on"; }
 }
 
 cmd_gates() {
@@ -860,10 +860,10 @@ cmd_check() {
 cmd_snapshots() {
   if [ "${1:-}" = --tsv ]; then snapshots_tsv; return; fi
   step "Can an update be undone?"
-  local lvl msg fix
-  while IFS=$'\t' read -r lvl msg fix; do
+  local lvl msg fix id
+  while IFS=$'\t' read -r lvl msg fix id; do
     case "$lvl" in ok) ok "$msg" ;; warn) warn "$msg" ;; *) bad "$msg" ;; esac
-    [ -n "$fix" ] && dim "fix: $fix"
+    [ -n "$fix" ] && dim "${id:+the button: }$fix${id:+ (the health check, Super+H)}"
   done < <(snapshots_tsv)
 }
 
@@ -876,7 +876,7 @@ cmd_undo() {
     say "  You are running from a snapshot right now — the computer as it was before an update."
     say "  If everything works, make it permanent:"
     case "$bl" in
-      limine) say "    open a terminal and run:  ${Bo}sudo limine-snapper-restore${N}   and follow the questions" ;;
+      limine) say "    Settings → Updates → ${Bo}Undo the last update${N} → ${Bo}Keep this version${N}" ;;
       *)      say "    open ${Bo}Btrfs Assistant${N} → Snapper → pick the same snapshot → Restore, then restart" ;;
     esac
     say "  If you changed your mind, just restart and pick the normal entry at the top of the boot menu."
@@ -885,7 +885,7 @@ cmd_undo() {
   if [ "$(root_fs)" != btrfs ] || ! has_snapper_root; then
     say "  This computer can't take system snapshots, so an update can't be undone with one click."
     say "  Your files are never touched by updates. Desktop settings can be put back from:"
-    say "    Settings → About & Help → Restore desktop settings"
+    say "    Settings → Troubleshooting → Restore desktop settings"
     return 0
   fi
   say "  Your files (Documents, Pictures, …) are never touched by this — only the system."
@@ -896,8 +896,7 @@ cmd_undo() {
       say "  1. Restart the computer."
       say "  2. In the boot menu, open ${Bo}Snapshots${N} and pick the one marked ${Bo}Prime: before update${N}${snap:+ (#$snap)}."
       say "  3. The computer starts as it was before the update. Check that it works."
-      say "  4. To keep it that way: Settings → Updates → Undo the last update again (it will offer to make it permanent),"
-      say "     or run:  sudo limine-snapper-restore" ;;
+      say "  4. To keep it that way: Settings → Updates → Undo the last update again — it offers to make it permanent." ;;
     grub)
       say "  1. Restart the computer."
       say "  2. In the boot menu, choose ${Bo}snapshots${N} and pick the one marked ${Bo}Prime: before update${N}${snap:+ (#$snap)}."
@@ -905,7 +904,7 @@ cmd_undo() {
       say "  4. To keep it that way: open Btrfs Assistant → Snapper → select that snapshot → Restore → restart." ;;
     *)
       say "  This computer's boot menu can't start snapshots, so undo works from the desktop:"
-      say "  1. Open ${Bo}Btrfs Assistant${N} (install it with: sudo pacman -S btrfs-assistant)."
+      say "  1. Open ${Bo}Btrfs Assistant${N} (if it isn't installed: the health check, Super+H, has a button for it)."
       say "  2. Snapper tab → select ${Bo}Prime: before update${N}${snap:+ (#$snap)} → Restore."
       say "  3. Restart the computer." ;;
   esac

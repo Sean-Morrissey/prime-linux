@@ -1,5 +1,10 @@
 # Prime Linux — full review, October 2026
 
+> **Dated note (2 October 2026):** this review describes the project before the 2 October
+> rounds; its scores are not the current state. The newer review and what was done about it:
+> [REVIEW-2026-10-02.md](REVIEW-2026-10-02.md).
+
+
 **Date:** 2026-10-02, revised same day after #19/#20/#21 merged and a further
 pass closed F5 and F7 · **Base:** `main` @ `00a94df` initially, re-verified
 against each PR's branch as it was built · **Scope:** the whole repository, as a

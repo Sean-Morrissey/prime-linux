@@ -66,8 +66,18 @@ if [ -n "$GUI" ]; then
     fi
 else
     echo "  SKIP  no display and no xvfb-run — the GTK windows weren't built"
+    [ "${PRIME_REQUIRE_GUI:-0}" = 1 ] && { echo "  FAIL  PRIME_REQUIRE_GUI=1 but the GTK windows couldn't be built"; fail=$((fail+1)); }
 fi
 
+# the bar stays quiet when nothing changes: nothing but the clock checks more often than every
+# 2 seconds, and nothing runs its program twice per check (exec + an exec-if of the same)
+ck "the bar doesn't wake the computer every second"  "python3 - $L/default/waybar/config.jsonc <<'PY'
+import json, re, sys
+cfg = json.loads(re.sub(r'(?m)^\\s*//.*\$', '', open(sys.argv[1]).read()))
+bad = [k for k, v in cfg.items() if isinstance(v, dict) and k != 'clock' and isinstance(v.get('interval'), (int, float)) and v['interval'] < 2]
+bad += [k for k, v in cfg.items() if isinstance(v, dict) and v.get('exec') and v.get('exec-if', '').startswith(v['exec'])]
+assert not bad, bad
+PY"
 # clicking the clock opens a calendar: the Calendar app once installed, a month view until then
 mkdir -p "$T/calbin"; printf '#!/bin/sh\nexit 0\n' > "$T/calbin/gnome-calendar"; chmod +x "$T/calbin/gnome-calendar"
 ck "clock click opens the Calendar app"            "grep -q '\"on-click\": \"~/.local/share/prime-linux/layer/bin/prime-calendar\"' $L/default/waybar/config.jsonc && [ \"\$(PATH=$T/calbin:\$PATH $L/bin/prime-calendar --which)\" = app ]"

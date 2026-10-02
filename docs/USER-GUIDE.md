@@ -36,65 +36,13 @@ select it, copy it, paste it into the terminal with **Ctrl+Shift+V** (or
 right-click → Paste) and press **Enter**. When the terminal asks for your
 password, type it and press Enter. Nothing appears while you type: that's normal.
 
-Ask the person who gave you Prime Linux which of these two applies.
-
-### If the project is private (you were invited on GitHub)
-
-You need a free GitHub account, and an invitation from the owner.
-
-1. **Accept the invitation.** Open the email from GitHub that says you were
-   invited to collaborate on *Sean-Morrissey/prime-linux* and click
-   **View invitation**, then **Accept invitation**. (No email? Sign in at
-   <https://github.com/notifications>.)
-2. **Install GitHub's sign-in tool:**
-
-   ```
-   sudo pacman -Syu --needed --noconfirm github-cli git
-   ```
-
-3. **Sign this computer in to GitHub:**
-
-   ```
-   gh auth login
-   ```
-
-   It asks four questions. Move with the arrow keys, press Enter to choose:
-
-   | Question | Choose |
-   |---|---|
-   | Where do you use GitHub? | **GitHub.com** |
-   | Preferred protocol for Git operations? | **HTTPS** |
-   | Authenticate Git with your GitHub credentials? | **Yes** |
-   | How would you like to authenticate? | **Login with a web browser** |
-
-   It shows a code like `ABCD-1234`. Press Enter: a browser opens. Sign in to
-   GitHub, type the code, click **Authorize**. Back in the terminal it says
-   **Logged in as …**.
-4. **Download Prime Linux:**
-
-   ```
-   gh repo clone Sean-Morrissey/prime-linux ~/prime-linux
-   ```
-
-5. **Install it:**
-
-   ```
-   bash ~/prime-linux/install.sh
-   ```
-
-If step 5 stops half-way, paste the step 5 line again: it carries on from where
-it stopped. Updates later use the same GitHub sign-in, so don't sign out
-(`gh auth logout`) on this computer.
-
-### If the project is public
-
 Paste this one line:
 
 ```
 curl -fsSL https://raw.githubusercontent.com/sean-morrissey/prime-linux/main/boot.sh | bash
 ```
 
-If it stops half-way, paste the same line again.
+If it stops half-way, paste the same line again: it carries on from where it stopped.
 
 ### While it installs
 
@@ -104,9 +52,8 @@ downloading. When it says **Prime Linux is installed**, you're done.
 If something goes wrong, the message says what to do (usually "connect to the
 internet and run it again"). A full log is kept in `~/.local/state/prime/logs/`.
 
-Want to see what it will do first? Add `--dry-run`: `bash ~/prime-linux/install.sh --dry-run`
-(private) or `curl -fsSL …/boot.sh | bash -s -- --dry-run` (public). It shows every
-step and changes nothing.
+Want to see what it will do first? Add `--dry-run`:
+`curl -fsSL …/boot.sh | bash -s -- --dry-run`. It shows every step and changes nothing.
 
 **Already had your own Hyprland setup?** At the end the installer offers to bring
 your shortcuts, screens, bar items and background services along as your own
@@ -252,12 +199,11 @@ Settings → Appearance → **Edit the window & keyboard settings file** opens t
 
 ## 7. Removing Prime
 
-Open a terminal (Super+Enter) and type `prime-uninstall`. (In another desktop's
-terminal, such as KDE's Konsole, type `~/.local/share/prime-linux/layer/bin/prime-uninstall`.)
-Your old settings, theme and
-services come back; Prime's settings are kept in `~/.config-backups` in case you
-return. `prime-uninstall --packages` also removes the programs Prime added.
-On the login screen, choose your previous desktop again.
+Settings → **Troubleshooting** → **Remove Prime from this computer**. It asks first, and
+lets you keep or remove the apps Prime installed. Your old settings, theme and services
+come back; your files are never touched, and Prime's settings are kept in
+`~/.config-backups` in case you return. Then log out and choose your previous desktop on
+the login screen.
 
 ## Help
 

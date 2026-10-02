@@ -108,11 +108,15 @@ if pull_err="$(GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=/bin/false SSH_ASKPASS=/bin/fal
         else ok "updated"; git -C "$REPO" log --format='%s' "$before..$after" | head -8 | sed 's/^/      · /'; fi
     fi
 elif grep -qiE 'username|authentication|could not read|403|repository not found|permission denied' <<<"$pull_err"; then
-    warn "couldn't update Prime Linux itself: GitHub didn't let this computer in (the repository is private)."
-    warn "Sign in once in a terminal with:  gh auth login   — then run Update everything again. Carrying on."
+    warn "couldn't update Prime Linux itself: GitHub didn't let this computer in. Carrying on with the rest."
+    warn "If this keeps happening, Get help (Settings → About & Help) makes a report for whoever helps you."
 else
     warn "couldn't update Prime Linux itself (offline, or files in $REPO were edited) — carrying on"
 fi
+# say it when Prime itself isn't signature-checked (a test channel such as main)
+case "${verdict:-}" in
+    "not checked: the "*) note "This computer follows Prime's test channel ($(git -C "$REPO" symbolic-ref --short -q HEAD || echo detached)), so Prime's own updates aren't checked for a signature." ;;
+esac
 
 if [ "$ONLY_PRIME" = 0 ]; then
   # ── 2. ready? ──────────────────────────────────────────────────────────────
@@ -133,7 +137,7 @@ if [ "$ONLY_PRIME" = 0 ]; then
   free="$(df -BG --output=avail / | tail -1 | tr -dc 0-9)"
   [ "${free:-0}" -ge 3 ] || stop "The disk is almost full (${free} GB free)." \
       "Empty the Trash and Downloads, or remove old game installs, then try again." \
-      "To clear old downloaded updates as well:  sudo paccache -rk1" "Nothing was changed."
+      "Settings → Storage shows what takes the most room." "Nothing was changed."
   ok "${free} GB free on the disk"
   note "Prime needs your password once, to change the system."
   sudo -v || stop "The password wasn't accepted." "Nothing was changed. Try again, or ask whoever set up this computer."
@@ -164,8 +168,8 @@ if [ "$ONLY_PRIME" = 0 ]; then
     broken)    stop "The system update stopped part-way." \
                     "Your computer still works. Please don't restart it yet." \
                     "Run Update everything once more — it usually finishes the job." \
-                    "If that doesn't help:  prime-update --undo  shows the safe way back to before the update." ;;
-    *)         stop "The updater stopped unexpectedly." "Nothing should have changed. Details: sudo journalctl -n 50" ;;
+                    "If that doesn't help: Settings → Updates → Undo the last update shows the safe way back." ;;
+    *)         stop "The updater stopped unexpectedly." "Nothing should have changed. Get help (Settings → About & Help) makes a report with the details." ;;
   esac
 
   # the login screen offers "Prime" (the install script leaves it saying Hyprland)

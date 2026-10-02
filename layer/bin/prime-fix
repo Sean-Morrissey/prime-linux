@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+# prime-fix <what> — the button behind a "Needs you" line in the health check and in
+# Settings → Privacy & Security. Each one is a fixed, known repair: nothing typed,
+# nothing taken from the line that asked for it. Those that need administrator
+# rights ask for the password in a Prime window, and use the root-owned copy of
+# prime-security (never the one in your home folder).
+#
+#   prime-fix firewall        turn the firewall on (and Prime's other protections)
+#   prime-fix ssh-off         switch remote sign-in (SSH) off
+#   prime-fix ssh-lan         allow remote sign-in from your home network only
+#   prime-fix snapshots       set up system snapshots (so an update can be undone)
+#   prime-fix snap-pac        take a snapshot before every install, not just Prime's
+#   prime-fix boot-menu       list snapshots in the boot menu
+#   prime-fix undo-app        install the app that restores a snapshot from the desktop
+#   prime-fix permissions     make Prime's private files private again
+#   prime-fix idle            start the screen lock timer again
+#   prime-fix power-modes     turn on power modes (Battery saver / Performance)
+#   prime-fix --list          the names above (tests)
+set -u
+BIN="$(dirname "$(readlink -f "$0")")"
+SEC=/usr/local/lib/prime-linux/prime-security
+[ -x "$SEC" ] || SEC="$BIN/prime-security"
+FIXES="firewall ssh-off ssh-lan snapshots snap-pac boot-menu undo-app permissions idle power-modes"
+
+# run <window title> <command…> — inside a Prime window (it carries the password dialog)
+run() {
+    local title="$1"; shift
+    if [ -n "${PRIME_FIX_DRY:-}" ]; then echo "RUN [$title] $*"; return 0; fi
+    if [ -n "${PRIME_PANEL:-}" ]; then "$@"; return; fi
+    exec "$BIN/prime-panel" --title "$title" -- "$@"
+}
+root() { run "$1" sudo -A "${@:2}"; }
+boot_menu() {
+    if pacman -Qq limine >/dev/null 2>&1; then echo limine
+    elif pacman -Qq grub >/dev/null 2>&1; then echo grub
+    fi
+}
+
+case "${1:-}" in
+    firewall)    root "Turning the firewall on" "$SEC" apply ;;
+    ssh-off)     root "Switching remote sign-in off" "$SEC" ssh off ;;
+    ssh-lan)     root "Remote sign-in: home network only" "$SEC" ssh on ;;
+    snapshots)   root "Setting up system snapshots" bash -c '
+                     pacman -S --needed --noconfirm snapper snap-pac \
+                       && { pacman -S --needed --noconfirm cachyos-snapper-support 2>/dev/null || true; } \
+                       && { [ -e /etc/snapper/configs/root ] || snapper -c root create-config /; } \
+                       && echo "@ok System snapshots are on — an update can be undone"' ;;
+    snap-pac)    root "Snapshots before every install" pacman -S --needed --noconfirm snap-pac ;;
+    boot-menu)   case "$(boot_menu)" in
+                     limine) root "Snapshots in the boot menu" bash -c 'pacman -S --needed --noconfirm limine-snapper-sync && systemctl enable --now limine-snapper-sync.service' ;;
+                     grub)   root "Snapshots in the boot menu" bash -c 'pacman -S --needed --noconfirm grub-btrfs && systemctl enable --now grub-btrfsd.service' ;;
+                     *)      echo "This computer's boot menu can't list snapshots — undo works from the desktop instead." >&2; exit 1 ;;
+                 esac ;;
+    undo-app)    root "Installing the undo app" pacman -S --needed --noconfirm btrfs-assistant ;;
+    permissions) run "Making private files private" "$BIN/prime-security" fix-permissions ;;
+    idle)        run "Starting the screen lock again" "$BIN/prime-idle" --restart ;;
+    power-modes) root "Turning power modes on" systemctl enable --now power-profiles-daemon.service ;;
+    --list)      tr ' ' '\n' <<<"$FIXES" ;;
+    *)           sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
+esac

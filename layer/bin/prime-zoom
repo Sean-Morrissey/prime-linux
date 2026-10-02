@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# prime-zoom in|out|reset — magnify the screen around the pointer (Super+Alt+= / - / 0,
+# or Settings → Accessibility). Steps of half again, up to 5×; reset is normal size.
+set -u
+cur="$(hyprctl getoption cursor:zoom_factor -j 2>/dev/null | jq -r '.float // 1' 2>/dev/null)"
+cur="${cur:-1}"
+case "${1:-}" in
+    in)    new="$(awk -v c="$cur" 'BEGIN{n=c+0.5; if (n>5) n=5; print n}')" ;;
+    out)   new="$(awk -v c="$cur" 'BEGIN{n=c-0.5; if (n<1) n=1; print n}')" ;;
+    reset) new=1 ;;
+    *)     echo "usage: prime-zoom in|out|reset" >&2; exit 2 ;;
+esac
+hyprctl keyword cursor:zoom_factor "$new" >/dev/null

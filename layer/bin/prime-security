@@ -25,15 +25,17 @@ LAN6=(fe80::/10 fd00::/8)
 if [ -t 1 ]; then G=$'\e[32m'; Y=$'\e[33m'; Rd=$'\e[31m'; D=$'\e[2m'; Bo=$'\e[1m'; N=$'\e[0m'
 else G=; Y=; Rd=; D=; Bo=; N=; fi
 TSV=0; problems=0; warnings=0
-row() { # row <ok|warn|bad|info> <text> [fix]
-  if [ $TSV = 1 ]; then printf '%s\t%s\t%s\n' "$1" "$2" "${3:-}"; return; fi
+row() { # row <ok|warn|bad|info> <text> [what to do, in words] [prime-fix name: a button that does it]
+  if [ $TSV = 1 ]; then printf '%s\t%s\t%s\t%s\n' "$1" "$2" "${3:-}" "${4:-}"; return; fi
   # in a Prime window (Settings → Privacy & Security) every line is a row
   # with a word badge; plain text would all end up folded under "Details"
   if [ -n "${PRIME_PANEL:-}" ]; then
     case "$1" in
       ok)   echo "@ok $2" ;;
-      warn) echo "@note $2${3:+ — $3}"; warnings=$((warnings+1)); return ;;
-      bad)  echo "@bad $2${3:+ — $3}"; problems=$((problems+1)); return ;;
+      warn) echo "@note $2${3:+ — $3}"; warnings=$((warnings+1))
+            [ -n "${4:-}" ] && printf '@action %s\t%s\n' "$3" "$(dirname "$(readlink -f "$0")")/prime-fix $4"; return 0 ;;
+      bad)  echo "@bad $2${3:+ — $3}"; problems=$((problems+1))
+            [ -n "${4:-}" ] && printf '@action %s\t%s\n' "$3" "$(dirname "$(readlink -f "$0")")/prime-fix $4"; return 0 ;;
       *)    echo "@note $2" ;;
     esac
     [ -n "${3:-}" ] && echo "@note $3"
@@ -64,11 +66,11 @@ firewall_status() {
     row ok "Firewall is on (firewalld)"; return
   fi
   if ! command -v ufw >/dev/null 2>&1 && [ ! -e "$UFW_DIR/ufw.conf" ]; then
-    row bad "No firewall is installed" "sudo prime-security apply"; return
+    row bad "No firewall is installed" "Turn the firewall on" firewall; return
   fi
-  if ! ufw_enabled; then row bad "The firewall is off — other computers on the network can reach any service you run" "sudo prime-security apply"; return; fi
+  if ! ufw_enabled; then row bad "The firewall is off — other computers on the network can reach any service you run" "Turn the firewall on" firewall; return; fi
   local pol; pol="$(sed -n 's/^DEFAULT_INPUT_POLICY="\{0,1\}\([A-Z]*\).*/\1/p' /etc/default/ufw 2>/dev/null)"
-  if [ "${pol:-DROP}" = ACCEPT ]; then row bad "The firewall is on but lets everything in" "sudo prime-security apply"; return; fi
+  if [ "${pol:-DROP}" = ACCEPT ]; then row bad "The firewall is on but lets everything in" "Turn the firewall on" firewall; return; fi
   row ok "Firewall is on — nothing can connect in unless you allow it"
   local port proto src open=() lan=0
   while read -r port proto src; do
@@ -78,7 +80,7 @@ firewall_status() {
   [ "$lan" -gt 0 ] && row info "$lan rule(s) let devices on your home network in (printers, casting, Steam…)"
   if [ ${#open[@]} -gt 0 ]; then
     row warn "Open to every network, not just yours: $(printf '%s\n' "${open[@]}" | sort -u | tr '\n' ' ')" \
-      "if you don't know why, remove them: sudo ufw status numbered, then: sudo ufw delete <number>"
+      "If you didn't open these on purpose (a game server, a shared folder), ask whoever helps you — Get help makes a report that lists them"
   fi
 }
 
@@ -166,13 +168,13 @@ ssh_status() {
   if ! ssh_on; then row ok "Remote login (SSH) is off"; return; fi
   local everyone=0 pw; ssh_everyone && everyone=1; pw="$(ssh_passwords)"
   if [ $everyone = 1 ] && [ "$pw" = yes ]; then
-    row bad "Remote login (SSH) is on, open to every network, and accepts passwords" "turn it off: sudo prime-security ssh off   (or limit it to your network: sudo prime-security ssh on)"
+    row bad "Other computers on any network can sign in to this one with a password (remote sign-in is on)" "Switch remote sign-in off" ssh-off
   elif [ $everyone = 1 ]; then
-    row warn "Remote login (SSH) is on and open to every network (keys only)" "limit it to your home network: sudo prime-security ssh on"
+    row warn "Remote sign-in is on and open to every network (with keys only)" "Home network only" ssh-lan
   elif [ "$pw" = yes ]; then
-    row warn "Remote login (SSH) is on and accepts passwords (your home network only)" "if you don't use it: sudo prime-security ssh off"
+    row warn "Remote sign-in is on and accepts passwords (your home network only)" "Switch remote sign-in off" ssh-off
   else
-    row warn "Remote login (SSH) is on (your home network only, keys only)" "if you don't use it: sudo prime-security ssh off"
+    row warn "Remote sign-in is on (your home network only, keys only)" "Switch remote sign-in off" ssh-off
   fi
 }
 # ufw rules that let anyone reach port 22, as "ufw delete" arguments
@@ -238,7 +240,7 @@ aur_list() { pacman -Qmq 2>/dev/null | grep -vE -- '-debug$' || true; }
 aur_status() {
   local n; n="$(aur_list | grep -c . || true)"
   if [ "${n:-0}" = 0 ]; then row ok "Every app comes from the checked CachyOS/Arch repositories or Flathub"
-  else row warn "$n app(s) came from the AUR — written by volunteers, not checked by anyone" "see which: prime-security aur"; fi
+  else row warn "$n app(s) came from the AUR — written by volunteers, not checked by anyone" "Full security check lists them"; fi
 }
 
 kernel_status() {
@@ -252,12 +254,12 @@ kernel_status() {
   done
   v="$(sysctl -n dev.tty.legacy_tiocsti 2>/dev/null)"; [ "${v:-0}" = 1 ] && weak+=(dev.tty.legacy_tiocsti)
   if [ ${#weak[@]} -eq 0 ]; then row ok "System protections are on (kernel and network settings)"
-  else row warn "Weaker than Prime's defaults: ${weak[*]}" "sudo prime-security apply"; fi
+  else row warn "Some of Prime's protections are weaker than they should be (${#weak[@]} setting(s))" "Put Prime's protections back" firewall; fi
 }
 
 lock_status() {
   if pgrep -u "$(id -u)" -x hypridle >/dev/null 2>&1; then row ok "Screen locks itself when you step away"
-  elif [ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]; then row warn "The screen doesn't lock itself (hypridle isn't running)" "log out and back in, or: prime-doctor"
+  elif [ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]; then row warn "The screen doesn't lock itself when you step away" "Start the screen lock again" idle
   fi
 }
 
@@ -270,7 +272,7 @@ perm_status() {
     [ -d "$f" ] && [ ! -L "$f" ] || continue; m="$(stat -c %a "$f")"; [ "${m: -1}" = 0 ] || bad_+=("${f/#$HOME/\~} ($m)")
   done
   if [ ${#bad_[@]} -eq 0 ]; then row ok "Prime's private files are readable only by you"
-  else row warn "Readable by other accounts on this computer: ${bad_[*]}" "prime-security fix-permissions"; fi
+  else row warn "Other accounts on this computer can read some of Prime's private files" "Make them private" permissions; fi
 }
 
 fix_permissions() {
@@ -294,7 +296,7 @@ disk_status() {
 
 sig_status() {
   if grep -Eq '^\s*SigLevel\s*=.*(Never|TrustAll)' /etc/pacman.conf 2>/dev/null; then
-    row bad "Checking that updates really come from CachyOS is switched off (package settings file)" "set SigLevel = Required DatabaseOptional"
+    row bad "Checking that updates really come from CachyOS is switched off" "Someone changed this by hand — ask whoever helps you; Get help makes a report that names it"
   else row ok "Every package is checked for a valid signature before it is installed"; fi
 }
 
@@ -328,8 +330,8 @@ apply() {
   if ! ssh_on; then echo "  remote login (SSH) is off"
   elif [ "$(ssh_passwords)" = yes ]; then
     echo "  ! remote login (SSH) is on and accepts passwords. If you don't log in to this computer"
-    echo "    from another one, turn it off: sudo prime-security ssh off"
-  else echo "  remote login (SSH) is on, keys only — left as it is (turn off with: sudo prime-security ssh off)"; fi
+    echo "    from another one, switch it off: Settings → Privacy & Security"
+  else echo "  remote login (SSH) is on, keys only — left as it is (Settings → Privacy & Security switches it off)"; fi
   return 0
 }
 

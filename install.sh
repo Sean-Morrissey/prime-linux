@@ -125,7 +125,7 @@ online=1
 curl -fsS --max-time 8 -o /dev/null https://cachyos.org 2>/dev/null \
   || curl -fsS --max-time 8 -o /dev/null https://archlinux.org 2>/dev/null || online=0
 if [ $online = 1 ]; then ok "Internet: connected"
-elif [ ${#missing[@]} -gt 0 ]; then die "No internet connection — Prime needs to download ${#missing[@]} packages. Connect (Wi-Fi: run 'nmtui') and run this again."
+elif [ ${#missing[@]} -gt 0 ]; then die "No internet connection — Prime needs to download ${#missing[@]} packages. This computer isn't online yet: connect to Wi-Fi from the network icon near the clock, then run this again."
 else warn "No internet — carrying on (everything needed is installed; window title bars will wait)"; fi
 
 if [ ${#missing[@]} -gt 0 ] || [ $DRY = 0 ]; then

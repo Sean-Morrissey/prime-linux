@@ -1,4 +1,8 @@
 [Unit]
+# a part that keeps crashing stops after 10 tries in 2 minutes, and says so (prime-failed)
+StartLimitIntervalSec=120
+StartLimitBurst=10
+OnFailure=prime-failed@%p.service
 Description=Keep copied text after the app it came from closes
 PartOf=prime-session.target
 

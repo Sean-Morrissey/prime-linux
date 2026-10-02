@@ -50,7 +50,7 @@ main() {
             tries=$((tries+1)); rm -rf "$dest"
             if [ $tries -ge 3 ]; then
                 echo "Couldn't download Prime Linux from $repo" >&2
-                echo "  · no internet? connect (Wi-Fi: nmtui) and try again" >&2
+                echo "  · not online yet? connect to Wi-Fi from the network icon near the clock, then try again" >&2
                 echo "  · private repo? see the comment at the top of boot.sh" >&2
                 exit 1
             fi

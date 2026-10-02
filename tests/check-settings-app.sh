@@ -197,5 +197,7 @@ if "$PY" -c "import gi; gi.require_version('Gtk','4.0'); gi.require_version('Adw
     grep -q '^0 failure' "$T/st" || grep -E 'FAIL|Error|Traceback' "$T/st" | head -20
 else
     echo "  SKIP  page build (no GTK 4 / libadwaita / Xvfb here)"
+    # CI sets PRIME_REQUIRE_GUI=1: there a skip would hide that no page was built
+    [ "${PRIME_REQUIRE_GUI:-0}" = 1 ] && { echo "  FAIL  PRIME_REQUIRE_GUI=1 but the pages couldn't be built"; fail=$((fail+1)); }
 fi
 echo; [ $fail = 0 ] && echo "ALL PASSED" || echo "$fail FAILED"; exit $fail

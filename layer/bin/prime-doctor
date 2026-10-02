@@ -113,18 +113,21 @@ if [ $in_session = 1 ]; then
         fixd "Tray icons were going to another app — handed them back to the bar"
     fi
 
-    # 5 — window title bars (built for each version of the window manager)
-    if hyprctl plugin list 2>/dev/null | grep -q hyprbars; then ok "Window title bars loaded"
+    # 5 — window title bars (built for each version of the window manager); prime-titlebars
+    # builds them, one build at a time, so a login build and this check never collide
+    if [ "$(jq -r '.settings.titlebars // "on"' "$HOME/.config/prime/settings.json" 2>/dev/null)" = off ]; then
+        ok "Window title bars are off (Settings → Windows & Workspaces)"
+    elif hyprctl plugin list 2>/dev/null | grep -q hyprbars; then ok "Window title bars loaded"
     else
         hyprpm reload -n >>"$LOG" 2>&1
         if hyprctl plugin list 2>/dev/null | grep -q hyprbars; then fixd "Window title bars were off — turned them on"
         elif [ $QUIET = 1 ]; then
             # the window manager was updated overnight: rebuild for the new version in the background
-            setsid -f sh -c 'hyprpm update -s && hyprpm reload -n' >>"$LOG" 2>&1 </dev/null
+            setsid -f "$BIN/prime-titlebars" --rebuild >/dev/null 2>&1 </dev/null
             fixd "Window title bars are being rebuilt for the updated window manager (about a minute)"
         else
             say step "Rebuilding the window title bars for this version (about a minute)"
-            if hyprpm update -s >>"$LOG" 2>&1 && hyprpm reload -n >>"$LOG" 2>&1 && hyprctl plugin list 2>/dev/null | grep -q hyprbars; then
+            if "$BIN/prime-titlebars" --rebuild >/dev/null 2>&1 && hyprctl plugin list 2>/dev/null | grep -q hyprbars; then
                 fixd "Window title bars rebuilt"
             else bad "Window title bars need rebuilding after an update (needs the internet) — Update everything does it"; need_update=1; fi
         fi
@@ -135,8 +138,14 @@ if [ $in_session = 1 ]; then
     if [ -z "$errs" ]; then ok "Window settings: no mistakes"
     else
         echo "window settings: $errs" >>"$LOG"
-        bad "Your window settings have a mistake — Restore desktop settings goes back to a copy that worked"
-        need_restore=1
+        if grep -q "/prime-linux/layer/" <<<"$errs"; then
+            # Prime's own defaults, not yours: usually the window manager changed its rules in an update
+            bad "Prime's own window settings don't match the updated window manager — Update everything fixes this; Undo an update goes back"
+            need_update=1; need_undo=1
+        else
+            bad "Your window settings have a mistake — Restore desktop settings goes back to a copy that worked"
+            need_restore=1
+        fi
     fi
 
     # 7 — a second network icon (the bar already shows the network)
@@ -146,18 +155,23 @@ if [ $in_session = 1 ]; then
 fi
 
 tip()  { say tip "$1"; }   # worth knowing, never nags at login
-row()  { # row <ok|warn|bad|info> <text> [fix]  — the TSV rows prime-system-update/prime-security print
+row()  { # row <ok|warn|bad|info> <text> [what to do, in words] [prime-fix name]  — the TSV rows
+         # prime-system-update/prime-security print; a fix name becomes a button that does it
     local t="$2${3:+ — $3}"
-    # in the Prime window the fix is a note under the problem (the buttons below do the work)
-    if [ -n "${PRIME_PANEL:-}" ] && [ "$1" = bad ]; then bad "$2"; [ -n "${3:-}" ] && say note "$3"; return; fi
-    case "$1" in ok) ok "$2" ;; bad) bad "$t" ;; warn) tip "$t" ;; *) say note "$2" ;; esac
+    if [ -n "${PRIME_PANEL:-}" ] && [ "$1" = bad ]; then
+        bad "$2"
+        if [ -n "${4:-}" ]; then action "$3" "$BIN/prime-fix $4"; elif [ -n "${3:-}" ]; then say note "$3"; fi
+        return
+    fi
+    case "$1" in ok) ok "$2" ;; bad) bad "$t" ;; warn) tip "$t"; [ -n "${4:-}" ] && action "$3" "$BIN/prime-fix $4" ;; *) say note "$2" ;; esac
+    return 0
 }
 
 # 8 — the undo button for system updates: snapshots, and the boot menu that lists them
 if findmnt -no OPTIONS / 2>/dev/null | grep -q 'subvol=[^,]*\.snapshots/[0-9]'; then
     bad "This computer started from a saved state from before an update — Undo an update keeps it or goes back"; need_undo=1
 fi
-while IFS=$'\t' read -r lvl msg fix; do [ -n "$lvl" ] && row "$lvl" "$msg" "$fix"; done < <("$ENGINE" snapshots --tsv 2>/dev/null)
+while IFS=$'\t' read -r lvl msg fix id; do [ -n "$lvl" ] && row "$lvl" "$msg" "$fix" "$id"; done < <("$ENGINE" snapshots --tsv 2>/dev/null)
 
 # 8b — File History: an undo for your own files
 while IFS=$'\t' read -r lvl msg fix; do [ -n "$lvl" ] && row "$lvl" "$msg" "$fix"; done < <("$BIN/prime-file-history" status --tsv 2>/dev/null)
@@ -185,15 +199,15 @@ if [ -e /var/lib/pacman/db.lck ] && ! pgrep -x 'pacman|paru|yay|pamac|packagekit
         && { bad "An update that crashed left a lock behind — Update everything clears it safely"; need_update=1; }
 fi
 pn="$(find /etc -name '*.pacnew' 2>/dev/null | wc -l)"
-[ "$pn" -gt 0 ] && tip "$pn settings file(s) have a newer version from an update (*.pacnew) — not urgent; compare with: sudo DIFFPROG=meld pacdiff"
+[ "$pn" -gt 0 ] && tip "$pn system settings file(s) got a newer version with an update. Nothing is broken and your settings were kept — not urgent; whoever helps you can compare them"
 
 # 10 — safety: only real problems (firewall off, SSH open to everyone…); suggestions stay in prime-security
 if [ $QUIET = 1 ] && [ $INSTALLED = 1 ]; then
     "$BIN/prime-security" fix-permissions >/dev/null 2>&1          # private files stay private
     "$BIN/prime-updates-settings" --login-summary >/dev/null 2>&1  # what updated while you were away
 fi
-while IFS=$'\t' read -r lvl msg fix; do
-    [ "$lvl" = bad ] && row bad "$msg" "$fix"
+while IFS=$'\t' read -r lvl msg fix id; do
+    [ "$lvl" = bad ] && row bad "$msg" "$fix" "$id"
 done < <("$BIN/prime-security" status --tsv 2>/dev/null)
 say note "The full safety report: Settings → Privacy & Security"
 

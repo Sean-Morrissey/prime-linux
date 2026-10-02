@@ -56,9 +56,9 @@ ck "only 'prime-security ssh on' enables it"    "[ \"\$(grep -rlE 'systemctl ena
 echo "== the owner's machine: SSH on, open to every network, passwords on"
 reset; touch "$T/sshd-on" "$T/ufw-on"
 echo '### tuple ### allow tcp 22 0.0.0.0/0 any 0.0.0.0/0 in' > "$T/ufw/user.rules"
-ck "reported as a problem (bad)"                "status | grep -qP '^bad\tRemote login \(SSH\) is on, open to every network, and accepts passwords'"
+ck "reported as a problem (bad)"                "status | grep -qP '^bad\tOther computers on any network can sign in to this one with a password'"
 ck "the login check passes problems on"         "grep -qF '[ \"\$lvl\" = bad ] && row bad' $L/bin/prime-doctor"
-ck "an OpenSSH app rule counts too"             "printf '### tuple ### allow tcp 22 0.0.0.0/0 any 0.0.0.0/0 OpenSSH - in\n' > $T/ufw/user.rules && status | grep -qP '^bad\tRemote login'"
+ck "an OpenSSH app rule counts too"             "printf '### tuple ### allow tcp 22 0.0.0.0/0 any 0.0.0.0/0 OpenSSH - in\n' > $T/ufw/user.rules && status | grep -qP '^bad\tOther computers on any network'"
 echo '### tuple ### allow tcp 22 0.0.0.0/0 any 0.0.0.0/0 in' > "$T/ufw/user.rules"
 env PATH="$FB:$PATH" HOME="$T/home" PRIME_UFW_DIR="$T/ufw" PRIME_SSHD_CONFIG="$T/ssh/sshd_config" \
     PRIME_TEST_ALLOW_NONROOT=1 PRIME_SEC_ROOT="" "$L/bin/prime-security" apply > "$T/apply.out" 2>&1
@@ -67,17 +67,17 @@ ck "…and keeps SSH reachable from home"         "grep -q 'allow tcp 22 0.0.0.0
 ck "…and says so"                               "grep -q 'now your home network only' $T/apply.out"
 ck "…and warns about passwords"                 "grep -q 'accepts passwords' $T/apply.out"
 ck "…but never turns SSH off by itself"         "[ -e $T/sshd-on ]"
-ck "after apply: a warning, not a problem"      "status | grep -qP '^warn\tRemote login \(SSH\) is on and accepts passwords \(your home network only\)'"
+ck "after apply: a warning, not a problem"      "status | grep -qP '^warn\tRemote sign-in is on and accepts passwords \(your home network only\)'"
 
 echo "== no firewall at all"
 reset; touch "$T/sshd-on"
-ck "SSH with no firewall is open to everyone"   "status | grep -qP '^bad\tRemote login \(SSH\) is on, open to every network'"
+ck "SSH with no firewall is open to everyone"   "status | grep -qP '^bad\tOther computers on any network can sign in'"
 
 echo "== reading sshd's settings like sshd does (first value wins, Include first)"
 reset; touch "$T/sshd-on" "$T/ufw-on"
 echo 'PasswordAuthentication no' > "$T/ssh/sshd_config.d/10-keys.conf"
 echo 'PasswordAuthentication yes' >> "$T/ssh/sshd_config"
-ck "drop-in 'no' beats a later 'yes'"           "status | grep -qP '^warn\tRemote login \(SSH\) is on \(your home network only, keys only\)'"
+ck "drop-in 'no' beats a later 'yes'"           "status | grep -qP '^warn\tRemote sign-in is on \(your home network only, keys only\)'"
 reset; touch "$T/sshd-on" "$T/ufw-on"
 echo 'PasswordAuthentication yes' > "$T/ssh/sshd_config.d/10-pw.conf"
 echo 'PasswordAuthentication no' >> "$T/ssh/sshd_config"

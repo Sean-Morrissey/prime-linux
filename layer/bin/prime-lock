@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# prime-lock — lock the screen: the Prime screen saver first, then the password
+# screen at the first key or movement (what hypridle and the Lock buttons run).
+#
+#   prime-lock          screen saver, then password
+#   prime-lock --now    straight to the password screen (going to sleep)
+#
+# However the screen saver ends (woken, a screen plugged in, switched off, a crash),
+# the real lock is up before keyboard shortcuts come back.
+set -u
+BIN="$(dirname "$(readlink -f "$0")")"
+CONF="$BIN/../default/hypr/hyprlock.conf"
+pidof hyprlock >/dev/null && exit 0
+if [ "${1:-}" = --now ] || [ -n "${PRIME_NO_SCREENSAVER:-}" ]; then exec hyprlock -c "$CONF"; fi
+export PRIME_LOCKER="hyprlock -c '$CONF'"
+hyprctl dispatch submap prime-locked >/dev/null 2>&1      # no shortcuts behind the screen saver
+"${PRIME_SAVER:-$BIN/prime-screensaver}" --lock     # PRIME_SAVER: tests
+if ! pidof hyprlock >/dev/null; then
+    setsid hyprlock -c "$CONF" >/dev/null 2>&1 < /dev/null &
+    for _ in 1 2 3 4 5 6 7 8 9 10; do pidof hyprlock >/dev/null && break; sleep 0.1; done
+    sleep 0.4
+fi
+hyprctl dispatch submap reset >/dev/null 2>&1
+exit 0

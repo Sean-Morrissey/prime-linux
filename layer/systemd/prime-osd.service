@@ -1,0 +1,8 @@
+[Unit]
+Description=Volume and brightness popups (swayosd)
+PartOf=prime-session.target
+
+[Service]
+ExecStart=/usr/bin/swayosd-server
+Restart=on-failure
+RestartSec=2

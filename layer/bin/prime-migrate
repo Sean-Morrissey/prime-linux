@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+# prime-migrate — bring an existing install up to date with layout changes.
+#
+#   prime-migrate              run every migration this account hasn't run yet
+#   prime-migrate --pending    list them, change nothing (exit 1 if any)
+#   prime-migrate --mark-all   record every migration as done (fresh installs
+#                              already have the new layout, so nothing to run)
+#
+# A migration is layer/migrations/<unix-time>.sh: a small bash script that
+# changes one thing in an EXISTING user's files (add a line to their
+# hyprland.conf, rename a setting…). Each runs once per account, oldest first,
+# as the user (never root). Done ones are listed in ~/.config/prime/migrations.
+# If one fails, the run stops there and the rest wait for the next attempt.
+# Every migration must be safe to run twice.
+#
+# prime-update runs this after pulling a new Prime and before reloading the
+# desktop; the installer runs `--mark-all`.
+set -u
+LAYER="$(readlink -f "$(dirname "$(readlink -f "$0")")/..")"
+DIR="${PRIME_MIGRATIONS_DIR:-$LAYER/migrations}"
+DONE="$HOME/.config/prime/migrations"
+mkdir -p "$(dirname "$DONE")"; [ -f "$DONE" ] || : > "$DONE"
+
+pending() {
+    local f n
+    for f in "$DIR"/*.sh; do
+        [ -f "$f" ] || continue
+        n="$(basename "$f")"
+        grep -qxF "$n" "$DONE" || echo "$n"
+    done | sort -n
+}
+
+case "${1:-}" in
+    --pending)
+        p="$(pending)"; [ -z "$p" ] && { echo "no pending migrations"; exit 0; }
+        echo "$p"; exit 1 ;;
+    --mark-all)
+        pending >> "$DONE"; exit 0 ;;
+    "") ;;
+    *) sed -n '2,19p' "$0"; exit 2 ;;
+esac
+
+ran=0
+while read -r n; do
+    [ -n "$n" ] || continue
+    desc="$(sed -n '2s/^# *//p' "$DIR/$n")"
+    printf '    migration %s — %s\n' "${n%.sh}" "${desc:-no description}"
+    if PRIME_LAYER="$LAYER" PRIME_HOME="$(dirname "$LAYER")" bash -eu "$DIR/$n"; then
+        echo "$n" >> "$DONE"; ran=$((ran+1))
+    else
+        echo "    ! migration $n failed — it will be retried next update; the rest wait" >&2
+        exit 1
+    fi
+done < <(pending)
+[ "$ran" -gt 0 ] && echo "    $ran migration(s) applied" || echo "    nothing to migrate"
+exit 0

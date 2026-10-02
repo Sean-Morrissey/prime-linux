@@ -1,0 +1,1343 @@
+#!/usr/bin/env python3
+"""prime-settings — Prime's toolbox: the fixed list of things the assistant (and
+the Welcome app) may change on this computer. There is no "run any command"
+tool. Every change is checked against your permission file, asked about when
+needed, preceded by a desktop backup, written to the audit log, and undoable.
+
+  prime-settings list                         the tools, and what each may do now
+  prime-settings run <tool> ['{"arg": …}']    do one thing yourself (no permission check)
+  prime-settings undo                         undo the last change
+  prime-settings log [N]                      what was changed, in plain words
+  prime-settings autonomy [LEVEL]             show / set how much Prime may do on its own:
+                                                suggest (ask me first) · auto-user · auto-all
+  prime-settings status                       current settings as JSON
+
+How the assistant calls it (prime-ask does this — you don't need to):
+  prime-settings run <tool> '<json>' --actor ai [--confirm tty|gui|deny] [--untrusted WHAT]
+
+Output of `run` is one JSON object: {"ok", "status", "message", …}.
+Files: ~/.config/prime/capabilities.yaml (permissions — only you change it),
+~/.config/prime/audit.jsonl (the log), ~/.config/prime/settings.json (the
+settings Prime manages; written into a marked block of ~/.config/hypr/hyprland.conf).
+"""
+from __future__ import annotations
+
+import datetime as _dt
+import glob
+import json
+import os
+import pwd
+import re
+import shlex
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+import uuid
+
+HOME = os.path.expanduser("~")
+BIN = os.path.dirname(os.path.realpath(__file__))
+LAYER = os.path.realpath(os.path.join(BIN, ".."))
+REPO = os.path.realpath(os.path.join(LAYER, ".."))
+CFG = os.path.join(HOME, ".config/prime")
+CAPS = os.path.join(CFG, "capabilities.yaml")
+AUDIT = os.path.join(CFG, "audit.jsonl")
+STATE = os.path.join(CFG, "settings.json")
+THEME = os.path.join(CFG, "theme.conf")
+ADDONS = os.path.join(CFG, "addons")
+HYPR = os.path.join(HOME, ".config/hypr/hyprland.conf")
+BACKUPS = os.path.join(HOME, ".config-backups/desktop")
+TOOLS_FILE = os.path.join(LAYER, "default/prime-tools.json")
+LADDER_TEMPLATE = os.path.join(REPO, "templates/capability-ladder.yaml")
+WALLDIRS = [os.path.join(LAYER, "wallpapers"), os.path.join(HOME, "Pictures/Wallpapers")]
+APPDIRS = [os.path.join(d, "applications") for d in
+           os.environ.get("XDG_DATA_DIRS", "/usr/local/share:/usr/share").split(":")] + [
+    os.path.join(HOME, ".local/share/applications"),
+    "/var/lib/flatpak/exports/share/applications",
+    os.path.join(HOME, ".local/share/flatpak/exports/share/applications")]
+
+BEGIN = "# >>> Prime settings >>>"
+END = "# <<< Prime settings <<<"
+
+LEVELS = ["observe", "suggest", "approve-each", "auto"]
+PINNED_GROUPS = ("destructive", "secrets")       # always ask, whatever the file says
+AUTONOMY = {
+    "suggest":   "Ask me first — Prime suggests, you say yes or no",
+    "auto-user": "Handle the small stuff — look and settings without asking; updates and installs ask",
+    "auto-all":  "Just do it — everything without asking, except deleting/restoring and passwords",
+}
+USER_SPACE = {"settings.user", "files.write", "apps.install", "network.outbound"}
+READ_CAPS = {"system.read", "files.read", "screen.read"}
+
+COLORS = {
+    "red": "f87171", "rose": "f87171", "orange": "fb923c", "ember": "fb923c",
+    "amber": "fbbf24", "gold": "fbbf24", "yellow": "facc15", "green": "34d399",
+    "emerald": "34d399", "teal": "2dd4bf", "cyan": "22d3ee", "blue": "60a5fa",
+    "sapphire": "60a5fa", "indigo": "818cf8", "purple": "c084fc", "amethyst": "c084fc",
+    "violet": "a78bfa", "pink": "f472b6", "silver": "d4d4d8", "grey": "a1a1aa",
+    "gray": "a1a1aa", "white": "e4e4e7",
+}
+LOOKS = {   # preset -> gaps (inner), rounding
+    "standard": (6, 14), "compact": (3, 8), "sharp": (1, 0), "spacious": (10, 20),
+}
+MODS = {"super": "SUPER", "win": "SUPER", "windows": "SUPER", "meta": "SUPER", "cmd": "SUPER",
+        "logo": "SUPER", "shift": "SHIFT", "ctrl": "CTRL", "control": "CTRL", "alt": "ALT",
+        "option": "ALT"}
+NAMED_KEYS = {"space": "space", "enter": "Return", "return": "Return", "tab": "Tab",
+              "print": "Print", "printscreen": "Print", "delete": "Delete", "del": "Delete",
+              "home": "Home", "end": "End", "left": "left", "right": "right", "up": "up",
+              "down": "down", "slash": "slash", "/": "slash", "comma": "comma", ",": "comma",
+              "period": "period", ".": "period", "minus": "minus", "-": "minus",
+              "equal": "equal", "=": "equal", "backspace": "backspace", "insert": "Insert",
+              "pageup": "Prior", "pagedown": "Next", "escape": "Escape", "esc": "Escape"}
+PRIME_ACTIONS = {   # target -> (description, dispatcher+args)
+    "spotlight": ("Spotlight search", "exec, $bin/prime-spotlight"),
+    "menu": ("Prime menu", "exec, $bin/prime-menu"),
+    "shortcuts": ("Keyboard shortcuts", "exec, $bin/prime-keys"),
+    "theme": ("Change wallpaper and accent", "exec, $bin/prime-theme"),
+    "screenshot": ("Screenshot a region", "exec, $bin/prime-snip area"),
+    "ask": ("Ask Prime", "exec, $prime/addons/ai/bin/prime-ask --box"),
+    "tutor": ("Prime Tutor", "exec, $prime/addons/ai/bin/prime-ask --tutor --box"),
+    "lock": ("Lock the screen", "exec, loginctl lock-session"),
+    "terminal": ("Terminal", "exec, $terminal"),
+    "files": ("Files", "exec, $files"),
+    "browser": ("Web browser", "exec, $bin/prime-browser"),
+    "health": ("Desktop health check", "exec, $bin/prime-doctor"),
+}
+WINDOW_ACTIONS = {
+    "close": ("Close window", "killactive"),
+    "maximise": ("Maximise", "fullscreen, 1"), "maximize": ("Maximise", "fullscreen, 1"),
+    "fullscreen": ("Full screen", "fullscreen, 0"),
+    "float": ("Float / tile window", "togglefloating"),
+    "pin": ("Pin window to all workspaces", "pin"),
+    "minimise": ("Minimise window", "movetoworkspacesilent, special:minimized"),
+    "minimize": ("Minimise window", "movetoworkspacesilent, special:minimized"),
+    "next-window": ("Next window", "cyclenext"),
+}
+for _n in range(1, 11):
+    WINDOW_ACTIONS[f"workspace-{_n}"] = (f"Go to workspace {_n}", f"workspace, {_n}")
+APP_KINDS = {"browser": ("WebBrowser", ["x-scheme-handler/http", "x-scheme-handler/https", "text/html"], "web browser"),
+             "file_manager": ("FileManager", ["inode/directory"], "file manager"),
+             "text_editor": ("TextEditor", ["text/plain"], "text editor")}
+
+
+class Refuse(Exception):
+    """A plain-language reason the request can't be done as asked."""
+
+
+# ── small helpers ────────────────────────────────────────────────────────────
+def now():
+    return _dt.datetime.now().astimezone().isoformat(timespec="seconds")
+
+
+def live():
+    """Touch the running desktop only from the real session's own home — never
+    from a test or a second HOME (same rule as prime-theme)."""
+    return bool(os.environ.get("HYPRLAND_INSTANCE_SIGNATURE")) and not os.environ.get("PRIME_NO_LIVE") \
+        and HOME == pwd.getpwuid(os.getuid()).pw_dir
+
+
+def run(cmd, **kw):
+    kw.setdefault("stdout", subprocess.PIPE)
+    kw.setdefault("stderr", subprocess.PIPE)
+    kw.setdefault("text", True)
+    kw.setdefault("stdin", subprocess.DEVNULL)
+    return subprocess.run(cmd, **kw)
+
+
+def strip_ansi(s):
+    return re.sub(r"\x1b\[[0-9;]*[A-Za-z]", "", s)
+
+
+def load_tools():
+    with open(TOOLS_FILE) as f:
+        return {t["name"]: t for t in json.load(f)["tools"]}
+
+
+def read_theme():
+    t = {"WALL": os.path.join(LAYER, "wallpapers/prime-tide.jpg"), "ACCENT": "60a5fa"}
+    try:
+        for line in open(THEME):
+            if "=" in line:
+                k, v = line.rstrip("\n").split("=", 1)
+                try:
+                    v = shlex.split(v)[0] if v else ""
+                except ValueError:
+                    pass
+                t[k] = v
+    except OSError:
+        pass
+    return t
+
+
+def load_state():
+    try:
+        with open(STATE) as f:
+            s = json.load(f)
+    except (OSError, ValueError):
+        s = {}
+    s.setdefault("settings", {})
+    s.setdefault("shortcuts", [])
+    return s
+
+
+def save_state(s):
+    os.makedirs(CFG, exist_ok=True)
+    tmp = STATE + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(s, f, indent=2)
+    os.replace(tmp, STATE)
+
+
+def enabled_addons():
+    try:
+        return [l.strip() for l in open(ADDONS) if l.strip() and not l.startswith("#")]
+    except OSError:
+        return []
+
+
+def addon_info(name):
+    conf = os.path.join(LAYER, "addons", name, "addon.conf")
+    info = {"name": name, "description": "", "packages": ""}
+    try:
+        for line in open(conf):
+            m = re.match(r'^(DESCRIPTION|PACKAGES)=(.*)$', line.strip())
+            if m:
+                v = m.group(2)
+                try:
+                    v = " ".join(shlex.split(v))
+                except ValueError:
+                    v = v.strip('"')
+                info[m.group(1).lower()] = v
+    except OSError:
+        return None
+    return info
+
+
+def update_policy_cmd():
+    for p in (os.path.join(BIN, "prime-update-policy"), shutil.which("prime-update-policy") or ""):
+        if p and os.access(p, os.X_OK):
+            return p
+    return ""
+
+
+# ── the permission file (capabilities.yaml) ──────────────────────────────────
+def parse_caps(text):
+    """The ladder is a fixed, simple YAML shape; read it without needing PyYAML."""
+    autonomy, caps, cur, section = "suggest", {}, None, None
+    for raw in text.splitlines():
+        if not raw.strip() or raw.lstrip().startswith("#"):
+            continue
+        line = re.sub(r"\s+#.*$", "", raw.rstrip())
+        ind = len(line) - len(line.lstrip())
+        key, _, val = line.strip().partition(":")
+        val = val.strip().strip('"\'')
+        if ind == 0:
+            section, cur = key, None
+            if key == "autonomy":
+                autonomy = val
+            continue
+        if section != "capabilities":
+            continue
+        if ind == 2:
+            cur = key
+            caps[cur] = {}
+        elif ind >= 4 and cur:
+            caps[cur][key] = val
+    return autonomy, caps
+
+
+def ensure_caps():
+    if not os.path.exists(CAPS):
+        os.makedirs(CFG, exist_ok=True)
+        write_caps("suggest")
+
+
+def read_caps():
+    ensure_caps()
+    try:
+        return parse_caps(open(CAPS).read())
+    except OSError:
+        return "suggest", {}
+
+
+def preset_level(cap, template_level, autonomy):
+    group = cap.split(".")[0]
+    if group in PINNED_GROUPS:
+        return "approve-each"
+    if cap in READ_CAPS:
+        return "observe"
+    if autonomy == "auto-all":
+        return "auto"
+    if autonomy == "auto-user":
+        return "auto" if cap in USER_SPACE else "approve-each"
+    return template_level
+
+
+def write_caps(autonomy):
+    """Rewrite the permission file from the template for one autonomy level."""
+    if autonomy not in AUTONOMY:
+        raise Refuse(f"unknown level '{autonomy}' — use one of: {', '.join(AUTONOMY)}")
+    try:
+        lines = open(LADDER_TEMPLATE).read().splitlines()
+    except OSError:
+        lines = ["version: 1", "autonomy: suggest", "capabilities:"] + [
+            f"  {c}:\n    level: {l}" for c, l in [("system.read", "observe"), ("settings.user", "suggest"),
+                                                   ("system.packages", "approve-each"), ("system.update", "approve-each"),
+                                                   ("destructive.*", "approve-each"), ("secrets.*", "approve-each")]]
+        lines = "\n".join(lines).splitlines()
+    out, cur, section = [], None, None
+    for line in lines:
+        s = line.strip()
+        ind = len(line) - len(line.lstrip())
+        if s and not s.startswith("#"):
+            key = s.split(":", 1)[0]
+            if ind == 0:
+                section, cur = key, None
+                if key == "autonomy":
+                    line = f"autonomy: {autonomy}"
+            elif ind == 2 and section == "capabilities":
+                cur = key
+            elif ind == 4 and cur and key == "level":
+                tl = s.split(":", 1)[1].split("#")[0].strip()
+                line = f"    level: {preset_level(cur, tl, autonomy)}"
+        out.append(line)
+    hdr = ["# Your permission file — how much Prime may do on its own.",
+           "# Only YOU change it (Welcome, or: prime-settings autonomy <level>). Prime's",
+           "# toolbox has no way to write it, and destructive.* / secrets.* always ask.",
+           ""]
+    os.makedirs(CFG, exist_ok=True)
+    tmp = CAPS + ".tmp"
+    with open(tmp, "w") as f:
+        f.write("\n".join(hdr + out) + "\n")
+    os.replace(tmp, CAPS)
+
+
+def level_for(cap):
+    _, caps = read_caps()
+    group = cap.split(".")[0]
+    if group in PINNED_GROUPS:
+        return "approve-each"            # pinned in code, whatever the file says
+    entry = caps.get(cap) or caps.get(group + ".*")
+    lvl = (entry or {}).get("level", "")
+    if lvl not in LEVELS:
+        return "observe" if cap in READ_CAPS else "suggest"
+    return lvl
+
+
+# ── audit log ────────────────────────────────────────────────────────────────
+def audit(entry):
+    os.makedirs(CFG, exist_ok=True)
+    entry.setdefault("ts", now())
+    with open(AUDIT, "a") as f:
+        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    try:
+        os.chmod(AUDIT, 0o600)
+    except OSError:
+        pass
+
+
+def audit_entries():
+    out = []
+    try:
+        for line in open(AUDIT):
+            try:
+                out.append(json.loads(line))
+            except ValueError:
+                pass
+    except OSError:
+        pass
+    return out
+
+
+def last_undoable():
+    entries = audit_entries()
+    undone = {e.get("undoes") for e in entries if e.get("tool") == "undo_last" and e.get("status") == "done"}
+    undone |= {e.get("id") for e in entries if e.get("tool") == "undo_last" and e.get("status") == "done"}
+    for e in reversed(entries):
+        if e.get("status") == "done" and e.get("undo") and e.get("id") not in undone:
+            return e
+    return None
+
+
+# ── desktop backup (the safety net under every change) ───────────────────────
+def backup(reason):
+    """Save a copy of the desktop settings. Reuse one made by Prime in the last
+    five minutes, so a burst of small changes doesn't push older copies out."""
+    try:
+        recent = sorted(glob.glob(os.path.join(BACKUPS, "*_prime-*.tar.gz")), key=os.path.getmtime)
+        if recent and time.time() - os.path.getmtime(recent[-1]) < 300:
+            return recent[-1]
+    except OSError:
+        pass
+    r = run([os.path.join(BIN, "prime-desktop-backup"), "save", "prime-" + reason])
+    path = r.stdout.strip().splitlines()[-1] if r.stdout.strip() else ""
+    return path if path and os.path.exists(path) else ""
+
+
+def restore_tarball(path):
+    """Put a saved copy back — except the permission file, the audit log and the
+    AI key, which a restore must never rewind."""
+    r = run(["tar", "-C", HOME, "-xzf", path,
+             "--exclude=.config/prime/capabilities.yaml", "--exclude=.config/prime/audit.jsonl",
+             "--exclude=.config/prime/ai.key"])
+    if r.returncode != 0:
+        raise Refuse("couldn't read that saved copy: " + r.stderr.strip()[:200])
+    if live():
+        run(["hyprctl", "reload"])
+        run(["swaync-client", "-rs"])
+        subprocess.Popen([os.path.join(BIN, "prime-bar"), "restart"], stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL, start_new_session=True)
+
+
+def backup_rows():
+    rows = []
+    for f in sorted(glob.glob(os.path.join(BACKUPS, "*.tar.gz")), key=os.path.getmtime, reverse=True):
+        b = os.path.basename(f)[:-7]
+        m = re.match(r"(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})\d{2}_(.*)", b)
+        when = f"{m.group(1)}-{m.group(2)}-{m.group(3)} {m.group(4)}:{m.group(5)}" if m else b
+        why = m.group(6) if m else ""
+        rows.append({"name": b, "when": when, "reason": why.replace("prime-", "before Prime: ").replace("-", " "), "path": f})
+    return rows
+
+
+# ── the Prime block in ~/.config/hypr/hyprland.conf ──────────────────────────
+def render_block(state):
+    s, out = state["settings"], [BEGIN,
+        "# Written by Prime when you change settings in Welcome or by asking Prime.",
+        "# Prime rewrites only what is between these two lines. Your own lines BELOW",
+        "# this block win over it."]
+    inp = []
+    if "keyboard_layout" in s:
+        inp.append(f"    kb_layout = {s['keyboard_layout']}")
+    tb = []                                           # the touchpad's own section
+    if "natural_scroll" in s:
+        v = "true" if s["natural_scroll"] == "on" else "false"
+        inp.append(f"    natural_scroll = {v}")
+        tb.append(f"        natural_scroll = {v}")
+    if "mouse_speed" in s:
+        inp.append(f"    sensitivity = {float(s['mouse_speed']):.2f}")
+    if "mouse_acceleration" in s:
+        inp.append(f"    accel_profile = {'adaptive' if s['mouse_acceleration'] == 'on' else 'flat'}")
+    if "left_handed" in s:
+        inp.append(f"    left_handed = {'true' if s['left_handed'] == 'on' else 'false'}")
+    if "key_repeat_rate" in s:
+        inp.append(f"    repeat_rate = {int(s['key_repeat_rate'])}")
+    if "key_repeat_delay" in s:
+        inp.append(f"    repeat_delay = {int(s['key_repeat_delay'])}")
+    if "tap_to_click" in s:
+        tb.append(f"        tap-to-click = {'true' if s['tap_to_click'] == 'on' else 'false'}")
+    if "touchpad_while_typing" in s:   # "off" = the touchpad pauses while you type
+        tb.append(f"        disable_while_typing = {'false' if s['touchpad_while_typing'] == 'on' else 'true'}")
+    if tb:
+        inp += ["    touchpad {"] + tb + ["    }"]
+    if inp:
+        out += ["input {"] + inp + ["}"]
+    if "gaps" in s:
+        g = int(s["gaps"])
+        out += ["general {", f"    gaps_in = {g}", f"    gaps_out = {min(g * 2, 60)}", "}"]
+    if "rounding" in s:
+        out += ["decoration {", f"    rounding = {int(s['rounding'])}", "}"]
+    if "animations" in s:
+        out += ["animations {", f"    enabled = {'true' if s['animations'] == 'on' else 'false'}", "}"]
+    if s.get("night_light", "off") != "off":
+        out.append(f"exec-once = hyprsunset -t {int(s['night_light'])}")
+    for sc in state["shortcuts"]:
+        if sc.get("replace"):
+            out.append(f"unbind = {sc['mods']}, {sc['key']}")
+        out.append(f"bindd = {sc['mods']}, {sc['key']}, {sc['description']}, {sc['dispatch']}")
+    out.append(END)
+    return "\n".join(out)
+
+
+def with_block(text, block):
+    if BEGIN in text and END in text:
+        a = text.index(BEGIN)
+        b = text.index(END) + len(END)
+        return text[:a] + block + text[b:]
+    return text.rstrip("\n") + "\n\n" + block + "\n"
+
+
+def config_errors(path):
+    """Hyprland's own parser: None when Hyprland isn't installed, else a set of errors."""
+    hl = shutil.which("Hyprland")
+    if not hl:
+        return None
+    env = {k: v for k, v in os.environ.items() if k not in ("HYPRLAND_INSTANCE_SIGNATURE", "WAYLAND_DISPLAY")}
+    with tempfile.TemporaryDirectory() as rt:
+        if not os.path.isdir(env.get("XDG_RUNTIME_DIR", "")):
+            env["XDG_RUNTIME_DIR"] = rt          # the checker refuses to start without one
+        try:
+            r = run([hl, "--verify-config", "-c", path], env=env, timeout=30)
+        except subprocess.TimeoutExpired:
+            return None
+    out = strip_ansi(r.stdout + r.stderr)
+    errs = {re.sub(r" at line \d+", "", m.group(0)).replace(path, HYPR)
+            for m in re.finditer(r"Config error in file .*", out)}
+    if r.returncode != 0 and not errs:
+        return None                              # the checker itself didn't run: can't judge
+    return errs
+
+
+def write_hypr(state):
+    """Render the block, check the whole config with Hyprland, then swap it in."""
+    if not os.path.exists(HYPR):
+        raise Refuse("your window-manager settings file (~/.config/hypr/hyprland.conf) is missing — run the health check")
+    old = open(HYPR).read()
+    new = with_block(old, render_block(state))
+    if new == old:
+        return
+    d = os.path.dirname(HYPR)
+    fd, cand = tempfile.mkstemp(prefix=".hyprland.prime-check.", suffix=".conf", dir=d)
+    with os.fdopen(fd, "w") as f:
+        f.write(new)
+    try:
+        before = config_errors(HYPR)
+        after = config_errors(cand)
+        if after is not None and after - (before or set()):
+            raise Refuse("Hyprland rejected the change, so nothing was changed: " + "; ".join(sorted(after - (before or set())))[:300])
+        os.chmod(cand, os.stat(HYPR).st_mode & 0o777)
+        os.replace(cand, HYPR)
+    finally:
+        if os.path.exists(cand):
+            os.unlink(cand)
+    if live():
+        run(["hyprctl", "reload"])
+
+
+def apply_night_light(value):
+    if not live():
+        return
+    run(["pkill", "-x", "hyprsunset"])
+    if value != "off":
+        subprocess.Popen(["hyprsunset", "-t", str(value)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         start_new_session=True)
+
+
+def sync_layout(state):
+    """Free (windows float, like a Mac or Windows) or Tidy (tiled). The rules live in the
+    theme file Hyprland reads first, which prime-theme writes from settings.json — so a
+    change (or its undo) regenerates it, and Hyprland reloads."""
+    want_free = state["settings"].get("window_layout", "free") != "tidy"
+    try:
+        has_free = "windowrule = float on, match:class .*" in open(os.path.join(CFG, "theme/hyprland.conf")).read()
+    except OSError:
+        return                                  # no theme yet: prime-theme --apply writes it at install
+    if has_free != want_free:
+        run([os.path.join(BIN, "prime-theme"), "--apply"])
+        if live():
+            run(["hyprctl", "reload"])
+
+
+def apply_state(state):
+    write_hypr(state)
+    save_state(state)
+    apply_night_light(state["settings"].get("night_light", "off"))
+    sync_layout(state)
+
+
+# ── keys and apps ────────────────────────────────────────────────────────────
+def parse_keys(keys):
+    parts = [p.strip() for p in re.split(r"\s*\+\s*|\s+", keys.strip()) if p.strip()]
+    if not parts:
+        raise Refuse("no keys given — say it like Super+B")
+    mods, key = [], parts[-1]
+    for p in parts[:-1]:
+        m = MODS.get(p.lower())
+        if not m:
+            raise Refuse(f"'{p}' isn't a modifier key — use Super, Shift, Ctrl or Alt")
+        if m not in mods:
+            mods.append(m)
+    k = key.lower()
+    if re.fullmatch(r"[a-z]", k):
+        key = k.upper()
+    elif re.fullmatch(r"[0-9]", k):
+        key = k
+    elif re.fullmatch(r"f([1-9]|1[0-2])", k):
+        key = k.upper()
+    elif k in NAMED_KEYS:
+        key = NAMED_KEYS[k]
+    else:
+        raise Refuse(f"'{key}' isn't a key Prime can bind — use a letter, a number, F1–F12, or Space/Enter/Tab/Print/arrows")
+    if not mods:
+        raise Refuse("a shortcut needs Super, Ctrl or Alt — a single key would stop you typing it")
+    order = ["SUPER", "CTRL", "ALT", "SHIFT"]
+    mods.sort(key=order.index)
+    return " ".join(mods), key
+
+
+def keys_label(mods, key):
+    names = {"SUPER": "Super", "CTRL": "Ctrl", "ALT": "Alt", "SHIFT": "Shift"}
+    k = {"space": "Space", "return": "Enter", "slash": "/", "comma": ",", "period": ".", "minus": "-",
+         "equal": "=", "left": "Left", "right": "Right", "up": "Up", "down": "Down", "tab": "Tab",
+         "print": "Print", "backspace": "Backspace"}.get(key.lower(), key if len(key) > 1 else key.upper())
+    return "+".join([names[m] for m in mods.split()] + [k])
+
+
+def existing_binds():
+    """(mods, key) -> description for Prime's defaults and enabled add-ons."""
+    files = [os.path.join(LAYER, "default/hypr/bindings.conf")] + [
+        os.path.join(LAYER, "addons", a, "hypr.conf") for a in enabled_addons()]
+    binds = {}
+    for f in files:
+        try:
+            for line in open(f):
+                m = re.match(r"^bind([a-z]*)\s*=\s*([^,]*),\s*([^,]+),\s*(.*)$", line.strip())
+                if not m:
+                    continue
+                mods = " ".join(sorted(m.group(2).upper().split(), key=lambda x: ["SUPER", "CTRL", "ALT", "SHIFT"].index(x)
+                                       if x in ("SUPER", "CTRL", "ALT", "SHIFT") else 9))
+                rest = m.group(4)
+                desc = rest.split(",")[0].strip() if "d" in m.group(1) else rest.strip()
+                binds[(mods, m.group(3).strip().lower())] = desc
+        except OSError:
+            pass
+    return binds
+
+
+def desktop_apps(category=None):
+    apps, seen = [], set()
+    for d in APPDIRS:
+        for f in sorted(glob.glob(os.path.join(d, "*.desktop"))):
+            did = os.path.basename(f)
+            if did in seen:
+                continue
+            try:
+                txt = open(f, errors="ignore").read()
+            except OSError:
+                continue
+            sec = txt.split("[Desktop Action")[0]
+            if re.search(r"^(NoDisplay|Hidden)=true", sec, re.M):
+                continue
+            name = re.search(r"^Name=(.*)$", sec, re.M)
+            cats = re.search(r"^Categories=(.*)$", sec, re.M)
+            if not name:
+                continue
+            if category and not (cats and category in cats.group(1).split(";")):
+                continue
+            seen.add(did)
+            apps.append({"id": did, "name": name.group(1).strip()})
+    return apps
+
+
+def resolve_app(target, category=None):
+    t = target.strip().lower()
+    apps = desktop_apps(category)
+    for a in apps:
+        if t in (a["id"].lower(), a["id"].lower()[:-8]):
+            return a
+    for a in apps:
+        if a["name"].lower() == t:
+            return a
+    hits = [a for a in apps if t and t in a["name"].lower()]
+    if len(hits) == 1:
+        return hits[0]
+    if hits:
+        raise Refuse(f"'{target}' matches several apps: " + ", ".join(h["name"] for h in hits[:6]) + " — which one?")
+    raise Refuse(f"no installed app called '{target}'" + (" in that category" if category else "") + " — see list_apps")
+
+
+# ── the tools: validate(args) -> plan; a plan has summary + do() ─────────────
+class Plan:
+    def __init__(self, summary, do, capability=None, external=False):
+        self.summary, self.do, self.capability, self.external = summary, do, capability, external
+
+
+def _wall_names():
+    out = {}
+    for d in WALLDIRS:
+        for f in sorted(glob.glob(os.path.join(d, "*"))):
+            if re.search(r"\.(jpe?g|png|webp)$", f, re.I) and os.path.isfile(f):
+                out.setdefault(os.path.basename(f), f)
+    return out
+
+
+def t_get_status(a):
+    def do():
+        th = read_theme()
+        st = load_state()
+        autonomy, _ = read_caps()
+        pol = ""
+        c = update_policy_cmd()
+        if c:
+            pol = run([c, "get"]).stdout.strip()
+        return {"accent": "#" + th.get("ACCENT", ""), "wallpaper": os.path.basename(th.get("WALL", "")),
+                "settings": st["settings"],
+                "shortcuts_added_by_prime": [keys_label(s["mods"], s["key"]) + " — " + s["description"] for s in st["shortcuts"]],
+                "packs_on": enabled_addons(), "update_policy": pol or "unknown",
+                "autonomy": autonomy + " (" + AUTONOMY.get(autonomy, "") + ")",
+                "live_session": live()}, None
+    return Plan("look at your current settings", do)
+
+
+def t_set_accent(a):
+    c = str(a.get("color", "")).strip().lower().lstrip("#")
+    hexv = COLORS.get(c, c)
+    if not re.fullmatch(r"[0-9a-f]{6}", hexv):
+        raise Refuse(f"'{a.get('color')}' isn't a colour I know — use a name like blue or green, or 6 hex digits")
+    label = f"{c} (#{hexv})" if c in COLORS else f"#{hexv}"
+
+    def do():
+        old = read_theme().get("ACCENT", "60a5fa")
+        r = run([os.path.join(BIN, "prime-theme"), "--set-accent", hexv])
+        if r.returncode != 0:
+            raise Refuse(r.stderr.strip() or "the theme switcher failed")
+        return f"The accent colour is now {label}.", {"op": "accent", "value": old}
+    return Plan(f"switch the accent colour to {label}", do)
+
+
+def t_list_wallpapers(a):
+    def do():
+        cur = os.path.basename(read_theme().get("WALL", ""))
+        return {"wallpapers": list(_wall_names()), "current": cur}, None
+    return Plan("list the wallpapers", do)
+
+
+def t_set_wallpaper(a):
+    name = os.path.basename(str(a.get("name", "")).strip())
+    walls = _wall_names()
+    if name not in walls:
+        low = {k.lower(): k for k in walls}
+        stem = {os.path.splitext(k)[0].lower(): k for k in walls}
+        name = low.get(name.lower()) or stem.get(name.lower()) or stem.get("prime-" + name.lower()) or name
+    if name not in walls:
+        raise Refuse(f"there's no wallpaper called '{a.get('name')}' — see list_wallpapers")
+    path = walls[name]
+
+    def do():
+        old = read_theme().get("WALL", "")
+        r = run([os.path.join(BIN, "prime-theme"), "--set-wall", path])
+        if r.returncode != 0:
+            raise Refuse(r.stderr.strip() or "the theme switcher failed")
+        return f"The wallpaper is now {name}.", {"op": "wall", "value": old}
+    return Plan(f"change the wallpaper to {name}", do)
+
+
+def _state_change(summary, mutate, message):
+    def do():
+        st = load_state()
+        before = json.loads(json.dumps(st))
+        mutate(st)
+        apply_state(st)
+        return message, {"op": "state", "value": before}
+    return Plan(summary, do)
+
+
+def t_set_look(a):
+    p = a.get("preset")
+    if p not in LOOKS:
+        raise Refuse("pick one of: " + ", ".join(LOOKS))
+    g, r = LOOKS[p]
+
+    def mutate(st):
+        st["settings"]["gaps"], st["settings"]["rounding"] = g, r
+    return _state_change(f"change the window style to '{p}' (gaps {g}, corners {r})", mutate,
+                         f"Windows now use the '{p}' style.")
+
+
+def _onoff(v):
+    v = str(v).strip().lower()
+    if v in ("on", "true", "yes", "1", "enable", "enabled"):
+        return "on"
+    if v in ("off", "false", "no", "0", "disable", "disabled"):
+        return "off"
+    raise Refuse("use on or off")
+
+
+def _layout(v):
+    v = str(v).strip().lower().replace(" ", "")
+    if not re.fullmatch(r"[a-z]{2,3}(,[a-z]{2,3}){0,3}", v):
+        raise Refuse(f"'{v}' isn't a keyboard layout code — use something like us, gb, de, fr")
+    known = set()
+    try:
+        sect = False
+        for line in open("/usr/share/X11/xkb/rules/base.lst"):
+            if line.startswith("!"):
+                sect = line.strip() == "! layout"
+                continue
+            if sect and line.strip():
+                known.add(line.split()[0])
+    except OSError:
+        pass
+    bad = [x for x in v.split(",") if known and x not in known]
+    if bad:
+        raise Refuse(f"unknown keyboard layout: {', '.join(bad)}")
+    return v
+
+
+def t_change_setting(a):
+    name, raw = a.get("setting"), a.get("value", "")
+    ONOFF = {"animations": "animations", "natural_scroll": "natural (phone-style) scrolling",
+             "mouse_acceleration": "mouse acceleration", "left_handed": "left-handed mouse buttons",
+             "tap_to_click": "tap to click on the touchpad",
+             "touchpad_while_typing": "the touchpad while you type"}
+    if name in ONOFF:
+        val = _onoff(raw)
+        summary = f"turn {ONOFF[name]} {val}"
+    elif name == "mouse_speed":
+        try:
+            val = round(float(str(raw).strip()), 2)
+        except ValueError:
+            val = None
+        if val is None or not -1.0 <= val <= 1.0:
+            raise Refuse("mouse_speed is a number from -1 (slowest) to 1 (fastest); 0 is normal")
+        summary = f"set the mouse speed to {val:+.2f}"
+    elif name in ("key_repeat_rate", "key_repeat_delay"):
+        lo, hi = (10, 80) if name == "key_repeat_rate" else (150, 1000)
+        if not str(raw).strip().isdigit() or not lo <= int(raw) <= hi:
+            raise Refuse(f"{name} is a number from {lo} to {hi}")
+        val = int(raw)
+        summary = (f"repeat a held key {val} times a second" if name == "key_repeat_rate"
+                   else f"start repeating a held key after {val} ms")
+    elif name == "window_layout":
+        v = str(raw).strip().lower()
+        v = {"free": "free", "float": "free", "floating": "free", "mac": "free", "windows": "free",
+             "tidy": "tidy", "tile": "tidy", "tiled": "tidy", "tiling": "tidy"}.get(v)
+        if v is None:
+            raise Refuse("window_layout is free (windows float, like a Mac or Windows) or tidy (side by side)")
+        val = v
+        summary = ("let new windows float, like a Mac or Windows" if v == "free"
+                   else "arrange new windows side by side (tidy)")
+    elif name == "after_screenshot":
+        v = str(raw).strip().lower()
+        v = {"buttons": "buttons", "options": "buttons", "save": "save", "just save": "save", "nothing": "save",
+             "ask": "ask", "ask prime": "ask", "prime": "ask"}.get(v)
+        if v is None:
+            raise Refuse("after_screenshot is buttons (show what I can do next), save (just save and copy) or ask (ask Prime)")
+        val = v
+        summary = {"buttons": "show buttons after a screenshot", "save": "just save and copy screenshots",
+                   "ask": "ask Prime about every screenshot"}[v]
+    elif name == "keyboard_layout":
+        val = _layout(raw)
+        summary = f"switch the keyboard layout to {val}"
+    elif name == "night_light":
+        v = str(raw).strip().lower()
+        if v in ("off", "false", "no", "0"):
+            val = "off"
+        elif v in ("on", "true", "yes"):
+            val = 4500
+        elif v.rstrip("k").isdigit() and 2500 <= int(v.rstrip("k")) <= 6000:
+            val = int(v.rstrip("k"))
+        else:
+            raise Refuse("night light is off, on, or a colour temperature from 2500 (warm) to 6000")
+        if val != "off" and not shutil.which("hyprsunset"):
+            raise Refuse("night light needs the 'hyprsunset' app, which isn't installed yet")
+        summary = "turn night light off" if val == "off" else f"turn night light on (warmth {val}K)"
+    elif name in ("gaps", "rounding"):
+        hi = 40 if name == "gaps" else 30
+        if not str(raw).strip().isdigit() or not 0 <= int(raw) <= hi:
+            raise Refuse(f"{name} is a number from 0 to {hi}")
+        val = int(raw)
+        summary = f"set the space between windows to {val}" if name == "gaps" else f"set window corner rounding to {val}"
+    else:
+        raise Refuse("I can change: animations, natural_scroll, keyboard_layout, night_light, gaps, rounding, "
+                     "mouse_speed, mouse_acceleration, left_handed, tap_to_click, touchpad_while_typing, "
+                     "key_repeat_rate, key_repeat_delay, after_screenshot, window_layout")
+
+    def mutate(st):
+        st["settings"][name] = val
+    return _state_change(summary, mutate, f"Done: {summary}.")
+
+
+def _app_or_action(action, target):
+    t = str(target).strip()
+    if action == "app":
+        app = resolve_app(t)
+        name = re.sub(r"[,#]", "", app["name"])
+        return f"Open {name}", f"exec, gtk-launch {app['id'][:-8]}", f"open {name}"
+    if action == "prime":
+        if t.lower() not in PRIME_ACTIONS:
+            raise Refuse("Prime actions are: " + ", ".join(PRIME_ACTIONS))
+        d, cmd = PRIME_ACTIONS[t.lower()]
+        return d, cmd, f"open {d}"
+    if action == "window":
+        if t.lower() not in WINDOW_ACTIONS:
+            raise Refuse("window actions are: close, maximise, fullscreen, float, pin, minimise, next-window, workspace-1 … workspace-10")
+        d, cmd = WINDOW_ACTIONS[t.lower()]
+        return d, cmd, d[0].lower() + d[1:]
+    raise Refuse("action is app, prime or window")
+
+
+def t_add_shortcut(a):
+    mods, key = parse_keys(str(a.get("keys", "")))
+    desc, dispatch, action_text = _app_or_action(a.get("action"), a.get("target", ""))
+    label = keys_label(mods, key)
+    taken = existing_binds().get((mods, key.lower()))
+    replace = bool(a.get("replace"))
+    if taken and not replace:
+        raise Refuse(f"{label} already does '{taken}'. Ask the user if they want to replace it "
+                     "(then call add_shortcut again with replace=true), or pick other keys.")
+
+    def mutate(st):
+        st["shortcuts"] = [s for s in st["shortcuts"] if (s["mods"], s["key"].lower()) != (mods, key.lower())]
+        st["shortcuts"].append({"mods": mods, "key": key, "description": desc, "dispatch": dispatch,
+                                "replace": bool(taken)})
+    summary = f"make {label} {action_text}" + (f" (instead of '{taken}')" if taken else "")
+    return _state_change(summary, mutate, f"{label} now does: {desc}.")
+
+
+def t_remove_shortcut(a):
+    mods, key = parse_keys(str(a.get("keys", "")))
+    st = load_state()
+    if not any((s["mods"], s["key"].lower()) == (mods, key.lower()) for s in st["shortcuts"]):
+        raise Refuse(f"Prime didn't add a shortcut on {keys_label(mods, key)}, so there's nothing of Prime's to remove")
+
+    def mutate(st):
+        st["shortcuts"] = [s for s in st["shortcuts"] if (s["mods"], s["key"].lower()) != (mods, key.lower())]
+    label = keys_label(mods, key)
+    return _state_change(f"remove the shortcut on {label} that Prime added", mutate,
+                         f"Removed {label} (any built-in shortcut on it is back).")
+
+
+def t_list_shortcuts(a):
+    def do():
+        rows = [f"{keys_label(m, k)} — {d}" for (m, k), d in existing_binds().items() if m or not k.startswith("xf86")]
+        rows += [f"{keys_label(s['mods'], s['key'])} — {s['description']} (added by Prime)" for s in load_state()["shortcuts"]]
+        return {"shortcuts": rows}, None
+    return Plan("list the keyboard shortcuts", do)
+
+
+def t_list_apps(a):
+    kind = a.get("kind", "any")
+    cat = APP_KINDS[kind][0] if kind in APP_KINDS else None
+
+    def do():
+        return {"apps": [f"{x['name']} ({x['id']})" for x in desktop_apps(cat)][:80]}, None
+    return Plan("list installed apps", do)
+
+
+def _set_default(kind, did):
+    cat, mimes, _ = APP_KINDS[kind]
+    if kind == "browser":
+        run(["xdg-settings", "set", "default-web-browser", did])
+    for m in mimes:
+        r = run(["xdg-mime", "default", did, m])
+        if r.returncode != 0:
+            raise Refuse("couldn't set the default: " + r.stderr.strip()[:200])
+
+
+def t_set_default_app(a):
+    kind = a.get("kind")
+    if kind not in APP_KINDS:
+        raise Refuse("kind is browser, file_manager or text_editor")
+    app = resolve_app(str(a.get("app", "")), APP_KINDS[kind][0])
+    what = APP_KINDS[kind][2]
+
+    def do():
+        old = run(["xdg-mime", "query", "default", APP_KINDS[kind][1][0]]).stdout.strip()
+        _set_default(kind, app["id"])
+        return f"{app['name']} is now your default {what}.", ({"op": "default_app", "kind": kind, "value": old} if old else None)
+    return Plan(f"make {app['name']} your default {what}", do)
+
+
+def t_list_packs(a):
+    def do():
+        on = enabled_addons()
+        rows = []
+        for d in sorted(glob.glob(os.path.join(LAYER, "addons/*/addon.conf"))):
+            i = addon_info(os.path.basename(os.path.dirname(d)))
+            rows.append({"name": i["name"], "on": i["name"] in on, "about": i["description"],
+                         "installs": i["packages"] or "nothing"})
+        return {"packs": rows}, None
+    return Plan("list the packs", do)
+
+
+def _pack_name(a):
+    n = str(a.get("name", "")).strip().lower()
+    if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,30}", n) or not addon_info(n):
+        raise Refuse(f"there's no pack called '{a.get('name')}' — see list_packs")
+    return n
+
+
+def _addon(verb, name):
+    cmd = [os.path.join(BIN, "prime-addon"), verb, name]
+    env = dict(os.environ, PRIME_AI_SETUP="keep")
+    if sys.stdin.isatty():           # the answer window: sudo can ask for the password here
+        r = subprocess.run(cmd, stdout=sys.stderr, env=env)
+        return r.returncode
+    r = run(cmd, env=env)
+    sys.stderr.write(r.stdout[-2000:])
+    return r.returncode
+
+
+def t_enable_pack(a):
+    n = _pack_name(a)
+    info = addon_info(n)
+    pk = info["packages"]
+
+    def do():
+        if n in enabled_addons():
+            return f"The {n} pack is already on.", None
+        if pk and not sys.stdin.isatty() and live():
+            # no terminal to type a password into: show the install in its own window
+            subprocess.Popen([os.path.join(BIN, "prime-panel"), "--title", f"Turning on the {n} pack", "--",
+                              os.path.join(BIN, "prime-addon"), "enable", n],
+                             env=dict(os.environ, PRIME_AI_SETUP="keep"), start_new_session=True,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return f"Installing the {n} pack in a window — it will ask for your password.", {"op": "pack", "verb": "disable", "name": n}
+        if _addon("enable", n) != 0:
+            raise Refuse(f"the {n} pack didn't finish setting up, so it was left off")
+        return f"The {n} pack is on.", {"op": "pack", "verb": "disable", "name": n}
+    extra = f" (installs: {pk})" if pk else ""
+    return Plan(f"turn on the {n} pack{extra}", do, capability="system.packages" if pk else None)
+
+
+def t_disable_pack(a):
+    n = _pack_name(a)
+
+    def do():
+        if n not in enabled_addons():
+            return f"The {n} pack is already off.", None
+        if _addon("disable", n) != 0:
+            raise Refuse(f"couldn't switch the {n} pack off")
+        return f"The {n} pack is off (its apps are still installed).", {"op": "pack", "verb": "enable", "name": n}
+    return Plan(f"turn off the {n} pack (its apps stay installed)", do)
+
+
+def t_run_doctor(a):
+    def do():
+        r = run([os.path.join(BIN, "prime-doctor")], timeout=120)
+        return {"report": strip_ansi(r.stdout)[-3000:]}, None
+    return Plan("check the desktop and repair what it safely can", do)
+
+
+def t_start_update(a):
+    def do():
+        cmd = [os.path.join(BIN, "prime-update")]
+        if live():
+            subprocess.Popen(cmd, start_new_session=True,            # opens its own Prime window
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return "The update is running in its own window (it will ask for your password).", None
+        if sys.stdin.isatty():
+            subprocess.run(cmd, stdout=sys.stderr)
+            return "The update finished — see the output above.", None
+        raise Refuse("there's no window to run the update in — run prime-update yourself")
+    return Plan("update the whole system now (opens a window; asks for your password)", do)
+
+
+def t_set_update_policy(a):
+    p = a.get("policy")
+    if p not in ("automatic", "ask", "off"):
+        raise Refuse("updates can be: automatic, ask, off")
+    c = update_policy_cmd()
+    if not c:
+        raise Refuse("automatic updates aren't installed on this computer yet")
+
+    def do():
+        old = run([c, "get"]).stdout.strip()
+        r = run([c, "set", p])
+        if r.returncode != 0:
+            raise Refuse("couldn't change the update setting: " + (r.stderr or r.stdout).strip()[:200])
+        return f"Updates are now: {p}.", ({"op": "update_policy", "value": old} if old in ("automatic", "ask", "off") else None)
+    return Plan(f"set updates to '{p}'", do)
+
+
+def t_list_backups(a):
+    def do():
+        return {"backups": [{"name": r["name"], "when": r["when"], "why": r["reason"]} for r in backup_rows()[:20]]}, None
+    return Plan("list saved copies of your settings", do)
+
+
+def t_save_desktop(a):
+    label = re.sub(r"[^a-z0-9-]+", "-", str(a.get("label") or "manual").lower()).strip("-")[:30] or "manual"
+
+    def do():
+        r = run([os.path.join(BIN, "prime-desktop-backup"), "save", label])
+        if r.returncode != 0:
+            raise Refuse("couldn't save a copy")
+        return f"Saved a copy of your desktop settings ({label}).", None
+    return Plan("save a copy of your desktop settings", do)
+
+
+def t_restore_desktop(a):
+    want = str(a.get("backup", "")).strip()
+    rows = backup_rows()
+    if not rows:
+        raise Refuse("there are no saved copies yet")
+    row = rows[0] if want in ("", "latest", "newest", "last") else next((r for r in rows if r["name"] == want), None)
+    if not row:
+        raise Refuse(f"no saved copy called '{want}' — see list_backups")
+
+    def do():
+        r = run([os.path.join(BIN, "prime-desktop-backup"), "save", "before-restore"])
+        undo_path = r.stdout.strip().splitlines()[-1] if r.stdout.strip() else ""
+        restore_tarball(row["path"])
+        return f"Your desktop settings are back to {row['when']}.", ({"op": "restore", "path": undo_path} if undo_path else None)
+    why = f" ({row['reason']})" if row["reason"] else ""
+    return Plan(f"put your desktop settings back to the copy from {row['when']}{why} — anything changed since then is replaced",
+                do)
+
+
+def describe_undo(e):
+    return e.get("summary", e.get("tool", "a change"))
+
+
+def t_undo_last(a):
+    e = last_undoable()
+    if not e:
+        raise Refuse("there's nothing Prime changed that can be undone")
+    return Plan(f"undo the last change: {describe_undo(e)}", lambda: do_undo(e))
+
+
+def do_undo(e):
+    u = e["undo"]
+    op = u.get("op")
+    if op == "accent":
+        run([os.path.join(BIN, "prime-theme"), "--set-accent", u["value"]])
+    elif op == "wall":
+        if u.get("value") and os.path.exists(u["value"]):
+            run([os.path.join(BIN, "prime-theme"), "--set-wall", u["value"]])
+    elif op == "state":
+        st = u["value"]
+        st.setdefault("settings", {})
+        st.setdefault("shortcuts", [])
+        apply_state(st)
+    elif op == "pack":
+        if _addon(u["verb"], u["name"]) != 0:
+            raise Refuse(f"couldn't {u['verb']} the {u['name']} pack")
+    elif op == "default_app":
+        _set_default(u["kind"], u["value"])
+    elif op == "update_policy":
+        c = update_policy_cmd()
+        if c:
+            run([c, "set", u["value"]])
+    elif op == "restore":
+        restore_tarball(u["path"])
+    else:
+        raise Refuse("I don't know how to undo that one")
+    return f"Undone: {describe_undo(e)}.", {"undoes": e["id"]}
+
+
+def t_show_shortcuts(a):
+    def do():
+        if not live():
+            return {"shown": False, "note": "not in a desktop session"}, None
+        subprocess.Popen([os.path.join(BIN, "prime-keys")], start_new_session=True,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return {"shown": True}, None
+    return Plan("open the keyboard shortcut sheet", do)
+
+
+HANDLERS = {n[2:]: f for n, f in globals().items() if n.startswith("t_") and callable(f)}
+
+
+# ── asking the user ──────────────────────────────────────────────────────────
+def confirm(text, mode, untrusted, level):
+    lead = "Prime suggests" if level == "suggest" else "Prime wants to"
+    msg = f"{lead}: {text}."
+    note = ""
+    if untrusted:
+        note = (f"This came up while Prime was reading {untrusted}. Text Prime reads can't give it "
+                "permission — only you can.")
+    forced = os.environ.get("PRIME_CONFIRM_ANSWER", "")      # tests only
+    if forced in ("yes", "no"):
+        return forced == "yes"
+    if mode == "tty" and sys.stdin.isatty():
+        sys.stderr.write(f"\n\033[1m{msg}\033[0m\n" + (f"\033[33m{note}\033[0m\n" if note else "")
+                         + "Allow? [y/N] ")
+        sys.stderr.flush()
+        try:
+            ans = sys.stdin.readline().strip().lower()
+        except (OSError, KeyboardInterrupt):
+            return False
+        return ans in ("y", "yes")
+    if mode == "gui" and live():
+        rofi = os.path.join(BIN, "prime-rofi")
+        r = subprocess.run([rofi, "-dmenu", "-i", "-no-custom", "-p", "Allow?", "-mesg", msg + ("\n" + note if note else ""),
+                            "-theme", "spotlight"], input="Don't allow\nAllow\n", capture_output=True, text=True,
+                           env=dict(os.environ, ROFI_HINT="Enter chooses · Esc = don't allow"))
+        return r.stdout.strip() == "Allow"
+    return False
+
+
+# ── running one tool ─────────────────────────────────────────────────────────
+def run_tool(name, args, actor="user", mode="deny", untrusted=""):
+    tools = load_tools()
+    entry = {"id": uuid.uuid4().hex[:10], "actor": actor, "tool": name, "args": args}
+    if untrusted:
+        entry["untrusted"] = untrusted[:120]
+    if name not in tools or name not in HANDLERS:
+        entry.update(status="invalid", message=f"there is no tool called '{name}'")
+        audit(entry)
+        return {"ok": False, "status": "invalid", "message": entry["message"]}
+    spec = tools[name]
+    if not isinstance(args, dict):
+        args = {}
+    allowed = set(spec["parameters"].get("properties", {}))
+    args = {k: v for k, v in args.items() if k in allowed}
+    entry["args"] = args
+    try:
+        plan = HANDLERS[name](args)
+    except Refuse as e:
+        entry.update(status="invalid", message=str(e))
+        audit(entry)
+        return {"ok": False, "status": "invalid", "message": str(e)}
+    cap = plan.capability or spec["capability"]
+    entry.update(capability=cap, summary=plan.summary)
+    write = spec["kind"] == "write"
+
+    if actor == "ai":
+        level = level_for(cap)
+        entry["level"] = level
+        if not write:
+            decision = "allowed"
+        elif level == "observe":
+            entry.update(status="denied", message=f"Prime is only allowed to look at {cap}, not change it.")
+            audit(entry)
+            return {"ok": False, "status": "denied", "message":
+                    f"Not allowed: Prime may only look, not change things here ({cap}). The user can change this "
+                    "in Welcome → 'How much may Prime do' or with: prime-settings autonomy"}
+        elif level == "auto" and not untrusted:
+            decision = "auto"
+        else:
+            if not confirm(plan.summary, mode, untrusted, level):
+                entry.update(status="declined", decision="asked")
+                audit(entry)
+                return {"ok": False, "status": "declined",
+                        "message": "The user said no (or wasn't there to say yes). Nothing was changed. Don't retry unless they ask."}
+            decision = "confirmed"
+    else:
+        decision = "user"
+    entry["decision"] = decision
+
+    if write and name not in ("save_desktop",) and (actor == "ai" or os.environ.get("PRIME_BACKUP") == "1"):
+        entry["backup"] = backup(name.replace("_", "-"))
+    try:
+        result, undo = plan.do()
+    except Refuse as e:
+        entry.update(status="failed", message=str(e))
+        audit(entry)
+        return {"ok": False, "status": "failed", "message": str(e)}
+    except Exception as e:  # report, never crash the assistant
+        entry.update(status="failed", message=f"{type(e).__name__}: {e}")
+        audit(entry)
+        return {"ok": False, "status": "failed", "message": f"something went wrong: {e}"}
+    if undo and "undoes" in undo:
+        entry["undoes"] = undo["undoes"]
+        undo = None
+    entry.update(status="done", undo=undo)
+    if write:
+        entry["message"] = result if isinstance(result, str) else ""
+        audit(entry)
+    elif actor == "ai":
+        entry["message"] = "read"
+        audit(entry)
+    out = {"ok": True, "status": "done"}
+    if isinstance(result, str):
+        out["message"] = result + (" (It can be undone: ask Prime to undo, or run prime-settings undo.)" if undo else "")
+        if decision == "auto":
+            notify("Prime changed something", plan.summary[0].upper() + plan.summary[1:])
+    else:
+        out["result"] = result
+    return out
+
+
+def notify(title, body):
+    if live():
+        run(["notify-send", "-a", "Prime", title, body + "\nUndo: Settings → About & Help → Undo, or ask Prime."])
+
+
+# ── command line ─────────────────────────────────────────────────────────────
+def say(line, kind="text"):
+    """A line for a person: a row in the Prime window (prime-panel), plain text in a terminal."""
+    print((f"@{kind} " if os.environ.get("PRIME_PANEL") else "") + line)
+
+
+def cmd_log(n):
+    for e in audit_entries()[-n:]:
+        who = "Prime" if e.get("actor") == "ai" else "You"
+        ts = e.get("ts", "")[:16].replace("T", " ")
+        st = {"done": "", "declined": " — you said no", "denied": " — not allowed",
+              "invalid": " — not possible", "failed": " — failed"}.get(e.get("status"), "")
+        how = {"auto": " (on its own)", "confirmed": " (you allowed it)"}.get(e.get("decision", ""), "")
+        if e.get("tool", "").startswith(("list_", "get_")) or e.get("message") == "read":
+            continue
+        say(f"{ts}  {who}: {e.get('summary') or e.get('tool')}{how}{st}")
+
+
+def main(argv):
+    if not argv or argv[0] in ("-h", "--help", "help"):
+        print(__doc__)
+        return 0 if argv else 2
+    cmd = argv[0]
+    if cmd == "list":
+        tools = load_tools()
+        for n, t in tools.items():
+            lvl = level_for(t["capability"])
+            act = ("may look" if t["kind"] == "read" else
+                   {"observe": "not allowed", "suggest": "asks you", "approve-each": "asks you", "auto": "does it, tells you"}[lvl])
+            print(f"  {n:<18} {t['capability']:<20} {act:<20} {t['summary']}")
+        return 0
+    if cmd == "check":            # tests: every tool in the schema has a handler and vice versa
+        tools = load_tools()
+        missing, extra = set(tools) - set(HANDLERS), set(HANDLERS) - set(tools)
+        bad = [n for n, t in tools.items() if t.get("kind") not in ("read", "write")
+               or not t.get("capability") or t["parameters"].get("type") != "object"]
+        if missing or extra or bad:
+            print(f"missing handlers: {sorted(missing)}  no schema: {sorted(extra)}  bad: {bad}")
+            return 1
+        print(f"{len(tools)} tools, all wired")
+        return 0
+    if cmd == "status":
+        print(json.dumps(t_get_status({}).do()[0], indent=2))
+        return 0
+    if cmd == "log":
+        cmd_log(int(argv[1]) if len(argv) > 1 and argv[1].isdigit() else 30)
+        return 0
+    if cmd == "autonomy":
+        if len(argv) == 1:
+            a, _ = read_caps()
+            say(f"{a}: {AUTONOMY.get(a, '')}")
+            return 0
+        if os.environ.get("PRIME_ACTOR") == "ai":
+            print("Prime can't change its own permissions — only you can.", file=sys.stderr)
+            return 1
+        try:
+            old, _ = read_caps() if os.path.exists(CAPS) else ("(none)", {})
+            write_caps(argv[1])
+        except Refuse as e:
+            print(e, file=sys.stderr)
+            return 2
+        audit({"id": uuid.uuid4().hex[:10], "actor": "user", "tool": "autonomy", "status": "done",
+               "summary": f"set how much Prime may do on its own to '{argv[1]}' (was '{old}')"})
+        print(f"{argv[1]}: {AUTONOMY[argv[1]]}")
+        return 0
+    if cmd == "undo":
+        if os.environ.get("PRIME_ACTOR") == "ai":
+            return 1
+        res = run_tool("undo_last", {}, actor="user")
+        say(res.get("message", ""), "fix" if res["ok"] else "note")
+        return 0 if res["ok"] else 1
+    if cmd == "run" and len(argv) >= 2:
+        name, rest = argv[1], argv[2:]
+        args, actor, mode, untrusted = {}, "user", "deny", ""
+        i = 0
+        while i < len(rest):
+            r = rest[i]
+            if r == "--actor":
+                actor, i = rest[i + 1], i + 2
+            elif r == "--confirm":
+                mode, i = rest[i + 1], i + 2
+            elif r == "--untrusted":
+                untrusted, i = rest[i + 1], i + 2
+            else:
+                try:
+                    args = json.loads(r) if r.strip() else {}
+                except ValueError:
+                    print(json.dumps({"ok": False, "status": "invalid", "message": "arguments must be JSON"}))
+                    return 2
+                i += 1
+        if os.environ.get("PRIME_ACTOR") == "ai":
+            actor = "ai"                 # an assistant can't claim to be the user
+        if actor not in ("ai", "user"):
+            actor = "ai"
+        res = run_tool(name, args, actor=actor, mode=mode, untrusted=untrusted)
+        print(json.dumps(res, ensure_ascii=False))
+        return 0 if res["ok"] else 1
+    print(__doc__)
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

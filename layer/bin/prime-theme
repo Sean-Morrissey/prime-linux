@@ -1,0 +1,326 @@
+#!/usr/bin/env bash
+# prime-theme — one switch for the whole desktop look (Super+Shift+W).
+#
+# Step 1 picks a wallpaper (thumbnails), step 2 an accent colour. The choice is
+# saved in ~/.config/prime/theme.conf, and every app's colour file under
+# ~/.config/prime/theme/ is regenerated from it — bar, notifications, menus,
+# window borders, lock screen, terminal, GTK/libadwaita apps. Esc on either
+# step keeps what you already have.
+#
+# Text size is the third setting, and the ONLY font size in Prime: the system
+# font (GTK: bar, notifications, Spotlight and apps are all sized in rem) and
+# the generated rofi / lock screen / title bar / terminal sizes derive from it.
+#
+#   prime-theme                     pick wallpaper, then accent, then text size
+#   prime-theme --wallpaper         wallpaper only
+#   prime-theme --accent            accent only
+#   prime-theme --text              text size only
+#   prime-theme --set-wall <file>   set a wallpaper without asking
+#   prime-theme --set-accent <hex>  set an accent without asking (e.g. 60a5fa)
+#   prime-theme --set-text <size>   small | default | large | larger
+#   prime-theme --apply             regenerate the theme files (installer, update)
+#
+# Wallpapers come from Prime Linux's own set and from ~/Pictures/Wallpapers —
+# drop images there and they show up in the picker.
+set -u
+BIN="$(dirname "$(readlink -f "$0")")"
+LAYER="$(readlink -f "$BIN/..")"
+STATE="$HOME/.config/prime/theme.conf"
+OUT="$HOME/.config/prime/theme"
+WALLDIRS=("$LAYER/wallpapers" "$HOME/Pictures/Wallpapers")
+
+WALL="$LAYER/wallpapers/prime-tide.jpg"; ACCENT="60a5fa"; TEXT="default"
+[ -f "$STATE" ] && . "$STATE"
+[ -f "$WALL" ] || WALL="$(ls "$LAYER"/wallpapers/*.jpg 2>/dev/null | head -1)"
+
+# text size → the base point size; every other size is a multiple of it
+TEXT_NAMES=(small default large larger)
+TEXT_LABELS=("Small" "Default" "Large" "Larger")
+base_pt() { case "$1" in small) echo 9;; large) echo 11.5;; larger) echo 13;; *) echo 10;; esac; }
+# size <tenths of the base> → points, one decimal ("size 13" is 1.3× the base)
+size()  { awk -v b="$(base_pt "$TEXT")" -v k="$1" 'BEGIN { s = sprintf("%.1f", b * k / 10); sub(/\.0$/, "", s); print s }'; }
+isize() { awk -v b="$(base_pt "$TEXT")" -v k="$1" 'BEGIN { printf "%d", b * k / 10 + 0.5 }'; }
+
+save()   { mkdir -p "$(dirname "$STATE")"; printf 'WALL=%q\nACCENT=%s\nTEXT=%s\n' "$WALL" "$ACCENT" "$TEXT" > "$STATE"; }
+notify() { notify-send -a Prime -t 4000 ${2:+-i "$2"} "Theme" "$1" >/dev/null 2>&1 || true; }
+# only touch the running desktop when this is the real session's own home —
+# never from a test or a second HOME (that once swapped a live wallpaper)
+live()   { [ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ] && [ -z "${PRIME_NO_LIVE:-}" ] \
+           && [ "$HOME" = "$(getent passwd "$(id -un)" | cut -d: -f6)" ]; }
+
+# ── write every app's colour file from $WALL + $ACCENT ───────────────────────
+generate() {
+  local a="$ACCENT" r g b
+  r=$((16#${a:0:2})); g=$((16#${a:2:2})); b=$((16#${a:4:2}))
+  mkdir -p "$OUT"
+
+  cat > "$OUT/colors.css" <<EOF
+/* written by prime-theme — change it with Super+Shift+W */
+@define-color accent #$a;
+EOF
+  cat > "$OUT/colors.rasi" <<EOF
+/* written by prime-theme */
+* {
+    fg-accent:    #$a;
+    bg-selected:  rgba($r, $g, $b, 0.22);
+    border-focus: rgba($r, $g, $b, 0.50);
+}
+EOF
+  # every rofi font, as a step on the one text-size ladder (menus, pickers)
+  cat > "$OUT/fonts.rasi" <<EOF
+/* written by prime-theme from the text size ($TEXT) — change it in Theme → Text size */
+* {
+    prime-font-s:        "Inter $(size 11)";
+    prime-font-m:        "Inter Medium $(size 12)";
+    prime-font-body:     "Inter $(size 13)";
+    prime-font-body-m:   "Inter Medium $(size 13)";
+    prime-font-l:        "Inter $(size 14)";
+    prime-font-l-bold:   "Inter Bold $(size 14)";
+    prime-font-xl:       "Inter $(size 15)";
+    prime-font-xl-bold:  "Inter Bold $(size 15)";
+    prime-font-mono-s:   "JetBrainsMono Nerd Font $(size 10)";
+}
+EOF
+  cat > "$OUT/hyprland.conf" <<EOF
+# written by prime-theme
+\$accent = rgb($a)
+\$accent_border = rgba(${a}66)
+\$prime_titlebar_text = $(isize 11)
+EOF
+  # window layout (Settings → Appearance → Window layout): free = new windows float and
+  # open centred, like a Mac or Windows (the default); tidy = Hyprland tiles them
+  if [ "$(jq -r '.settings.window_layout // "free"' "$HOME/.config/prime/settings.json" 2>/dev/null || echo free)" != tidy ]; then
+    cat >> "$OUT/hyprland.conf" <<EOF
+# window layout: free — Settings → Appearance → Window layout switches to tidy (tiled)
+windowrule = float on, match:class .*
+windowrule = center on, match:class .*
+EOF
+  fi
+  cat > "$OUT/hyprlock.conf" <<EOF
+# written by prime-theme
+\$wallpaper = $WALL
+\$accent = rgb($r, $g, $b)
+\$prime_font_clock = $(isize 72)
+\$prime_font_date = $(isize 22)
+\$prime_font_name = $(isize 15)
+\$prime_font_hint = $(isize 12)
+EOF
+  # hyprpaper 0.8+ syntax (it ignores the old "preload =" / "wallpaper = ,path" lines)
+  cat > "$OUT/hyprpaper.conf" <<EOF
+# written by prime-theme
+splash = false
+wallpaper {
+    monitor =
+    path = $WALL
+    fit_mode = cover
+}
+EOF
+  cat > "$OUT/kitty.conf" <<EOF
+# written by prime-theme
+cursor               #$a
+selection_background #$a
+url_color            #$a
+active_tab_background #$a
+active_tab_foreground #0a0a0e
+active_border_color  #$a
+font_size            $(size 12)
+# the P.R.I.M.E greeting, then your own shell (a 'shell' line in your kitty.conf wins)
+shell                "$LAYER/bin/prime-terminal-shell"
+EOF
+  # the emblem in the accent colour: bar logo, lock screen, notifications, app icon
+  sed "s/#f87171/#$a/g" "$LAYER/branding/mark.svg" > "$OUT/mark.svg"
+  magick -background none -density 384 "$OUT/mark.svg" -resize 256x256 "$OUT/mark.png" 2>/dev/null || true
+  local icons="$HOME/.local/share/icons/hicolor/scalable/apps"
+  mkdir -p "$icons" && cp "$OUT/mark.svg" "$icons/prime-linux.svg"
+  gtk-update-icon-cache -q -t "$HOME/.local/share/icons/hicolor" 2>/dev/null || true
+
+  # the terminal greeting's logo: P.R.I.M.E — Please Relax I'll Manage Everything
+  # (fastfetch reads ~/.config/prime/prime-logo.txt; the .plain copy has no colour)
+  local t
+  for t in prime-logo.txt prime-logo.plain.txt; do
+    cp -f "$LAYER/branding/terminal/$t" "$(dirname "$OUT")/$t" 2>/dev/null || true
+  done
+
+  # Prime's own GTK 4 windows (Settings, Welcome): the exact accent and the same
+  # blue-black surfaces as Start, Spotlight and the menus — not libadwaita's grey
+  cat > "$OUT/adw.css" <<EOF
+/* written by prime-theme — loaded by Prime's GTK 4 windows */
+@define-color accent_color #$a;
+@define-color accent_bg_color #$a;
+@define-color accent_fg_color #0a0a0e;
+@define-color window_bg_color #16161c;
+@define-color window_fg_color #f4f4f6;
+@define-color view_bg_color #16161c;
+@define-color headerbar_bg_color #16161c;
+@define-color headerbar_backdrop_color #16161c;
+@define-color sidebar_bg_color #1c1c24;
+@define-color sidebar_backdrop_color #1c1c24;
+@define-color secondary_sidebar_bg_color #1c1c24;
+@define-color card_bg_color rgba(255, 255, 255, 0.05);
+@define-color dialog_bg_color #1c1c24;
+@define-color popover_bg_color #22222b;
+EOF
+  # the dock (prime-dock → nwg-dock-hyprland): the same glass as the bar and menus
+  cat > "$OUT/dock.css" <<EOF
+/* written by prime-theme — the dock at the bottom of the screen */
+window { background: transparent; }
+#box {
+    background-color: rgba(18, 18, 24, 0.78);
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    border-radius: 18px;
+    padding: 6px 8px;
+}
+button, image { background: none; border-style: none; box-shadow: none; outline: none; }
+button {
+    padding: 4px;
+    margin: 0 3px;
+    border-radius: 12px;
+    color: #ececef;
+    font-size: $(size 10)pt;
+}
+button:hover { background-color: rgba(255, 255, 255, 0.10); }
+button:focus { box-shadow: none; }
+/* an open app has a small accent bar under it, like the dot on a Mac */
+#active { border-bottom: 3px solid rgba($r, $g, $b, 0.90); border-radius: 12px 12px 4px 4px; }
+EOF
+  cat > "$OUT/swaync.css" <<EOF
+@import url("file://$OUT/colors.css");
+@import url("file://$LAYER/default/swaync/style.css");
+EOF
+  [ -f "$HOME/.config/swaync/user.css" ] && echo "@import url(\"file://$HOME/.config/swaync/user.css\");" >> "$OUT/swaync.css"
+
+  # the system font: GTK apps, the bar, notifications and Spotlight all size from it
+  { live || [ -z "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]; } && [ -z "${PRIME_NO_GSETTINGS:-}" ] &&
+    gsettings set org.gnome.desktop.interface font-name "Inter $(size 10)" 2>/dev/null
+
+  # GTK 4 / libadwaita apps take one of nine named accents: the nearest hue
+  { live || [ -z "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]; } && [ -z "${PRIME_NO_GSETTINGS:-}" ] && gsettings set org.gnome.desktop.interface accent-color "$(python3 - "$a" <<'PY'
+import colorsys, sys
+h = sys.argv[1]
+r, g, b = (int(h[i:i + 2], 16) / 255 for i in (0, 2, 4))
+hue, sat, _ = colorsys.rgb_to_hsv(r, g, b)
+if sat < 0.2:
+    print("slate"); raise SystemExit
+names = {"red": 0, "orange": 30, "yellow": 48, "green": 140, "teal": 175,
+         "blue": 215, "purple": 275, "pink": 330}
+d = lambda x: min(abs(hue * 360 - x), 360 - abs(hue * 360 - x))
+print(min(names, key=lambda n: d(names[n])))
+PY
+)" 2>/dev/null || true
+}
+
+# ── push the new look into the running session ───────────────────────────────
+reload_live() {
+  live || return 0
+  hyprctl keyword general:col.active_border "rgba(ffffff44) rgba(${ACCENT}66) 45deg" >/dev/null 2>&1
+  swaync-client -rs >/dev/null 2>&1
+  pkill -USR1 -x kitty 2>/dev/null
+  "$BIN/prime-bar" restart >/dev/null 2>&1 &
+}
+
+apply_wall() {
+  live || return 0
+  hyprctl hyprpaper preload "$WALL" >/dev/null 2>&1
+  local m
+  for m in $(hyprctl monitors -j | jq -r '.[].name'); do
+    hyprctl hyprpaper wallpaper "$m,$WALL" >/dev/null 2>&1
+  done
+  hyprctl hyprpaper unload unused >/dev/null 2>&1
+}
+
+set_wall()   { [ -f "$1" ] || { echo "no such file: $1" >&2; return 1; }
+               WALL="$(readlink -f "$1")"; save; generate; apply_wall; }
+set_text()   { local t="${1,,}" n
+               for n in "${TEXT_NAMES[@]}"; do [ "$n" = "$t" ] && { TEXT="$t"; save; generate; reload_live; return 0; }; done
+               echo "not a text size: $1 (small, default, large or larger)" >&2; return 1; }
+set_accent() { local n="${1#\#}"; n="${n,,}"
+               [[ "$n" =~ ^[0-9a-f]{6}$ ]] || { echo "not a colour: $1 (use 6 hex digits)" >&2; return 1; }
+               ACCENT="$n"; save; generate; reload_live; }
+
+# the most vivid colour in the wallpaper that is still readable on dark glass
+wall_accent() {
+  magick "$WALL" -resize 96x96 -colors 12 -depth 8 -format '%c' histogram:info:- 2>/dev/null |
+  python3 -c '
+import colorsys, re, sys
+best, score = None, -1
+for line in sys.stdin:
+    m = re.search(r"(\d+):.*#([0-9A-Fa-f]{6})", line)
+    if not m: continue
+    n, h = int(m.group(1)), m.group(2)
+    r, g, b = (int(h[i:i+2], 16) / 255 for i in (0, 2, 4))
+    hu, s, v = colorsys.rgb_to_hsv(r, g, b)
+    if v < 0.35 or s < 0.25: continue
+    sc = s * 0.6 + v * 0.4 + min(n, 400) / 4000
+    if sc > score:
+        score, best = sc, (hu, s, v)
+if best:
+    hu, s, v = best
+    r, g, b = colorsys.hsv_to_rgb(hu, max(s, 0.45), max(v, 0.85))
+    print("%02x%02x%02x" % (round(r * 255), round(g * 255), round(b * 255)))'
+}
+
+pick_wall() {
+  local -a files=() names=()
+  local f n i choice
+  mapfile -t files < <(for d in "${WALLDIRS[@]}"; do
+            find "$d" -maxdepth 1 -type f \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.webp' \) 2>/dev/null
+          done | sort)
+  [ ${#files[@]} -gt 0 ] || { notify "No wallpapers found — put images in ~/Pictures/Wallpapers"; return 0; }
+  # a name to read ("Aurora", "Beach trip"), not a file name ("prime-aurora.jpg")
+  for f in "${files[@]}"; do
+    n="$(basename "${f%.*}")"; n="${n#prime-}"; n="${n//[-_]/ }"
+    names+=("${n^}")
+  done
+  # rows go to rofi through a pipe, never a variable: bash drops the NUL in rofi's
+  # "name\0icon\x1f<file>" from a $(…), and the picker showed "aurora.jpgicon…"
+  # instead of thumbnails. The choice comes back as a row number.
+  choice="$(for i in "${!files[@]}"; do printf '%s\0icon\x1f%s\n' "${names[$i]}" "${files[$i]}"; done |
+    ROFI_HINT="Enter sets it  ·  Esc keeps the current one  ·  add your own in ~/Pictures/Wallpapers" \
+    "$BIN/prime-rofi" -dmenu -i -show-icons -no-custom -format i -p "Wallpaper" -theme spotlight \
+    -theme-str 'window { width: 920px; } listview { columns: 4; lines: 2; spacing: 10px; } element { orientation: vertical; padding: 10px; spacing: 8px; children: [ element-icon, element-text ]; } element-icon { size: 180px; } element-text { horizontal-align: 0.5; }')" || return 0
+  [[ "$choice" =~ ^[0-9]+$ ]] && [ -n "${files[$choice]:-}" ] && set_wall "${files[$choice]}"
+  return 0
+}
+
+pick_accent() {
+  local -a names=("Rose" "Ember" "Amber" "Emerald" "Teal" "Sapphire" "Amethyst" "Silver")
+  local -a hexes=("f87171" "fb923c" "fbbf24" "34d399" "2dd4bf" "60a5fa" "c084fc" "d4d4d8")
+  local rows="" i choice w
+  for i in "${!names[@]}"; do
+    rows+="<span color='#${hexes[$i]}'>●</span>  ${names[$i]}$([ "${hexes[$i]}" = "$ACCENT" ] && echo '   (current)')"$'\n'
+  done
+  rows+="<span color='#888888'>●</span>  Match the wallpaper"
+  choice="$(printf '%s\n' "$rows" | ROFI_HINT="the colour used across the bar, menus, windows and lock screen  ·  Esc keeps it" \
+    "$BIN/prime-rofi" -dmenu -i -markup-rows -no-custom -p "󰏘 Accent" -theme spotlight)" || return 0
+  choice="$(printf '%s' "$choice" | sed 's/<[^>]*>//g; s/^[● ]*//; s/ *(current)$//')"
+  if [ "$choice" = "Match the wallpaper" ]; then
+    w="$(wall_accent)"
+    [ -n "$w" ] && set_accent "$w" || notify "Couldn't find a strong colour in this wallpaper"
+    return 0
+  fi
+  for i in "${!names[@]}"; do [ "${names[$i]}" = "$choice" ] && set_accent "${hexes[$i]}"; done
+}
+
+pick_text() {
+  local rows="" i choice
+  for i in "${!TEXT_NAMES[@]}"; do
+    rows+="${TEXT_LABELS[$i]}$([ "${TEXT_NAMES[$i]}" = "$TEXT" ] && echo '   (current)')"$'\n'
+  done
+  choice="$(printf '%s' "$rows" | ROFI_HINT="one size for the whole desktop: bar, menus, notifications, lock screen, apps  ·  Esc keeps it" \
+    "$BIN/prime-rofi" -dmenu -i -no-custom -p "󰛖 Text size" -theme spotlight)" || return 0
+  choice="${choice%%   (current)}"
+  for i in "${!TEXT_LABELS[@]}"; do [ "${TEXT_LABELS[$i]}" = "$choice" ] && set_text "${TEXT_NAMES[$i]}"; done
+  return 0
+}
+
+case "${1:-}" in
+  --apply)      save; generate ;;
+  --set-text)   set_text "${2:?size}" ;;
+  --text)       pick_text ;;
+  --set-wall)   set_wall "${2:?file}" ;;
+  --set-accent) set_accent "${2:?hex}" ;;
+  --wallpaper)  pick_wall ;;
+  --accent)     pick_accent ;;
+  "")           pick_wall; pick_accent; pick_text; notify "Theme applied" "Wallpaper, accent colour and text size are set — Super+Shift+W changes them again" ;;
+  *)            sed -n '2,24p' "$0"; exit 2 ;;
+esac

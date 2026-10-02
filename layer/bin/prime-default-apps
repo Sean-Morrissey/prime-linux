@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# prime-default-apps — pick the default browser and file manager from a list
+# of what's installed (Settings → Default apps).
+set -u
+BIN="$(dirname "$(readlink -f "$0")")"
+
+pick_for() {  # pick_for <label> <mime/category regex> <setter>
+    local label="$1" cat="$2" setter="$3" rows choice
+    rows="$(grep -lsE "^Categories=.*($cat)" /usr/share/applications/*.desktop ~/.local/share/applications/*.desktop \
+                /var/lib/flatpak/exports/share/applications/*.desktop 2>/dev/null |
+            while read -r f; do
+                grep -q '^NoDisplay=true' "$f" && continue
+                printf '%s\t%s\n' "$(sed -n 's/^Name=//p' "$f" | head -1)" "$(basename "$f")"
+            done | sort -u)"
+    [ -n "$rows" ] || { notify-send -a Prime "No $label apps installed"; return 1; }
+    choice="$(cut -f1 <<<"$rows" | ROFI_HINT="Enter makes it the default  ·  Esc cancels" \
+              "$BIN/prime-rofi" -dmenu -i -no-custom -p "$label" -theme spotlight)" || return 1
+    desktop="$(awk -F'\t' -v c="$choice" '$1==c{print $2; exit}' <<<"$rows")"
+    [ -n "$desktop" ] && $setter "$desktop" && notify-send -a Prime "Default $label" "$choice"
+}
+set_browser() { xdg-settings set default-web-browser "$1"; for m in x-scheme-handler/http x-scheme-handler/https text/html; do xdg-mime default "$1" "$m"; done; }
+set_files()   { xdg-mime default "$1" inode/directory; }
+
+what="$(printf 'Web browser\nFile manager\n' | "$BIN/prime-rofi" -dmenu -i -no-custom -p "Default apps" -theme spotlight)" || exit 0
+case "$what" in
+    "Web browser")  pick_for "browser" "WebBrowser" set_browser ;;
+    "File manager") pick_for "file manager" "FileManager" set_files ;;
+esac

@@ -1,0 +1,17 @@
+# bootc-image-builder config for the qcow2 disk image (VM testing only).
+#
+# This file is used by `tools/vm-boot.sh` and nothing else: the version a real person
+# installs comes from iso.toml + the installer, where *they* create their own account.
+# The credentials below exist so a throwaway VM can be logged into at all — an atomic
+# image with no user configured boots to a login prompt nobody can get past.
+#
+# Disk layout: Prime must run on a laptop with a small SSD as happily as a desktop,
+# so we ask for a floor, not a fixed size.
+[[customizations.filesystem]]
+mountpoint = "/"
+minsize = "20 GiB"
+
+[[customizations.user]]
+name = "prime"
+password = "prime"
+groups = ["wheel"]

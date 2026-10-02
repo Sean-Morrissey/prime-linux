@@ -1,0 +1,293 @@
+#!/usr/bin/env bash
+# prime-doctor — check the desktop and repair what it safely can.
+#
+#   prime-doctor          full report (Super+H, Settings → About & Help);
+#                         shown in a Prime window, never a terminal
+#   prime-doctor --login  quiet: runs at every login, notifies only about
+#                         problems it couldn't fix itself
+#   prime-doctor --daily  the same, once a day while you stay logged in
+#                         (prime-checkup.timer) — and only tells you about
+#                         problems that are NEW since it last told you
+#
+# It never edits your own config files and never needs your password. Anything
+# it can't fix comes with a button (or menu item) that does — never a command.
+set -u
+BIN="$(dirname "$(readlink -f "$0")")"
+QUIET=0; DAILY=0
+case "${1:-}" in --login) QUIET=1 ;; --daily) QUIET=1; DAILY=1 ;; esac
+# opened from the menu, a key or the app list: show the report in a Prime window
+if [ $QUIET = 0 ] && [ -z "${PRIME_PANEL:-}${PRIME_NO_PANEL:-}" ] && [ ! -t 1 ] && [ -n "${WAYLAND_DISPLAY:-}${DISPLAY:-}" ]; then
+    exec "$BIN/prime-panel" --title "Desktop health check" \
+        --subtitle "Checks the desktop and repairs what it safely can. Your own settings are never changed." -- "$0"
+fi
+# never a shared /tmp name: another account could plant a symlink there
+LOGDIR="${XDG_RUNTIME_DIR:-}"
+[ -n "$LOGDIR" ] && [ -d "$LOGDIR" ] && [ -O "$LOGDIR" ] || LOGDIR="${XDG_STATE_HOME:-$HOME/.local/state}/prime"
+mkdir -p -m 700 "$LOGDIR"; LOG="$LOGDIR/prime-doctor.log"; : > "$LOG"
+ENGINE=/usr/local/lib/prime-linux/prime-system-update
+[ -x "$ENGINE" ] || ENGINE="$BIN/../system/updates/prime-system-update"
+left=()
+
+# one line per finding: "@kind text" for the Prime window, a symbol + word in a terminal
+say() {  # say <ok|fix|bad|tip|note|step> <text>
+    echo "$1   $2" >>"$LOG"
+    [ $QUIET = 1 ] && return
+    if [ -n "${PRIME_PANEL:-}" ]; then echo "@${1/tip/note} $2"; return; fi
+    case "$1" in
+        tip)  printf '\e[33m· Tip\e[0m        %s\n' "$2" ;;
+        note) printf '               %s\n' "$2" ;;
+        step) printf '\e[2m› %s…\e[0m\n' "$2" ;;
+        ok)  printf '\e[32m✓ OK\e[0m         %s\n' "$2" ;;
+        fix) printf '\e[34m↻ Fixed\e[0m      %s\n' "$2" ;;
+        bad) printf '\e[33m! Needs you\e[0m  %s\n' "$2" ;;
+    esac
+}
+ok()   { say ok "$1"; }
+fixd() { say fix "$1"; }
+bad()  { say bad "$1"; left+=("$1"); }
+action() {  # a button in the Prime window: action <label> <command>
+    [ -n "${PRIME_PANEL:-}" ] && [ $QUIET = 0 ] && printf '@action %s\t%s\n' "$1" "$2"
+    return 0
+}
+
+declare -A NAME=(
+    [prime-bar@top]="The top bar"
+    [prime-dock]="The dock"
+    [prime-cliphist-text]="Clipboard history (text)"
+    [prime-cliphist-image]="Clipboard history (pictures)"
+    [prime-clip-persist]="Keeping copied text after its app closes"
+)
+
+in_session=0
+[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ] && hyprctl version >/dev/null 2>&1 && in_session=1
+
+# Repairs only ever happen for an account that runs THIS copy of Prime Linux.
+# Run from a checkout, or on a machine/account without Prime installed, the
+# doctor only reports — it must never write to someone else's desktop.
+INSTALLED=0
+[ "$(readlink -f "$BIN/..")" = "$(readlink -f "$HOME/.local/share/prime-linux/layer" 2>/dev/null)" ] && INSTALLED=1
+[ -n "${PRIME_DOCTOR_FORCE:-}" ] && INSTALLED=1
+if [ $INSTALLED = 0 ]; then
+    say note "Prime Linux isn't installed for this account from here — checking only, changing nothing"
+    in_session=0
+fi
+[ $QUIET = 1 ] && [ $DAILY = 0 ] && sleep 3      # let the session settle before judging it
+STATE="${XDG_STATE_HOME:-$HOME/.local/state}/prime"; mkdir -p "$STATE"
+need_update=0 need_restore=0 need_undo=0 need_addons=0
+
+# 1 — theme files (everything else reads its colours and text sizes from them)
+T="$HOME/.config/prime/theme"
+# (older theme files lack the text sizes: they count as missing)
+if [ -f "$T/colors.css" ] && [ -f "$T/fonts.rasi" ] && grep -qs prime_titlebar_text "$T/hyprland.conf" \
+        && grep -qs prime_font_clock "$T/hyprlock.conf"; then
+    ok "Theme: colours, text size and wallpaper are in place"
+elif [ $INSTALLED = 1 ]; then
+    "$BIN/prime-theme" --apply >>"$LOG" 2>&1 && fixd "Theme files were missing — made them again"
+else
+    bad "Theme files are missing"
+fi
+
+# 2 — fonts the bar and menus are drawn with
+for f in "Inter" "JetBrainsMono Nerd Font"; do
+    if fc-list : family | grep -qi "^$f"; then ok "Font installed: $f"
+    else bad "A font is missing ($f) — Update everything puts it back"; need_update=1; fi
+done
+
+if [ $in_session = 1 ]; then
+    # 3 — the bars and clipboard history run in the background, watched over
+    for u in prime-bar@top prime-dock prime-cliphist-text prime-cliphist-image prime-clip-persist; do
+        if systemctl --user is-active --quiet "$u"; then ok "Running: ${NAME[$u]}"
+        else
+            systemctl --user reset-failed "$u" 2>/dev/null
+            if systemctl --user restart "$u" 2>>"$LOG" && sleep 1 && systemctl --user is-active --quiet "$u"; then
+                fixd "${NAME[$u]} had stopped — started it again"
+            else bad "${NAME[$u]} won't start — Restore desktop settings usually fixes this"; need_restore=1; fi
+        fi
+    done
+
+    # 4 — the tray: whoever owns the watcher is where tray icons go
+    owner=$(busctl --user list 2>/dev/null | awk '$1=="org.kde.StatusNotifierWatcher"{print $3; exit}')
+    if [ "$owner" = waybar ] || [ -z "$owner" ]; then ok "Tray icons show in the bar"
+    else
+        pkill -x kded6 2>/dev/null; "$BIN/prime-bar" restart
+        fixd "Tray icons were going to another app — handed them back to the bar"
+    fi
+
+    # 5 — window title bars (built for each version of the window manager)
+    if hyprctl plugin list 2>/dev/null | grep -q hyprbars; then ok "Window title bars loaded"
+    else
+        hyprpm reload -n >>"$LOG" 2>&1
+        if hyprctl plugin list 2>/dev/null | grep -q hyprbars; then fixd "Window title bars were off — turned them on"
+        elif [ $QUIET = 1 ]; then
+            # the window manager was updated overnight: rebuild for the new version in the background
+            setsid -f sh -c 'hyprpm update -s && hyprpm reload -n' >>"$LOG" 2>&1 </dev/null
+            fixd "Window title bars are being rebuilt for the updated window manager (about a minute)"
+        else
+            say step "Rebuilding the window title bars for this version (about a minute)"
+            if hyprpm update -s >>"$LOG" 2>&1 && hyprpm reload -n >>"$LOG" 2>&1 && hyprctl plugin list 2>/dev/null | grep -q hyprbars; then
+                fixd "Window title bars rebuilt"
+            else bad "Window title bars need rebuilding after an update (needs the internet) — Update everything does it"; need_update=1; fi
+        fi
+    fi
+
+    # 6 — mistakes in the window settings (reported, never auto-edited: the file is yours)
+    errs="$(hyprctl configerrors 2>/dev/null | grep -v '^\s*$')"
+    if [ -z "$errs" ]; then ok "Window settings: no mistakes"
+    else
+        echo "window settings: $errs" >>"$LOG"
+        bad "Your window settings have a mistake — Restore desktop settings goes back to a copy that worked"
+        need_restore=1
+    fi
+
+    # 7 — a second network icon (the bar already shows the network)
+    if pgrep -x nm-applet >/dev/null; then
+        pkill -x nm-applet && fixd "Closed a second network icon — the bar already shows the network"
+    fi
+fi
+
+tip()  { say tip "$1"; }   # worth knowing, never nags at login
+row()  { # row <ok|warn|bad|info> <text> [fix]  — the TSV rows prime-system-update/prime-security print
+    local t="$2${3:+ — $3}"
+    # in the Prime window the fix is a note under the problem (the buttons below do the work)
+    if [ -n "${PRIME_PANEL:-}" ] && [ "$1" = bad ]; then bad "$2"; [ -n "${3:-}" ] && say note "$3"; return; fi
+    case "$1" in ok) ok "$2" ;; bad) bad "$t" ;; warn) tip "$t" ;; *) say note "$2" ;; esac
+}
+
+# 8 — the undo button for system updates: snapshots, and the boot menu that lists them
+if findmnt -no OPTIONS / 2>/dev/null | grep -q 'subvol=[^,]*\.snapshots/[0-9]'; then
+    bad "This computer started from a saved state from before an update — Undo an update keeps it or goes back"; need_undo=1
+fi
+while IFS=$'\t' read -r lvl msg fix; do [ -n "$lvl" ] && row "$lvl" "$msg" "$fix"; done < <("$ENGINE" snapshots --tsv 2>/dev/null)
+
+# 8b — File History: an undo for your own files
+while IFS=$'\t' read -r lvl msg fix; do [ -n "$lvl" ] && row "$lvl" "$msg" "$fix"; done < <("$BIN/prime-file-history" status --tsv 2>/dev/null)
+[ -n "$("$BIN/prime-file-history" status --tsv 2>/dev/null | grep '^warn')" ] && need_update=1
+
+# 9 — automatic updates: on, recent, not stuck
+if [ -x "$ENGINE" ] && j="$("$ENGINE" status --json 2>/dev/null)"; then
+    pol="$(jq -r .policy <<<"$j")"; last="$(jq -r .last_success <<<"$j")"; fails="$(jq -r .failures <<<"$j")"
+    st="$(jq -r '.last_run.status // ""' <<<"$j")"
+    if ! systemctl is-enabled prime-system-update.timer >/dev/null 2>&1; then
+        [ "$pol" = off ] && tip "Automatic updates are off — Settings → Updates" \
+                         || { bad "Automatic updates aren't running — Update everything sets them up"; need_update=1; }
+    elif [ "${fails:-0}" -ge 2 ]; then bad "Automatic updates stopped after $fails failed tries — Update everything shows why"; need_update=1
+    elif [ "$st" = broken ]; then bad "The last update didn't finish — Update everything finishes it (or Undo an update goes back)"; need_update=1; need_undo=1
+    else ok "Automatic updates: $pol"; fi
+    if [ "${last:-0}" -gt 0 ]; then
+        days=$(( ( $(date +%s) - last ) / 86400 ))
+        [ "$days" -ge 21 ] && { bad "The last system update was $days days ago — Update everything catches up"; need_update=1; } || ok "Last system update: $([ $days = 0 ] && echo today || echo "$days day(s) ago")"
+    fi
+else
+    tip "Automatic updates aren't set up yet — Update everything sets them up"
+fi
+if [ -e /var/lib/pacman/db.lck ] && ! pgrep -x 'pacman|paru|yay|pamac|packagekitd' >/dev/null; then
+    [ $(( $(date +%s) - $(stat -c %Y /var/lib/pacman/db.lck) )) -gt 600 ] \
+        && { bad "An update that crashed left a lock behind — Update everything clears it safely"; need_update=1; }
+fi
+pn="$(find /etc -name '*.pacnew' 2>/dev/null | wc -l)"
+[ "$pn" -gt 0 ] && tip "$pn settings file(s) have a newer version from an update (*.pacnew) — not urgent; compare with: sudo DIFFPROG=meld pacdiff"
+
+# 10 — safety: only real problems (firewall off, SSH open to everyone…); suggestions stay in prime-security
+if [ $QUIET = 1 ] && [ $INSTALLED = 1 ]; then
+    "$BIN/prime-security" fix-permissions >/dev/null 2>&1          # private files stay private
+    "$BIN/prime-updates-settings" --login-summary >/dev/null 2>&1  # what updated while you were away
+fi
+while IFS=$'\t' read -r lvl msg fix; do
+    [ "$lvl" = bad ] && row bad "$msg" "$fix"
+done < <("$BIN/prime-security" status --tsv 2>/dev/null)
+say note "The full safety report: Settings → Privacy & Security"
+
+# 11 — packs and add-ons check themselves
+if [ $QUIET = 0 ] && [ -x "$BIN/prime-addon" ]; then
+    "$BIN/prime-addon" check >>"$LOG" 2>&1; rc=$?
+    case $rc in
+        0) ok "Add-ons and packs: all fine" ;;
+        1) bad "An add-on or pack has a problem — Check the add-ons shows which"; need_addons=1 ;;
+        *) : ;;   # an older prime-addon without 'check'
+    esac
+fi
+
+# 12 — the login screen says Prime
+if [ -f /usr/share/wayland-sessions/prime.desktop ]; then ok "The login screen offers Prime"
+else bad "The login screen doesn't offer Prime yet — Update everything adds it"; need_update=1; fi
+
+# 13 — room on the disk: a full disk breaks updates, saving, even logging in
+for mp in / "$HOME"; do
+    read -r size avail < <(df -Pk "$mp" 2>/dev/null | awk 'NR==2 {print $2, $4}')
+    [ -n "${size:-}" ] && [ "${size:-0}" -gt 0 ] || continue
+    gb=$(( avail / 1048576 )); pct=$(( avail * 100 / size ))
+    where="the system disk"; [ "$mp" = "$HOME" ] && where="your home folder's disk"
+    if [ "$gb" -lt 2 ] || [ "$pct" -lt 3 ]; then
+        bad "$where is almost full (${gb} GB free) — empty the Trash, and remove big files you don't need"
+    elif [ "$gb" -lt 10 ] && [ "$pct" -lt 10 ]; then
+        tip "$where is getting full (${gb} GB free) — updates need a few GB of room"
+    fi
+    [ "$(df -P / | awk 'NR==2 {print $1}')" = "$(df -P "$HOME" | awk 'NR==2 {print $1}')" ] && break   # one disk: say it once
+done
+
+# 14 — background services that failed (in words, at most three of each kind)
+for scope in system user; do
+    flag=(); [ $scope = user ] && flag=(--user)
+    n=0
+    while read -r unit _; do
+        [ -n "$unit" ] || continue
+        n=$((n+1)); [ $n -le 3 ] || continue
+        what="$(systemctl "${flag[@]}" show -p Description --value "$unit" 2>/dev/null)"
+        echo "failed $scope unit: $unit" >>"$LOG"
+        if [ $scope = user ] && [[ "$unit" == prime-* ]]; then
+            bad "A part of the desktop stopped: ${what:-$unit} — Restore desktop settings usually fixes this"; need_restore=1
+        else
+            tip "A background service stopped: ${what:-$unit}${what:+ ($unit)} — Get help makes a report you can send"
+        fi
+    done < <(systemctl "${flag[@]}" --failed --no-legend --plain 2>/dev/null)
+done
+
+# 15 — the desktop's own building blocks jumped a version since the last check:
+# worth knowing once (if something looks different since, Undo an update goes back)
+VERS="$STATE/versions"; jumped=()
+for pk in hyprland waybar rofi gtk3 python; do
+    v="$(pacman -Q "$pk" 2>/dev/null | awk '{print $2}' | sed -E 's/^[0-9]+://; s/^([0-9]+\.[0-9]+).*/\1/')"
+    [ -n "$v" ] || continue
+    old="$(sed -n "s/^$pk //p" "$VERS" 2>/dev/null)"
+    [ -n "$old" ] && [ "$old" != "$v" ] && jumped+=("$pk $old → $v")
+done
+if [ ${#jumped[@]} -gt 0 ]; then
+    tip "Updated since the last check: ${jumped[*]} — if anything looks different since, Undo an update goes back"
+    [ $QUIET = 1 ] && notify-send -a Prime -u low -t 12000 "Prime: part of the desktop was updated" \
+        "$(printf '%s\n' "${jumped[@]}")
+If anything looks different, Settings → Updates → Undo the last update goes back." 2>/dev/null
+fi
+for pk in hyprland waybar rofi gtk3 python; do
+    v="$(pacman -Q "$pk" 2>/dev/null | awk '{print $2}' | sed -E 's/^[0-9]+://; s/^([0-9]+\.[0-9]+).*/\1/')"
+    [ -z "$v" ] || echo "$pk $v"
+done > "$VERS.tmp" 2>/dev/null
+if [ -s "$VERS.tmp" ]; then mv -f "$VERS.tmp" "$VERS"; else rm -f "$VERS.tmp"; fi
+
+[ $need_update = 1 ]  && action "Update everything" "$BIN/prime-update"
+[ $need_restore = 1 ] && action "Restore desktop settings" "$BIN/prime-desktop-backup restore"
+[ $need_undo = 1 ]    && action "Undo an update" "$BIN/prime-update --undo"
+[ $need_addons = 1 ]  && action "Check the add-ons" "$BIN/prime-panel --title 'Packs & add-ons' -- $BIN/prime-addon check"
+# something left that it couldn't fix: one click makes a report to send someone
+[ ${#left[@]} -gt 0 ]   && action "Get help" "$BIN/prime-help"
+
+# the daily check repeats only what's NEW: the same problems as last time stay quiet
+if [ $DAILY = 1 ]; then
+    seen="$STATE/doctor-told"
+    now="$(printf '%s\n' "${left[@]}" | sort)"
+    if [ ${#left[@]} -gt 0 ] && [ "$now" = "$(cat "$seen" 2>/dev/null)" ]; then left=(); fi
+    [ ${#left[@]} -gt 0 ] && printf '%s\n' "$now" > "$seen"
+    [ -z "$now" ] && rm -f "$seen"
+fi
+if [ $QUIET = 1 ]; then
+    [ ${#left[@]} -gt 0 ] && notify-send -a Prime -u normal -t 15000 "Desktop check — something needs you" \
+        "$(printf '%s\n' "${left[@]}")
+Open the Settings → About & Help → Check and fix the desktop."
+elif [ -n "${PRIME_PANEL:-}" ]; then
+    if [ ${#left[@]} -eq 0 ]; then echo "@summary Everything looks healthy."
+    elif [ ${#left[@]} -eq 1 ]; then echo "@summary One thing needs you — the button below fixes it."
+    else echo "@summary ${#left[@]} things need you — the buttons below fix them."; fi
+else
+    echo
+    [ ${#left[@]} -eq 0 ] && echo "Everything looks healthy." || echo "${#left[@]} need you — see the “Needs you” lines above."
+fi
+exit 0

@@ -1,0 +1,101 @@
+#!/bin/bash
+# Prime OS: the Prime desktop for each new account, then one rollback entry in the
+# boot menu, and never the broken one.
+#
+# Runs INSIDE the freshly installed system (shellprocess with dontChroot: false), after the
+# package step, so limine-snapper-sync.conf exists by now if Limine was chosen.
+#
+# Why two settings and not one:
+#   snap-pac writes a snapshot BEFORE every update and another AFTER it finishes. If an
+#   update installs cleanly and then the machine will not boot, the newest snapshot is the
+#   broken one. With the menu capped at a single entry, showing the newest would offer the
+#   broken state and hide the good one — so post-update snapshots are excluded from the menu,
+#   which makes the one entry the state from before the last change.
+#
+# Owner's words, 2026-09-27: "he only needs snapshots for 1 rollback. only if something
+# breaks is all, he wont even use it its for prime."
+set -uo pipefail
+
+# ── The Prime desktop for every account the installer made ──────────────────────
+# The buildset stages the Prime repository at /usr/share/prime-linux. From it, two of
+# the payload's system files go to / (the "Prime" login-screen session and the
+# first-login step) and its skel files into each account's home (the seeded
+# hyprland.conf that loads Prime and runs prime-first-login once). The rest of the
+# payload's system/ (snapper, prime-pc) is the captured machine's and is NOT written
+# here: CachyOS's own snapshot setup on this disk stays as the installer made it. The layer itself is then put in place
+# by prime-first-login at that account's first login, as the account, with
+# install.sh — the same path a CachyOS install takes with the install script.
+prime_desktop() {
+    local repo=/usr/share/prime-linux home user uid sys
+    if [ ! -d "$repo/os/cachyos/payload" ]; then
+        echo "prime: $repo not staged in this image — desktop left to the install script"
+        return 0
+    fi
+    sys="$repo/os/cachyos/payload/system"
+    install -Dm644 "$sys/usr/share/wayland-sessions/prime.desktop" /usr/share/wayland-sessions/prime.desktop
+    install -Dm755 "$sys/usr/local/bin/prime-first-login" /usr/local/bin/prime-first-login
+    for home in /home/*; do
+        [ -d "$home" ] || continue
+        user="$(stat -c %U "$home")"; uid="$(id -u "$user" 2>/dev/null || echo 0)"
+        [ "$uid" -ge 1000 ] || continue
+        if python3 "$repo/tools/expand-payload.py" --payload "$repo/os/cachyos/payload" \
+                --home "$home" --user "$user" --monitors "" \
+                --study-dir "$home/Documents" --study-platform "" --wallpaper "$repo/layer/wallpapers/prime-emblem.jpg" \
+                --audio-sink "" --gpu-env ""; then
+            chown -R "$user:" "$home/.config" "$home/.hermes" 2>/dev/null
+            echo "prime: Prime desktop seeded for $user"
+        else
+            echo "prime: could not seed the Prime desktop for $user" >&2
+            return 1
+        fi
+    done
+    return 0
+}
+prime_desktop || exit 1
+
+conf=/etc/limine-snapper-sync.conf
+
+if [ ! -f "$conf" ]; then
+    echo "prime: $conf not present (Limine is not the boot manager here) — skipping"
+    exit 0
+fi
+
+sed -i -E 's|^#?MAX_SNAPSHOT_ENTRIES=.*|MAX_SNAPSHOT_ENTRIES=1|' "$conf"
+sed -i -E 's|^#?EXCLUDE_SNAPSHOT_TYPES=.*|EXCLUDE_SNAPSHOT_TYPES="post"|' "$conf"
+
+if ! grep -q '^MAX_SNAPSHOT_ENTRIES=1$' "$conf"; then
+    echo "prime: could not set MAX_SNAPSHOT_ENTRIES in $conf" >&2
+    exit 1
+fi
+if ! grep -q '^EXCLUDE_SNAPSHOT_TYPES="post"$' "$conf"; then
+    echo "prime: could not set EXCLUDE_SNAPSHOT_TYPES in $conf" >&2
+    exit 1
+fi
+
+# The entry-name link. limine-snapper-sync only manages snapshot entries for the OS entry
+# whose name it knows, and CachyOS's own post-setup step hardcodes "CachyOS" there. We take
+# the name from the installed system instead: whatever the machine calls itself in
+# /etc/os-release is what the boot menu will call it, so rebranding cannot silently break
+# rollbacks. Both places are written because the two limine tools read different files.
+os_name="$(. /etc/os-release; printf '%s' "${PRETTY_NAME:-${NAME:-CachyOS}}")"
+sed -i "s|^TARGET_OS_NAME=.*|TARGET_OS_NAME=\"$os_name\"|" "$conf"
+
+if [ -f /etc/default/limine ]; then
+    if grep -q '^TARGET_OS_NAME=' /etc/default/limine; then
+        sed -i "s|^TARGET_OS_NAME=.*|TARGET_OS_NAME=\"$os_name\"|" /etc/default/limine
+    else
+        printf 'TARGET_OS_NAME="%s"\n' "$os_name" >> /etc/default/limine
+    fi
+else
+    mkdir -p /etc/default
+    printf 'TARGET_OS_NAME="%s"\n' "$os_name" > /etc/default/limine
+fi
+
+grep -q "^TARGET_OS_NAME=\"$os_name\"$" "$conf" || {
+    echo "prime: could not point the rollback tool at the right boot entry" >&2
+    exit 1
+}
+
+echo "prime: boot menu limited to one rollback entry — the state before the last change"
+echo "prime: rollbacks attached to the boot entry named \"$os_name\""
+exit 0

@@ -1,0 +1,22 @@
+[Unit]
+Description=Prime — unattended update cycle
+Documentation=file:/usr/share/doc/prime/UPDATES.md
+After=network-online.target prime-firstboot.service
+Wants=network-online.target
+# one word disables the whole thing, for someone who wants to do it themselves
+ConditionPathExists=!/etc/prime/updates-disabled
+
+[Service]
+Type=oneshot
+Environment=PRIME_BACKEND=bootc
+Environment=PRIME_AUTONOMY=auto-user
+Environment=PRIME_STATE_DIR=/var/lib/prime
+# the backend refuses to change a real machine unless this is set: it means "this is
+# the update service the owner has turned on", not "a script wandered in"
+Environment=PRIME_ALLOW_REAL_SYSTEM_CHANGES=yes
+ExecStart=/usr/libexec/prime/prime-autoupdate cycle
+# downloading an image in the background must never make the machine feel slow
+Nice=10
+IOSchedulingClass=idle
+CPUSchedulingPolicy=batch
+TimeoutStartSec=45min

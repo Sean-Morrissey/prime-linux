@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# prime-dock — the dock: your pinned apps and everything that's open, at the bottom of
+# the screen, out of the way until you move the pointer to the bottom edge (like a Mac).
+# A click opens or switches to an app; the grid button opens Start; right-click an app
+# to pin or unpin it.
+#
+#   prime-dock          what prime-dock.service runs
+#   prime-dock --args   print the dock command (tests)
+#
+# The dock is nwg-dock-hyprland. If it isn't installed, the older side bar (a column of
+# open apps on the left) starts instead, so there is always a way back to a window.
+set -u
+BIN="$(dirname "$(readlink -f "$0")")"
+CONF="$HOME/.config/nwg-dock-hyprland"
+PINNED="$HOME/.cache/nwg-dock-pinned"
+
+args=(-d -p bottom -i 44 -mb 8 -hd 300 -s prime.css -c "$BIN/prime-start")
+if [ "${1:-}" = --args ]; then printf '%s\n' nwg-dock-hyprland "${args[@]}"; exit 0; fi
+
+if ! command -v nwg-dock-hyprland >/dev/null 2>&1; then
+    exec "$BIN/prime-bar" side
+fi
+
+# its style comes from the theme (accent, glass); the file must live in its own folder
+mkdir -p "$CONF" "$(dirname "$PINNED")"
+ln -sfn "$HOME/.config/prime/theme/dock.css" "$CONF/prime.css"
+
+# first run: pin the everyday apps that are installed (Files, browser, App Store, Settings)
+if [ ! -e "$PINNED" ]; then
+    for id in nemo org.gnome.Nautilus firefox chromium org.gnome.Software prime-settings; do
+        for d in "$HOME/.local/share/applications" /usr/share/applications; do
+            [ -f "$d/$id.desktop" ] && { echo "$id"; break; }
+        done
+    done > "$PINNED"
+fi
+
+exec nwg-dock-hyprland "${args[@]}"

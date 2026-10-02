@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Super+right-click on the desktop. A wrapper because a Hyprland bind can't
+# pass arguments through `bindm`.
+exec "$(dirname "$(readlink -f "$0")")/prime-context" desktop

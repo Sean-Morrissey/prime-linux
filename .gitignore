@@ -1,0 +1,23 @@
+# Build artifacts
+*.iso
+output/
+
+# Local BlueBuild state
+.bluebuild/
+
+# Editor noise
+.vscode/
+.idea/
+*.swp
+
+# signing private key — NEVER commit
+cosign.key
+
+# Capture artifacts: the report describes the source machine (hardware names, timestamps),
+# and the review tree holds the author's own skills/ledger. Neither is shippable.
+os/cachyos/capture-report.json
+os/cachyos/payload-review/
+
+# Python bytecode
+__pycache__/
+*.pyc

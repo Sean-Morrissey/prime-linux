@@ -1,0 +1,21 @@
+[Unit]
+Description=Prime — verify this boot after an update
+Documentation=file:/usr/share/doc/prime/UPDATES.md
+After=graphical.target prime-firstboot.service
+Wants=graphical.target
+ConditionPathExists=!/etc/prime/updates-disabled
+
+[Service]
+Type=oneshot
+Environment=PRIME_BACKEND=bootc
+Environment=PRIME_AUTONOMY=auto-user
+Environment=PRIME_STATE_DIR=/var/lib/prime
+Environment=PRIME_ALLOW_REAL_SYSTEM_CHANGES=yes
+ExecStart=/usr/libexec/prime/prime-autoupdate post-boot
+# this one is allowed to give up early: if the new version is broken, the decision
+# to roll back has to happen while the machine is still usable enough to do it
+TimeoutStartSec=5min
+RemainAfterExit=no
+
+[Install]
+WantedBy=multi-user.target

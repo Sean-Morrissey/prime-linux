@@ -1,0 +1,935 @@
+#!/usr/bin/env bash
+# prime-system-update — Prime Linux's system updater (runs as root).
+#
+# One implementation of "update this computer safely", used two ways:
+#   * every hour by prime-system-update.timer, which decides by itself whether
+#     now is the moment (policy, update hours, gaming, battery, …) — `cycle`
+#   * by the person, through `prime-update`, right now — `apply --manual`
+#
+# Order of work, always:  check → download everything → snapshot → install
+# (shutdown blocked) → health check → repair what is safe → plain-language
+# report. Downloads finish before anything is installed, so a dropped network
+# can't leave a half-updated system. It never reboots the machine.
+#
+# Usage (read-only verbs work without root):
+#   prime-system-update status [--json]   what the updater is doing and did last
+#   prime-system-update gates             may it update right now? why not?
+#   prime-system-update check             what is waiting (repo, security, AUR, apps)
+#   prime-system-update snapshots [--tsv] can an update be undone from the boot menu?
+#   prime-system-update undo              how to go back to before the last update
+#   prime-system-update history           what it has done, newest last
+#   prime-system-update cycle             the timer's entry point (root)
+#   prime-system-update apply [--manual] [--ensure FILE]   update now (root)
+#   prime-system-update set KEY=VALUE…    change a setting (root; validated)
+#   prime-system-update pause [days] | resume | clear-failure   (root)
+#
+# Real changes need PRIME_ALLOW_REAL_SYSTEM_CHANGES=yes — the installed unit
+# sets it, and prime-update passes it when a person asks for an update. A stray
+# invocation by anything else refuses to touch the system.
+set -uo pipefail
+umask 022
+
+CONF="${PRIME_UPDATES_CONF:-/etc/prime/updates.conf}"
+STATE="${PRIME_UPDATES_STATE:-/var/lib/prime-linux/updates}"
+POWER_DIR="${PRIME_SYSFS_POWER:-/sys/class/power_supply}"
+PACMAN_LOCK="${PRIME_PACMAN_LOCK:-/var/lib/pacman/db.lck}"
+PACMAN_LOG="${PRIME_PACMAN_LOG:-/var/log/pacman.log}"
+BOOT_DIR="${PRIME_BOOT_DIR:-/boot}"
+MODULES_DIR="${PRIME_MODULES_DIR:-/usr/lib/modules}"
+TESTING="${PRIME_TEST_ALLOW_NONROOT:-0}"   # sandbox tests: fake commands on PATH, no root
+FACTS_FILE="${PRIME_FACTS_FILE:-}"         # sandbox tests: lie about the machine
+VERSION=1
+
+# Sandbox tests run this file for real, so every command that could change the
+# machine must be a fake from the test's PATH. Refuse otherwise.
+test_guard() {
+  [ "$TESTING" = 1 ] || return 0
+  local c p
+  for c in pacman snapper flatpak systemctl systemd-run systemd-inhibit runuser mkinitcpio limine-mkinitcpio dracut cachyos-rate-mirrors reflector paru; do
+    p="$(command -v "$c" 2>/dev/null || true)"
+    case "$p" in /usr/*|/bin/*|/sbin/*) echo "test mode: $c resolves to the real $p — refusing" >&2; exit 99 ;; esac
+  done
+}
+
+# ── settings: defaults, then the config file (parsed, never sourced) ─────────
+POLICY=auto            # auto | ask | security | off
+WINDOW_START=3         # update hours: from 03:00 …
+WINDOW_END=6           # … until 06:00
+CATCH_UP_DAYS=2        # off every night? update anyway after this many days, when you're away
+IDLE_MINUTES=20        # "away" means untouched this long, or the screen is locked
+QUIET_START=22         # no pop-ups from 22:00 …
+QUIET_END=8            # … to 08:00 (you get a summary when you log in instead)
+MIN_BATTERY=50         # on battery, only update above this charge (percent)
+MIN_FREE_GB=5          # refuse below this much free space on /
+SNAPSHOTS=auto         # auto (if the disk can) | require | off
+FLATPAK=yes            # also update App Store (Flatpak) apps
+AUR_NOTIFY=yes         # mention waiting AUR updates (they are never installed unattended)
+SKIP_ON_METERED=yes    # no big downloads on a metered connection
+SECURITY_MAX_DAYS=30   # "security only" still does a full update at least this often
+FAIL_LIMIT=2           # after this many failed nightly runs in a row, stop and ask
+NOTIFY=yes
+MAIN_USER=""           # whose AUR helper to ask; set by the installer
+
+declare -A ALLOWED=(
+  [POLICY]='^(auto|ask|security|off)$'
+  [WINDOW_START]='^([0-9]|1[0-9]|2[0-3])$'   [WINDOW_END]='^([0-9]|1[0-9]|2[0-3])$'
+  [QUIET_START]='^([0-9]|1[0-9]|2[0-3])$'    [QUIET_END]='^([0-9]|1[0-9]|2[0-3])$'
+  [CATCH_UP_DAYS]='^[0-9]{1,2}$'  [IDLE_MINUTES]='^[0-9]{1,3}$'  [MIN_BATTERY]='^[0-9]{1,2}$|^100$'
+  [MIN_FREE_GB]='^[0-9]{1,3}$'    [SNAPSHOTS]='^(auto|require|off)$'
+  [FLATPAK]='^(yes|no)$'  [AUR_NOTIFY]='^(yes|no)$'  [SKIP_ON_METERED]='^(yes|no)$'  [NOTIFY]='^(yes|no)$'
+  [SECURITY_MAX_DAYS]='^[0-9]{1,3}$'  [FAIL_LIMIT]='^[0-9]{1,2}$'
+  [MAIN_USER]='^([a-z_][a-z0-9_-]{0,31})?$'
+)
+
+load_conf() {
+  [ -r "$CONF" ] || return 0
+  local line k v
+  while IFS= read -r line || [ -n "$line" ]; do
+    line="${line%%#*}"; line="${line#"${line%%[![:space:]]*}"}"; line="${line%"${line##*[![:space:]]}"}"
+    [ -n "$line" ] || continue
+    k="${line%%=*}"; v="${line#*=}"; v="${v%\"}"; v="${v#\"}"
+    [ -n "${ALLOWED[$k]:-}" ] || continue
+    [[ "$v" =~ ${ALLOWED[$k]} ]] || continue
+    printf -v "$k" '%s' "$v"
+  done < "$CONF"
+}
+load_conf
+
+# ── output ───────────────────────────────────────────────────────────────────
+if [ -t 1 ]; then G=$'\e[32m'; Y=$'\e[33m'; Rd=$'\e[31m'; D=$'\e[2m'; Bo=$'\e[1m'; N=$'\e[0m'
+else G=; Y=; Rd=; D=; Bo=; N=; fi
+say()  { printf '%s\n' "$*"; }
+ok()   { printf '  %s✓%s %s\n' "$G" "$N" "$*"; }
+warn() { printf '  %s!%s %s\n' "$Y" "$N" "$*"; }
+bad()  { printf '  %s✗%s %s\n' "$Rd" "$N" "$*"; }
+dim()  { printf '    %s%s%s\n' "$D" "$*" "$N"; }
+step() { printf '\n%s%s%s\n' "$Bo" "$*" "$N"; }
+
+now()  { [ -n "${PRIME_NOW_EPOCH:-}" ] && [ "$TESTING" = 1 ] && { echo "$PRIME_NOW_EPOCH"; return; }; date +%s; }
+hour() { [ -n "${PRIME_NOW_HOUR:-}" ] && [ "$TESTING" = 1 ] && { echo "$PRIME_NOW_HOUR"; return; }; date +%-H; }
+
+is_root() { [ "$(id -u)" = 0 ] || [ "$TESTING" = 1 ]; }
+need_root() { is_root || { bad "this needs administrator rights (run it through prime-update, or with sudo)"; exit 4; }; }
+real_guard() {
+  [ "${PRIME_ALLOW_REAL_SYSTEM_CHANGES:-no}" = yes ] && return 0
+  bad "not allowed to change this computer from here"
+  dim "updates run from the nightly service or from prime-update, which say so on purpose"
+  exit 3
+}
+
+ensure_state() { mkdir -p "$STATE" 2>/dev/null && chmod 755 "$STATE" 2>/dev/null; return 0; }
+sget() { cat "$STATE/$1" 2>/dev/null; }
+sput() { ensure_state; printf '%s\n' "$2" > "$STATE/$1.tmp" && mv -f "$STATE/$1.tmp" "$STATE/$1"; }
+hist() { ensure_state; printf '%s | %s\n' "$(date '+%F %H:%M')" "$*" >> "$STATE/history.log"; }
+
+# ── facts about the machine (each one overridable by the sandbox tests) ──────
+fact_override() { # fact_override <key> -> prints value and returns 0 if the test file sets it
+  [ "$TESTING" = 1 ] && [ -n "$FACTS_FILE" ] && [ -r "$FACTS_FILE" ] || return 1
+  local v; v="$(sed -n "s/^$1=//p" "$FACTS_FILE" | tail -1)"
+  [ -n "$v" ] || return 1
+  [ "$v" = - ] && v=""          # "-" = "nothing" (an empty value would mean "not set")
+  printf '%s\n' "$v"
+}
+
+# Idle time. loginctl's IdleSinceHintMonotonic is in MICROseconds on the
+# monotonic clock; /proc/uptime is in seconds on the same clock. Convert once,
+# subtract, then divide — the old supervisor mixed the units (P0-8).
+idle_minutes_from() { # <uptime_seconds_float> <idle_since_us>
+  awk -v up="$1" -v since="$2" 'BEGIN{ d = up*1000000 - since; if (d < 0) d = 0; printf "%d\n", d/60000000 }'
+}
+
+graphical_sessions() { # "<session> <uid> <user>" for every active graphical session
+  fact_override sessions && return 0
+  command -v loginctl >/dev/null || return 0
+  local s ty act uid name
+  for s in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $1}'); do
+    ty="$(loginctl show-session "$s" -p Type --value 2>/dev/null)"
+    case "$ty" in wayland|x11) ;; *) continue ;; esac
+    act="$(loginctl show-session "$s" -p Active --value 2>/dev/null)"
+    [ "$act" = yes ] || continue
+    uid="$(loginctl show-session "$s" -p User --value 2>/dev/null)"
+    name="$(loginctl show-session "$s" -p Name --value 2>/dev/null)"
+    [ -n "$uid" ] && [ -n "$name" ] && printf '%s %s %s\n' "$s" "$uid" "$name"
+  done
+}
+
+away_minutes() { # how long the person at the screen has been away; 9999 = nobody is logged in
+  fact_override away_minutes && return 0
+  local rows s uid name hint since up best=-1 m
+  rows="$(graphical_sessions)"
+  [ -n "$rows" ] || { echo 9999; return; }
+  up="$(cut -d' ' -f1 /proc/uptime 2>/dev/null || echo 0)"
+  while read -r s uid name; do
+    m=0
+    if pgrep -u "$uid" -x hyprlock >/dev/null 2>&1 || \
+       [ "$(loginctl show-session "$s" -p LockedHint --value 2>/dev/null)" = yes ]; then
+      m=9998                                   # locked screen = away
+    else
+      hint="$(loginctl show-session "$s" -p IdleHint --value 2>/dev/null)"
+      since="$(loginctl show-session "$s" -p IdleSinceHintMonotonic --value 2>/dev/null)"
+      [ "$hint" = yes ] && [ -n "$since" ] && [ "$since" != 0 ] && m="$(idle_minutes_from "$up" "$since")"
+    fi
+    # the LEAST-away session decides: one person working is enough to wait
+    if [ "$best" -lt 0 ] || [ "$m" -lt "$best" ]; then best="$m"; fi
+  done <<<"$rows"
+  echo "${best#-}"
+}
+
+gaming() { # prints what looks like a game, or nothing
+  fact_override gaming && return 0
+  local p hits=""
+  for p in gamescope gamescope-wl wineserver steamwebhelper-game reaper; do
+    if [ "$p" = reaper ]; then
+      pgrep -f 'reaper.*SteamLaunch' >/dev/null 2>&1 && hits="$hits steam-game"
+    else
+      pgrep -x "$p" >/dev/null 2>&1 && hits="$hits $p"
+    fi
+  done
+  pgrep -f 'steam_app_[0-9]+' >/dev/null 2>&1 && hits="$hits steam-game"
+  # a fullscreen window on any Prime desktop (a game, a film, a presentation)
+  local s uid name sig rt
+  while read -r s uid name; do
+    [ -n "$uid" ] || continue
+    rt="/run/user/$uid"
+    for sig in "$rt"/hypr/*/; do
+      [ -d "$sig" ] || continue
+      if runuser -u "$name" -- env XDG_RUNTIME_DIR="$rt" HYPRLAND_INSTANCE_SIGNATURE="$(basename "$sig")" \
+           timeout 3 hyprctl -j activewindow 2>/dev/null | grep -Eq '"fullscreen": *([1-9]|true)'; then
+        hits="$hits fullscreen"
+      fi
+    done
+  done < <(graphical_sessions)
+  printf '%s\n' "${hits# }" | tr ' ' '\n' | sort -u | tr '\n' ' ' | sed 's/ $//'
+}
+
+power() { # "ac" | "battery <percent>"
+  fact_override power && return 0
+  local p online=0 batt="" cap
+  for p in "$POWER_DIR"/*; do
+    [ -r "$p/type" ] || continue
+    case "$(cat "$p/type")" in
+      Mains|USB|USB_C|USB_PD) [ "$(cat "$p/online" 2>/dev/null)" = 1 ] && online=1 ;;
+      Battery)
+        [ "$(cat "$p/scope" 2>/dev/null)" = Device ] && continue   # a mouse or headset
+        cap="$(cat "$p/capacity" 2>/dev/null)"; [ -n "$cap" ] && { [ -z "$batt" ] || [ "$cap" -lt "$batt" ]; } && batt="$cap" ;;
+    esac
+  done
+  if [ -z "$batt" ] || [ "$online" = 1 ]; then echo ac; else echo "battery $batt"; fi
+}
+
+metered() {
+  fact_override metered && return 0
+  command -v nmcli >/dev/null || { echo no; return; }
+  nmcli -t -f GENERAL.METERED dev show 2>/dev/null | grep -Eq ':yes( \(guessed\))?$' && echo yes || echo no
+}
+
+free_gb()      { fact_override free_gb  || df -BG --output=avail /     2>/dev/null | tail -1 | tr -dc '0-9'; }
+boot_free_mb() { # free space where kernels are written; empty when /boot is part of /
+  fact_override boot_free_mb && return 0
+  local m
+  for m in /boot /efi /boot/efi; do
+    if mountpoint -q "$m" 2>/dev/null; then df -BM --output=avail "$m" 2>/dev/null | tail -1 | tr -dc '0-9'; return; fi
+  done
+}
+
+pkg_busy() { # another package manager at work? prints its name
+  fact_override pkg_busy && return 0
+  local p
+  for p in pacman paru yay pamac pamac-daemon packagekitd makepkg; do
+    pgrep -x "$p" >/dev/null 2>&1 && { echo "$p"; return; }
+  done
+}
+
+in_hours() { # in_hours <hour> <start> <end>  — wraps past midnight
+  local h=$1 s=$2 e=$3
+  if [ "$s" -le "$e" ]; then [ "$h" -ge "$s" ] && [ "$h" -lt "$e" ]
+  else [ "$h" -ge "$s" ] || [ "$h" -lt "$e" ]; fi
+}
+quiet_now() { in_hours "$(hour)" "$QUIET_START" "$QUIET_END"; }
+
+# ── snapshots and the boot menu ──────────────────────────────────────────────
+root_fs() { fact_override root_fs || findmnt -no FSTYPE / 2>/dev/null; }
+bootloader() {
+  fact_override bootloader && return 0
+  # the boot menu that started this boot says its own name (readable without root)
+  local li; li="$(tail -c +5 /sys/firmware/efi/efivars/LoaderInfo-4a67b082-0a4c-41cf-b6c7-440b29bb8c4f 2>/dev/null | tr -d '\0')"
+  case "${li,,}" in limine*) echo limine; return ;; systemd-boot*) echo systemd-boot; return ;; grub*) echo grub; return ;; refind*) echo refind; return ;; esac
+  if pacman -Qq limine >/dev/null 2>&1 && ! pacman -Qq grub >/dev/null 2>&1; then echo limine
+  elif [ -e /boot/limine.conf ] || [ -e /boot/limine/limine.conf ] || [ -e /boot/EFI/limine/limine.conf ]; then echo limine
+  elif pacman -Qq grub >/dev/null 2>&1 && [ -d /boot/grub ]; then echo grub
+  elif [ -d /boot/loader/entries ] || [ -d /efi/loader/entries ]; then echo systemd-boot
+  elif pacman -Qq refind >/dev/null 2>&1; then echo refind
+  else echo unknown; fi
+}
+has_snapper_root() {
+  local v; if v="$(fact_override snapper_root)"; then [ "$v" = yes ]; return; fi
+  [ -e /etc/snapper/configs/root ] && command -v snapper >/dev/null
+}
+can_snapshot() { [ "$SNAPSHOTS" != off ] && [ "$(root_fs)" = btrfs ] && has_snapper_root; }
+booted_from_snapshot() { findmnt -no OPTIONS / 2>/dev/null | grep -q 'subvol=[^,]*\.snapshots/[0-9]'; }
+
+snapshots_tsv() { # level<TAB>message<TAB>fix — what doctor and status print
+  local fs bl
+  fs="$(root_fs)"; bl="$(bootloader)"
+  if [ "$fs" != btrfs ]; then
+    printf 'warn\tThis disk (%s) cannot take system snapshots — updates cannot be undone from the boot menu\tOnly a reinstall with btrfs adds this; updates still run with every other safety check\n' "${fs:-unknown}"
+    return
+  fi
+  if ! command -v snapper >/dev/null; then
+    printf 'bad\tSnapshots are possible but snapper is not installed\tsudo pacman -S snapper snap-pac cachyos-snapper-support\n'; return
+  fi
+  if [ ! -e /etc/snapper/configs/root ]; then
+    printf 'bad\tSnapper has no configuration for the system disk\tsudo snapper -c root create-config /   (CachyOS: install cachyos-snapper-support)\n'; return
+  fi
+  printf 'ok\tSystem snapshots are on (snapper)\t\n'
+  if pacman -Qq snap-pac >/dev/null 2>&1; then printf 'ok\tEvery package change takes a snapshot first (snap-pac)\t\n'
+  else printf 'warn\tOnly Prime'"'"'s own updates take a snapshot — manual installs do not\tsudo pacman -S snap-pac\n'; fi
+  local last; last="$(last_prime_snapshot)"
+  [ -n "$last" ] && printf 'ok\tLast "before update" snapshot: #%s\t\n' "$last"
+  case "$bl" in
+    limine)
+      if pacman -Qq limine-snapper-sync >/dev/null 2>&1; then
+        printf 'ok\tSnapshots appear in the boot menu (Limine + limine-snapper-sync)\t\n'
+        systemctl is-enabled limine-snapper-sync.service >/dev/null 2>&1 \
+          || printf 'warn\tThe boot-menu snapshot list is only refreshed when a snapshot is taken\tsudo systemctl enable limine-snapper-sync.service\n'
+      else
+        printf 'bad\tSnapshots are taken but do not appear in the boot menu\tsudo pacman -S limine-snapper-sync && sudo systemctl enable --now limine-snapper-sync.service\n'
+      fi ;;
+    grub)
+      if pacman -Qq grub-btrfs >/dev/null 2>&1; then
+        if systemctl is-enabled grub-btrfsd.service >/dev/null 2>&1; then printf 'ok\tSnapshots appear in the boot menu (GRUB + grub-btrfs)\t\n'
+        else printf 'bad\tgrub-btrfs is installed but not watching for new snapshots\tsudo systemctl enable --now grub-btrfsd.service\n'; fi
+        grep -Eq '^[[:space:]]*HOOKS=.*grub-btrfs-overlayfs' /etc/mkinitcpio.conf /etc/mkinitcpio.conf.d/*.conf 2>/dev/null \
+          || printf 'warn\tBooting a snapshot may stop at a read-only error\tadd grub-btrfs-overlayfs to HOOKS in /etc/mkinitcpio.conf, then: sudo mkinitcpio -P\n'
+      else
+        printf 'bad\tSnapshots are taken but do not appear in the boot menu\tsudo pacman -S grub-btrfs && sudo systemctl enable --now grub-btrfsd.service\n'
+      fi ;;
+    systemd-boot|refind)
+      printf 'warn\tThis boot menu (%s) cannot list snapshots — undo works from the desktop instead\tsudo pacman -S btrfs-assistant   (Snapper tab → Restore)\n' "$bl" ;;
+    *) printf 'warn\tCould not tell which boot menu this computer uses\t\n' ;;
+  esac
+}
+
+last_prime_snapshot() { # number of the newest "Prime: before update" snapshot
+  fact_override last_snapshot && return 0
+  is_root || { sget snapshot-last; return; }
+  command -v snapper >/dev/null || return 0
+  snapper -c root --csvout list --columns number,description 2>/dev/null \
+    | awk -F, '$2 ~ /^Prime: before update/ {n=$1} END{if(n)print n}'
+}
+
+take_snapshot() { # prints the snapshot number
+  local n
+  n="$(snapper -c root create --description "Prime: before update $(date '+%F %H:%M')" \
+        --cleanup-algorithm number --userdata important=yes --print-number 2>/dev/null)" || return 1
+  [ -n "$n" ] || return 1
+  sput snapshot-last "$n"
+  printf '%s\n' "$n"
+}
+
+# ── commands with a log that survive a closed terminal ───────────────────────
+LOG=""
+new_log() { ensure_state; LOG="$STATE/run-$(date +%Y%m%d-%H%M%S).log"; : > "$LOG"; chmod 644 "$LOG"
+            ls -1t "$STATE"/run-*.log 2>/dev/null | tail -n +8 | xargs -r rm -f; }
+# run_logged <label> <cmd…>: runs detached from the terminal (a closed window
+# can't interrupt it), output to the log and — while someone watches — the screen.
+run_logged() {
+  local label="$1"; shift
+  if [ "${INHIBIT:-0}" = 1 ] && [ "$TESTING" != 1 ] && command -v systemd-inhibit >/dev/null && [ -d /run/systemd/system ]; then
+    set -- systemd-inhibit --what=shutdown:sleep:idle:handle-lid-switch:handle-power-key --mode=block \
+      --who="Prime Linux" --why="Installing updates — please keep the computer on" "$@"
+  fi
+  printf '\n### %s: %s\n' "$label" "$*" >> "$LOG"
+  if [ "${QUIET_OUT:-0}" = 1 ]; then
+    setsid -w "$@" </dev/null >> "$LOG" 2>&1
+  else
+    setsid -w "$@" </dev/null 2>&1 | tee -p -a "$LOG" | sed -u 's/^/      /'
+    return "${PIPESTATUS[0]}"
+  fi
+}
+# INHIBIT=1 run_logged …  blocks shutdown and sleep while it runs (when logind is there)
+
+PACMAN_FLAGS=(--noconfirm --noprogressbar)
+
+mirror_trouble() { grep -Eqi 'failed retrieving file|could not resolve host|error: failed to (synchronize|retrieve)|operation too slow|404|timed out' "$LOG"; }
+refresh_mirrors() {
+  if command -v cachyos-rate-mirrors >/dev/null; then
+    say "    the download servers were slow or missing files — picking faster ones (about a minute)…"
+    run_logged mirrors timeout 300 cachyos-rate-mirrors >/dev/null 2>&1 || true
+  elif command -v reflector >/dev/null; then
+    run_logged mirrors timeout 300 reflector --latest 20 --protocol https --sort rate --save /etc/pacman.d/mirrorlist >/dev/null 2>&1 || true
+  fi
+}
+
+lock_wait() { # lock_wait <seconds>: 0 when pacman's lock is free
+  local waited=0 who
+  while [ -e "$PACMAN_LOCK" ]; do
+    who="$(pkg_busy)"
+    if [ -z "$who" ]; then
+      # nothing is running, so the lock was left behind by a crash or a power cut
+      local age=$(( $(now) - $(stat -c %Y "$PACMAN_LOCK" 2>/dev/null || now) ))
+      if [ "$age" -ge 300 ] || [ "${1:-0}" -gt 0 ]; then
+        rm -f "$PACMAN_LOCK" && { say "    removed a leftover lock from an earlier, interrupted run"; hist "removed stale pacman lock (age ${age}s)"; }
+        return 0
+      fi
+    fi
+    [ "$waited" -ge "${1:-0}" ] && return 1
+    [ $((waited % 60)) = 0 ] && say "    another program is installing software (${who:-pacman}) — waiting for it to finish…"
+    sleep 5; waited=$((waited + 5))
+  done
+  return 0
+}
+
+changed_since() { # package names pacman upgraded/installed since the stamp file's time
+  local since; since="$(date -r "$1" '+%Y-%m-%dT%H:%M:%S' 2>/dev/null)" || return 0
+  awk -v s="$since" '$2=="[ALPM]" && ($3=="upgraded" || $3=="installed" || $3=="reinstalled") {
+      t=$1; gsub(/[][]/,"",t); if (substr(t,1,19) >= s) print $4 }' "$PACMAN_LOG" 2>/dev/null | sort -u
+}
+failed_units() { systemctl --failed --no-legend --plain 2>/dev/null | awk '{print $1}' | sort; }
+pkg_state()    { pacman -Q 2>/dev/null | md5sum | cut -c1-32; }
+
+# ── the update itself ────────────────────────────────────────────────────────
+# Sets these for the caller's report:
+R_STATUS=""; R_SUMMARY=""; R_COUNT=0; R_SNAP=""; R_REBOOT=no; R_PACNEW=0; R_FLATPAK=""; R_PROBLEMS=()
+apply_update() { # apply_update <mode manual|nightly> [extra packages…]
+  local mode="$1"; shift
+  local extra=("$@") stamp before_units before_state rc
+  new_log
+  stamp="$STATE/.stamp"; : > "$stamp"
+  R_PROBLEMS=()
+
+  step "1. Getting ready"
+  if ! lock_wait "$([ "$mode" = manual ] && echo 600 || echo 0)"; then
+    R_STATUS=skipped; R_SUMMARY="Another program was installing software, so nothing was changed."
+    bad "$R_SUMMARY"; return 2
+  fi
+  local fg bf; fg="$(free_gb)"; bf="$(boot_free_mb)"
+  if [ "${fg:-0}" -lt "$MIN_FREE_GB" ]; then
+    R_STATUS=skipped; R_SUMMARY="Only ${fg} GB of disk space is free (an update needs ${MIN_FREE_GB} GB), so nothing was changed."
+    bad "$R_SUMMARY"; dim "free some space (Downloads, Trash, old games), then try again — or: sudo paccache -rk1"; return 2
+  fi
+  if [ -n "$bf" ] && [ "$bf" -lt 120 ]; then
+    R_STATUS=skipped; R_SUMMARY="The boot partition is almost full (${bf} MB free) — a new kernel might not fit, so nothing was changed."
+    bad "$R_SUMMARY"; dim "remove kernels you don't use, or ask for help — updating now could stop the computer from starting"; return 2
+  fi
+  ok "disk space: ${fg} GB free${bf:+, boot partition ${bf} MB free}"
+
+  step "2. Checking for updates"
+  if ! run_logged sync pacman -Sy "${PACMAN_FLAGS[@]}"; then
+    if mirror_trouble; then refresh_mirrors; run_logged sync-retry pacman -Syy "${PACMAN_FLAGS[@]}" || rc=1; else rc=1; fi
+    if [ "${rc:-0}" = 1 ]; then
+      R_STATUS=skipped; R_SUMMARY="Couldn't reach the update servers (no internet?), so nothing was changed."
+      bad "$R_SUMMARY"; return 2
+    fi
+  fi
+  local pending; pending="$(pacman -Qu 2>/dev/null)"
+  R_COUNT="$(printf '%s' "$pending" | grep -c . || true)"
+  if [ "$R_COUNT" = 0 ] && [ ${#extra[@]} -eq 0 ]; then
+    ok "the system is already up to date"
+  else
+    ok "$R_COUNT system update(s) to install"
+    # signing keys first: an outdated keyring makes every later download "invalid"
+    local keys; keys="$(printf '%s\n' "$pending" | awk '{print $1}' | grep -Ex '(archlinux|cachyos)-keyring' | tr '\n' ' ')"
+    if [ -n "$keys" ]; then
+      say "    updating the package signing keys first"
+      # shellcheck disable=SC2086
+      run_logged keyring pacman -S --needed "${PACMAN_FLAGS[@]}" $keys \
+        || { R_STATUS=failed; R_SUMMARY="Couldn't update the package signing keys, so nothing else was changed."; bad "$R_SUMMARY"; return 1; }
+    fi
+
+    step "3. Downloading (nothing is installed until everything is here)"
+    if ! run_logged download pacman -Suw --needed "${PACMAN_FLAGS[@]}" "${extra[@]}"; then
+      if mirror_trouble; then refresh_mirrors; run_logged sync-retry pacman -Syy "${PACMAN_FLAGS[@]}"; fi
+      if ! run_logged download-retry pacman -Suw --needed "${PACMAN_FLAGS[@]}" "${extra[@]}"; then
+        R_STATUS=skipped; R_SUMMARY="Some updates couldn't be downloaded, so nothing was changed. It will try again later."
+        grep -qi 'invalid or corrupted package\|signature' "$LOG" && R_SUMMARY="An update failed its safety signature check, so nothing was changed. This usually fixes itself within a day."
+        bad "$R_SUMMARY"; return 2
+      fi
+    fi
+    ok "everything downloaded"
+
+    step "4. Safety snapshot"
+    if can_snapshot; then
+      if R_SNAP="$(take_snapshot)"; then ok "snapshot #$R_SNAP — the system as it is now, before the update"
+      else
+        R_STATUS=failed; R_SUMMARY="Couldn't take a safety snapshot, so the update was not installed."
+        bad "$R_SUMMARY"; dim "check: sudo snapper -c root list"; return 1
+      fi
+    elif [ "$SNAPSHOTS" = require ]; then
+      R_STATUS=skipped; R_SUMMARY="Snapshots are required but this computer can't take one, so nothing was changed."
+      bad "$R_SUMMARY"; return 2
+    else
+      warn "no snapshot possible on this disk — continuing with every other safety check"
+    fi
+
+    step "5. Installing — please keep the computer on"
+    before_units="$(failed_units)"; before_state="$(pkg_state)"
+    if ! INHIBIT=1 run_logged install pacman -Su --needed "${PACMAN_FLAGS[@]}" "${extra[@]}"; then
+      if [ "$(pkg_state)" = "$before_state" ]; then
+        R_STATUS=failed; R_SUMMARY="The update stopped before changing anything. Nothing was changed."
+        grep -q 'conflicting files\|are in conflict\|exists in filesystem' "$LOG" && R_SUMMARY="$R_SUMMARY Two packages want the same file — this usually needs a person (see the log)."
+        bad "$R_SUMMARY"; dim "details: $LOG"; return 1
+      fi
+      warn "the install stopped part-way — finishing it"
+      lock_wait 30 >/dev/null || true
+      if ! INHIBIT=1 run_logged install-retry pacman -Su --needed "${PACMAN_FLAGS[@]}"; then
+        R_STATUS=broken; R_SUMMARY="The update stopped part-way and couldn't finish by itself."
+        bad "$R_SUMMARY"
+        R_PROBLEMS+=("the update is unfinished")
+      fi
+    fi
+    [ "$R_STATUS" = broken ] || ok "installed"
+  fi
+
+  if [ "$FLATPAK" = yes ] && command -v flatpak >/dev/null; then
+    step "6. App Store apps"
+    if run_logged flatpak flatpak update -y --noninteractive --system; then
+      R_FLATPAK=ok; ok "App Store apps up to date"
+      run_logged flatpak-clean flatpak uninstall --unused -y --noninteractive --system >/dev/null 2>&1 || true
+    else R_FLATPAK=problem; warn "some App Store apps couldn't update (they keep working; tries again next time)"; fi
+  fi
+
+  step "7. Checking the computer still works"
+  health_after "$before_units" "$stamp"
+  [ "$R_STATUS" = broken ] || { [ ${#R_PROBLEMS[@]} -gt 0 ] && R_STATUS=attention || R_STATUS=ok; }
+  rm -f "$stamp"
+  return 0
+}
+
+health_after() { # health_after <failed units before> <stamp file>
+  local before="$1" stamp="$2" newfail k pb img
+  if pacman -Dk >/dev/null 2>&1; then ok "package database is consistent"
+  else bad "package database has problems"; R_PROBLEMS+=("package database inconsistent (pacman -Dk)"); fi
+
+  # will it start? every installed kernel needs its kernel and startup image
+  local kernels_ok=1
+  if ! pacman -Qq limine-mkinitcpio-hook >/dev/null 2>&1 && ls "$BOOT_DIR"/vmlinuz-* >/dev/null 2>&1; then
+    for k in "$MODULES_DIR"/*/pkgbase; do
+      [ -r "$k" ] || continue
+      pb="$(cat "$k")"
+      for img in "$BOOT_DIR/vmlinuz-$pb" "$BOOT_DIR/initramfs-$pb.img"; do
+        [ -s "$img" ] || { kernels_ok=0; warn "missing: $img"; }
+      done
+    done
+  fi
+  if grep -Eq '==> ERROR|mkinitcpio.*(error|failed)' "$LOG" 2>/dev/null; then kernels_ok=0; warn "the startup image builder reported an error"; fi
+  if [ "$kernels_ok" = 0 ]; then
+    say "    rebuilding the startup images (this is the usual fix)…"
+    local rrc=1
+    if pacman -Qq limine-mkinitcpio-hook >/dev/null 2>&1 && command -v limine-mkinitcpio >/dev/null; then run_logged repair-initramfs limine-mkinitcpio; rrc=$?
+    elif command -v mkinitcpio >/dev/null; then run_logged repair-initramfs mkinitcpio -P; rrc=$?
+    elif command -v dracut >/dev/null; then run_logged repair-initramfs dracut --regenerate-all --force; rrc=$?; fi
+    if [ "$rrc" = 0 ]; then ok "startup images rebuilt"
+    else bad "the computer might not start normally"; R_PROBLEMS+=("startup images could not be rebuilt"); R_STATUS=broken; fi
+  else ok "kernel and startup images are in place"; fi
+
+  newfail="$(comm -13 <(printf '%s\n' "$before") <(failed_units) | grep . || true)"
+  if [ -z "$newfail" ]; then ok "no services stopped working"
+  else
+    for k in $newfail; do systemctl restart "$k" >/dev/null 2>&1 || true; done
+    newfail="$(comm -13 <(printf '%s\n' "$before") <(failed_units) | grep . || true)"
+    if [ -z "$newfail" ]; then ok "a service hiccuped after the update and was restarted"
+    else warn "not running since the update: $(echo $newfail)"; R_PROBLEMS+=("services failed: $(echo $newfail)"); fi
+  fi
+
+  R_PACNEW="$(find /etc -name '*.pacnew' -newer "$stamp" 2>/dev/null | wc -l | tr -d ' ')"
+  [ "$R_PACNEW" -gt 0 ] && warn "$R_PACNEW settings file(s) have a newer version to look at (*.pacnew) — not urgent" \
+    && dim "your settings were kept; compare when convenient: sudo DIFFPROG=meld pacdiff"
+
+  # restart needed? a new kernel, or core pieces that are only loaded at start-up
+  local changed kernels
+  changed="$(changed_since "$stamp")"
+  kernels="$(cat "$MODULES_DIR"/*/pkgbase 2>/dev/null | sort -u)"
+  if [ -n "$kernels" ] && [ -n "$changed" ] && grep -Fxq -f <(printf '%s\n' "$kernels") <<<"$changed"; then R_REBOOT=yes
+  elif grep -Eqx 'systemd|glibc|mesa|nvidia[a-z0-9-]*|hyprland|linux-firmware[a-z-]*|amd-ucode|intel-ucode|dbus[a-z-]*|pipewire' <<<"$changed"; then R_REBOOT=soon
+  fi
+  case "$R_REBOOT" in
+    yes)  warn "restart when convenient — a new system core (kernel) is installed" ;;
+    soon) dim "restart when convenient so every part uses the new versions" ;;
+  esac
+}
+
+# ── reporting ────────────────────────────────────────────────────────────────
+write_lastrun() { # write_lastrun <mode>
+  ensure_state
+  local seq; seq=$(( $(sget seq || echo 0) + 1 )); sput seq "$seq"
+  PRIME_R="$R_STATUS" PRIME_S="$R_SUMMARY" PRIME_C="$R_COUNT" PRIME_SN="$R_SNAP" PRIME_RB="$R_REBOOT" \
+  PRIME_PN="$R_PACNEW" PRIME_FP="$R_FLATPAK" PRIME_M="$1" PRIME_SEQ="$seq" PRIME_LOG="$LOG" \
+  PRIME_PR="$(printf '%s\n' "${R_PROBLEMS[@]+"${R_PROBLEMS[@]}"}")" \
+  python3 - "$STATE/last-run.json" <<'PY'
+import json, os, sys, time
+e = os.environ
+out = {
+  "seq": int(e["PRIME_SEQ"]), "time": int(time.time()), "mode": e["PRIME_M"],
+  "status": e["PRIME_R"], "summary": e["PRIME_S"], "updates": int(e.get("PRIME_C") or 0),
+  "snapshot": e.get("PRIME_SN", ""), "restart": e.get("PRIME_RB", "no"),
+  "pacnew": int(e.get("PRIME_PN") or 0), "apps": e.get("PRIME_FP", ""),
+  "problems": [p for p in e.get("PRIME_PR", "").splitlines() if p], "log": e.get("PRIME_LOG", ""),
+}
+tmp = sys.argv[1] + ".tmp"
+json.dump(out, open(tmp, "w"), indent=1); os.chmod(tmp, 0o644); os.replace(tmp, sys.argv[1])
+PY
+}
+
+notify_users() { # notify_users <urgency low|normal|critical> <title> <body> [ask]
+  [ "$NOTIFY" = yes ] || return 0
+  local urg="$1" title="$2" body="$3" ask="${4:-}" s uid name
+  if [ "$urg" != critical ] && quiet_now; then hist "notification held for quiet hours: $title"; return 0; fi
+  [ "$TESTING" = 1 ] && { printf 'NOTIFY[%s] %s — %s%s\n' "$urg" "$title" "$body" "${ask:+ [Install now]}" >> "$STATE/notifications.test"; return 0; }
+  while read -r s uid name; do
+    [ -n "$name" ] || continue
+    local script='notify-send -a "Prime Linux" -i system-software-update -u "$1" "$2" "$3"'
+    [ -n "$ask" ] && script='a=$(notify-send --wait -a "Prime Linux" -i system-software-update -u "$1" -A install="Install now" -A later="Not now" "$2" "$3"); [ "$a" = install ] && exec "$HOME/.local/share/prime-linux/layer/bin/prime-float" "$HOME/.local/share/prime-linux/layer/bin/prime-update"'
+    # in the person's own session manager, so it outlives this service and has their bus
+    systemd-run --user --machine="$name@" --quiet --collect --no-block -- /bin/sh -c "$script" _ "$urg" "$title" "$body" >/dev/null 2>&1 \
+      || runuser -u "$name" -- env DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" XDG_RUNTIME_DIR="/run/user/$uid" \
+           timeout 10 notify-send -a "Prime Linux" -u "$urg" "$title" "$body" >/dev/null 2>&1 || true
+  done < <(graphical_sessions)
+}
+
+report_result() { # after apply_update in nightly mode: tell the person, in plain words
+  local mode="$1" t b
+  case "$R_STATUS" in
+    ok)
+      t="Your computer is up to date"
+      b="$R_COUNT update(s) installed${R_SNAP:+ (snapshot #$R_SNAP taken first)}. Everything checked out."
+      [ "$R_REBOOT" = yes ] && b="$b Restart when convenient to finish — a new system core is installed."
+      [ "$R_REBOOT" = soon ] && b="$b Restart when convenient so everything uses the new versions."
+      notify_users low "$t" "$b" ;;
+    attention)
+      t="Updated — one thing to look at"
+      b="$R_COUNT update(s) installed, but: ${R_PROBLEMS[0]}. Your computer works; Settings → Updates shows details."
+      notify_users normal "$t" "$b" ;;
+    broken)
+      t="The update didn't finish — please read"
+      b="Your computer still works, but don't restart it yet if you can avoid it. Open Settings → Updates → Undo the last update for the safe way back."
+      [ -n "$R_SNAP" ] && b="$b If it won't start: pick snapshot #$R_SNAP ('before update') in the boot menu."
+      notify_users critical "$t" "$b" ;;
+    failed)
+      notify_users normal "Update postponed" "$R_SUMMARY" ;;
+  esac
+  hist "$mode: $R_STATUS — $R_SUMMARY ${R_COUNT:+($R_COUNT updates)} ${R_SNAP:+snapshot #$R_SNAP}"
+}
+
+# ── counting what's waiting (no changes: checkupdates uses its own database copy) ─
+lines() { grep -c . || true; }
+count_repo()     { fact_override repo_updates && return 0; command -v checkupdates >/dev/null || { echo 0; return; }; { timeout 120 checkupdates 2>/dev/null || true; } | lines; }
+count_security() { # packages with a known security fix waiting (arch-audit), "" when unknown
+  fact_override security_updates && return 0
+  command -v arch-audit >/dev/null || return 0
+  { timeout 60 arch-audit -u -q 2>/dev/null || true; } | lines
+}
+count_flatpak()  { fact_override flatpak_updates && return 0; command -v flatpak >/dev/null || { echo 0; return; }; { timeout 120 flatpak remote-ls --updates --system --columns=application 2>/dev/null || true; } | lines; }
+count_aur() {
+  fact_override aur_updates && return 0
+  [ -n "$MAIN_USER" ] && command -v paru >/dev/null || { echo 0; return; }
+  if [ "$(id -un)" = "$MAIN_USER" ]; then { timeout 120 paru -Qua 2>/dev/null || true; } | lines
+  elif is_root; then { timeout 120 runuser -u "$MAIN_USER" -- paru -Qua 2>/dev/null || true; } | lines
+  else echo 0; fi
+}
+
+# ── the nightly decision ─────────────────────────────────────────────────────
+# Prints why not, returns 1, when now is not the moment; returns 0 to go ahead.
+cycle_gates() {
+  local g pw ba
+  g="$(gaming)"; [ -n "$g" ] && { echo "a game or fullscreen window is open ($g)"; return 1; }
+  pw="$(power)"
+  if [ "${pw%% *}" = battery ]; then ba="${pw#battery }"
+    [ "${ba:-0}" -ge "$MIN_BATTERY" ] || { echo "on battery at ${ba}% (updates wait for ${MIN_BATTERY}% or a charger)"; return 1; }
+  fi
+  [ "$SKIP_ON_METERED" = yes ] && [ "$(metered)" = yes ] && { echo "the internet connection is metered"; return 1; }
+  [ -n "$(pkg_busy)" ] && { echo "another program is installing software"; return 1; }
+  local fg; fg="$(free_gb)"; [ "${fg:-0}" -ge "$MIN_FREE_GB" ] || { echo "only ${fg} GB free on the disk (needs ${MIN_FREE_GB})"; return 1; }
+  return 0
+}
+
+due_reason() { # prints why a run is due now, or returns 1
+  local t last_ok last_try overdue
+  t="$(now)"; last_ok="$(sget last-success || echo 0)"; last_try="$(sget last-attempt || echo 0)"
+  [ $(( t - last_try )) -ge 72000 ] || return 1          # at most one real check per ~20h
+  [ "$POLICY" = ask ] && { quiet_now && return 1; echo "time for the daily check"; return 0; }
+  [ "$last_ok" = 0 ] && last_ok="$(sget installed-at || echo 0)"
+  overdue=$(( t - last_ok >= CATCH_UP_DAYS * 86400 ))
+  if in_hours "$(hour)" "$WINDOW_START" "$WINDOW_END"; then
+    local aw; aw="$(away_minutes)"
+    if [ "$aw" -lt "$IDLE_MINUTES" ]; then
+      # someone uses it every night: after twice the catch-up time, update anyway —
+      # nothing restarts and a game or fullscreen window still holds it off
+      [ $(( t - last_ok )) -ge $(( CATCH_UP_DAYS * 2 * 86400 )) ] && { echo "long overdue"; return 0; }
+      echo "WAIT someone is using the computer during update hours"; return 0
+    fi
+    echo "update hours (${WINDOW_START}:00–${WINDOW_END}:00)"; return 0
+  fi
+  if [ "$overdue" = 1 ]; then
+    local aw; aw="$(away_minutes)"
+    [ "$aw" -ge "$IDLE_MINUTES" ] || return 1
+    echo "overdue (the computer was off during update hours) and nobody is using it"; return 0
+  fi
+  return 1
+}
+
+cmd_cycle() {
+  need_root; real_guard; test_guard; ensure_state
+  [ "$POLICY" = off ] && { say "automatic updates are off"; return 0; }
+  if [ -e "$STATE/PAUSED" ]; then
+    local until; until="$(sget PAUSED)"
+    if [ -n "$until" ] && [ "$(now)" -ge "$until" ]; then rm -f "$STATE/PAUSED"; hist "pause ended"
+    else say "paused"; return 0; fi
+  fi
+  local fails; fails="$(sget failcount || echo 0)"
+  if [ "$fails" -ge "$FAIL_LIMIT" ]; then
+    say "stopped after $fails failed runs — waiting for a person (prime-update, or: prime-system-update clear-failure)"
+    return 0
+  fi
+  local why; why="$(due_reason)" || { say "not due"; return 0; }
+  case "$why" in WAIT*) say "${why#WAIT }"; return 0 ;; esac
+  local blocked; if ! blocked="$(cycle_gates)"; then say "not now: $blocked"; hist "skipped: $blocked"; return 0; fi
+  say "running: $why"
+  sput last-attempt "$(now)"
+
+  local repo sec fp aur
+  repo="$(count_repo)"; fp=0; [ "$FLATPAK" = yes ] && fp="$(count_flatpak)"
+  aur=0; [ "$AUR_NOTIFY" = yes ] && aur="$(count_aur)"
+  sput pending "$repo $fp $aur"
+
+  if [ "${repo:-0}" = 0 ] && [ "${fp:-0}" = 0 ]; then
+    sput last-success "$(now)"; hist "checked: already up to date"
+    [ "${aur:-0}" -gt 0 ] && [ -z "$(sget aur-told)" ] && { notify_users low "AUR updates waiting" "$aur extra app(s) from the AUR have updates. Prime doesn't install these by itself — run Update everything when you have a minute."; sput aur-told 1; }
+    return 0
+  fi
+
+  case "$POLICY" in
+    ask)
+      notify_users normal "Updates are ready" "$repo system update(s)$([ "${fp:-0}" -gt 0 ] && echo " and $fp app update(s)") are ready. A safety snapshot is taken first." ask
+      hist "asked: $repo system + $fp app updates ready"; return 0 ;;
+    security)
+      sec="$(count_security)"
+      local last_ok; last_ok="$(sget last-success || echo 0)"
+      # without arch-audit there is no way to tell, so fall back to a weekly full update
+      local max_days="$SECURITY_MAX_DAYS"; [ -n "$sec" ] || { sec=0; max_days=7; }
+      if [ "$sec" = 0 ] && [ $(( $(now) - last_ok )) -lt $(( max_days * 86400 )) ]; then
+        hist "security-only: no security fixes among $repo updates — waiting"
+        if [ "${fp:-0}" -gt 0 ]; then QUIET_OUT=1 run_logged flatpak flatpak update -y --noninteractive --system >/dev/null 2>&1 || true; fi
+        return 0
+      fi ;;
+  esac
+
+  rm -f "$STATE/aur-told"
+  QUIET_OUT=1 apply_update nightly; local rc=$?
+  write_lastrun nightly
+  case "$R_STATUS" in
+    ok|attention) sput last-success "$(now)"; rm -f "$STATE/failcount" ;;
+    skipped)      sput last-attempt "$(( $(now) - 72000 + 3600 ))" ;;   # try again in an hour
+    *)            sput failcount "$(( fails + 1 ))" ;;
+  esac
+  report_result nightly
+  [ "$rc" = 1 ] && return 1
+  return 0
+}
+
+cmd_apply() {
+  need_root; real_guard; test_guard
+  local mode=nightly ensure="" extra=()
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --manual) mode=manual ;;
+      --ensure) ensure="${2:-}"; shift ;;
+    esac; shift
+  done
+  if [ -n "$ensure" ] && [ -r "$ensure" ]; then
+    local p
+    while read -r p; do
+      [[ "$p" =~ ^[a-z0-9@._+-]+$ ]] || continue
+      pacman -Qq "$p" >/dev/null 2>&1 || pacman -Qqg "$p" >/dev/null 2>&1 || extra+=("$p")
+    done < <(grep -vE '^\s*(#|$)' "$ensure")
+    [ ${#extra[@]} -gt 0 ] && say "  also installing what Prime Linux needs: ${extra[*]}"
+  fi
+  local pw; pw="$(power)"
+  if [ "${pw%% *}" = battery ] && [ "${pw#battery }" -lt 15 ]; then
+    bad "the battery is at ${pw#battery }% — plug in the charger first (an update must not be cut off)"; return 2
+  fi
+  [ "${pw%% *}" = battery ] && warn "on battery (${pw#battery }%) — keep it plugged in if you can"
+  # A closed terminal (HUP) or Ctrl+C (INT) must not stop an update half-way: the
+  # ignore is inherited by tee/sed, so pacman's output pipe never breaks under it.
+  trap '' HUP INT PIPE
+  apply_update "$mode" "${extra[@]+"${extra[@]}"}"; local rc=$?
+  write_lastrun "$mode"
+  case "$R_STATUS" in
+    ok|attention) sput last-success "$(now)"; sput last-attempt "$(now)"; rm -f "$STATE/failcount" "$STATE/aur-told" ;;
+  esac
+  hist "$mode: $R_STATUS — $R_SUMMARY ${R_COUNT:+($R_COUNT updates)} ${R_SNAP:+snapshot #$R_SNAP}"
+  printf 'RESULT %s\n' "$R_STATUS"
+  return "$rc"
+}
+
+# ── settings ─────────────────────────────────────────────────────────────────
+cmd_set() {
+  need_root
+  [ $# -gt 0 ] || { bad "usage: set KEY=VALUE…"; return 2; }
+  local kv k v
+  for kv in "$@"; do
+    k="${kv%%=*}"; v="${kv#*=}"
+    [ -n "${ALLOWED[$k]:-}" ] || { bad "unknown setting: $k"; return 2; }
+    [[ "$v" =~ ${ALLOWED[$k]} ]] || { bad "not a valid value for $k: $v"; return 2; }
+  done
+  mkdir -p "$(dirname "$CONF")"; [ -e "$CONF" ] || : > "$CONF"
+  local tmp; tmp="$(mktemp "$CONF.XXXXXX")"
+  cp "$CONF" "$tmp"
+  for kv in "$@"; do
+    k="${kv%%=*}"; v="${kv#*=}"
+    if grep -q "^$k=" "$tmp"; then sed -i "s|^$k=.*|$k=$v|" "$tmp"; else printf '%s=%s\n' "$k" "$v" >> "$tmp"; fi
+    printf -v "$k" '%s' "$v"
+  done
+  chmod 644 "$tmp"; mv -f "$tmp" "$CONF"
+  hist "settings changed: $*"
+  ok "saved: $*"
+  [ "$POLICY" = off ] || rm -f "$STATE/failcount" 2>/dev/null
+  # the nightly service follows the policy: off means really off
+  if [ "$TESTING" != 1 ] && [ -d /run/systemd/system ] && [ -e /etc/systemd/system/prime-system-update.timer ]; then
+    if [ "$POLICY" = off ]; then systemctl disable --now prime-system-update.timer >/dev/null 2>&1
+    else systemctl enable --now prime-system-update.timer >/dev/null 2>&1; fi
+  fi
+  return 0
+}
+
+# ── read-only views ──────────────────────────────────────────────────────────
+policy_words() {
+  case "$POLICY" in
+    auto)     echo "Automatic — installs updates during update hours (${WINDOW_START}:00–${WINDOW_END}:00), snapshot first" ;;
+    ask)      echo "Ask me first — tells you when updates are ready" ;;
+    security) echo "Only security fixes — updates when a security fix is waiting (and at least every ${SECURITY_MAX_DAYS} days)" ;;
+    off)      echo "Off — never updates by itself" ;;
+  esac
+}
+when_words() { # epoch -> "today 03:41" / "yesterday 03:41" / "3 days ago"
+  local t="$1" d; [ -n "$t" ] && [ "$t" != 0 ] || { echo never; return; }
+  d=$(( ( $(date +%s) - t ) / 86400 ))
+  if [ "$(date -d "@$t" +%F)" = "$(date +%F)" ]; then date -d "@$t" '+today %H:%M'
+  elif [ "$(date -d "@$t" +%F)" = "$(date -d yesterday +%F)" ]; then date -d "@$t" '+yesterday %H:%M'
+  else echo "$d days ago"; fi
+}
+
+cmd_status() {
+  if [ "${1:-}" = --json ]; then
+    PRIME_P="$POLICY" PRIME_W="$WINDOW_START-$WINDOW_END" PRIME_LS="$(sget last-success)" PRIME_PA="$([ -e "$STATE/PAUSED" ] && echo 1 || echo 0)" \
+    PRIME_FC="$(sget failcount)" PRIME_PE="$(sget pending)" python3 - "$STATE/last-run.json" <<'PY'
+import json, os, sys
+e = os.environ
+try: last = json.load(open(sys.argv[1]))
+except Exception: last = None
+pend = (e.get("PRIME_PE") or "").split()
+print(json.dumps({"policy": e["PRIME_P"], "window": e["PRIME_W"], "paused": e["PRIME_PA"] == "1",
+  "last_success": int(e.get("PRIME_LS") or 0), "failures": int(e.get("PRIME_FC") or 0),
+  "pending": {"system": int(pend[0]) if pend else None, "apps": int(pend[1]) if len(pend) > 1 else None,
+              "aur": int(pend[2]) if len(pend) > 2 else None},
+  "last_run": last}))
+PY
+    return
+  fi
+  step "Prime updates"
+  say "  setting:      $(policy_words)"
+  say "  last update:  $(when_words "$(sget last-success)")"
+  [ -e "$STATE/PAUSED" ] && say "  paused until: $(date -d "@$(sget PAUSED)" '+%a %d %b %H:%M' 2>/dev/null)"
+  local f; f="$(sget failcount || echo 0)"; [ "$f" -gt 0 ] && warn "the last $f automatic run(s) did not finish"
+  if [ -r "$STATE/last-run.json" ]; then
+    say "  last result:  $(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d["status"], "—", d["summary"] or "%d update(s)" % d["updates"])' "$STATE/last-run.json" 2>/dev/null)"
+  fi
+  systemctl is-enabled prime-system-update.timer >/dev/null 2>&1 && ok "nightly service is on" \
+    || { [ "$POLICY" = off ] && dim "nightly service is off" || warn "nightly service is not enabled (sudo systemctl enable --now prime-system-update.timer)"; }
+}
+
+cmd_gates() {
+  step "May Prime update this computer right now?"
+  say "  setting: $(policy_words)"
+  local b; if b="$(cycle_gates)"; then ok "nothing is in the way (no game, power fine, disk fine)"; else warn "not now: $b"; fi
+  say "  away from the keyboard: $(away_minutes) min (needs $IDLE_MINUTES during update hours)"
+  in_hours "$(hour)" "$WINDOW_START" "$WINDOW_END" && ok "inside update hours" || dim "outside update hours (${WINDOW_START}:00–${WINDOW_END}:00)"
+  quiet_now && dim "quiet hours: pop-ups wait until ${QUIET_END}:00"
+  local r; r="$(due_reason)" && say "  due: $r" || say "  not due yet (last check $(when_words "$(sget last-attempt)"))"
+}
+
+cmd_check() {
+  step "What's waiting"
+  local repo sec fp aur
+  repo="$(count_repo)"; sec="$(count_security)"; fp="$(count_flatpak)"; aur="$(count_aur)"
+  say "  system:        ${repo:-0} update(s)${sec:+ — $sec with security fixes}"
+  say "  App Store:     ${fp:-0} update(s)"
+  [ -n "$MAIN_USER" ] && say "  AUR:           ${aur:-0} update(s) (installed only when you run Update everything)"
+}
+
+cmd_snapshots() {
+  if [ "${1:-}" = --tsv ]; then snapshots_tsv; return; fi
+  step "Can an update be undone?"
+  local lvl msg fix
+  while IFS=$'\t' read -r lvl msg fix; do
+    case "$lvl" in ok) ok "$msg" ;; warn) warn "$msg" ;; *) bad "$msg" ;; esac
+    [ -n "$fix" ] && dim "fix: $fix"
+  done < <(snapshots_tsv)
+}
+
+cmd_undo() {
+  local bl snap date=""
+  bl="$(bootloader)"; snap="$(last_prime_snapshot)"
+  [ -r "$STATE/last-run.json" ] && date="$(python3 -c 'import json,sys,time; d=json.load(open(sys.argv[1])); print(time.strftime("%A %d %B at %H:%M", time.localtime(d["time"])))' "$STATE/last-run.json" 2>/dev/null)"
+  step "Undo the last update"
+  if booted_from_snapshot; then
+    say "  You are running from a snapshot right now — the computer as it was before an update."
+    say "  If everything works, make it permanent:"
+    case "$bl" in
+      limine) say "    open a terminal and run:  ${Bo}sudo limine-snapper-restore${N}   and follow the questions" ;;
+      *)      say "    open ${Bo}Btrfs Assistant${N} → Snapper → pick the same snapshot → Restore, then restart" ;;
+    esac
+    say "  If you changed your mind, just restart and pick the normal entry at the top of the boot menu."
+    return 0
+  fi
+  if [ "$(root_fs)" != btrfs ] || ! has_snapper_root; then
+    say "  This computer can't take system snapshots, so an update can't be undone with one click."
+    say "  Your files are never touched by updates. Desktop settings can be put back from:"
+    say "    Settings → About & Help → Restore desktop settings"
+    return 0
+  fi
+  say "  Your files (Documents, Pictures, …) are never touched by this — only the system."
+  [ -n "$snap" ] && say "  The last safety snapshot is ${Bo}#$snap${N}${date:+, taken before the update on $date}."
+  say
+  case "$bl" in
+    limine)
+      say "  1. Restart the computer."
+      say "  2. In the boot menu, open ${Bo}Snapshots${N} and pick the one marked ${Bo}Prime: before update${N}${snap:+ (#$snap)}."
+      say "  3. The computer starts as it was before the update. Check that it works."
+      say "  4. To keep it that way: Settings → Updates → Undo the last update again (it will offer to make it permanent),"
+      say "     or run:  sudo limine-snapper-restore" ;;
+    grub)
+      say "  1. Restart the computer."
+      say "  2. In the boot menu, choose ${Bo}snapshots${N} and pick the one marked ${Bo}Prime: before update${N}${snap:+ (#$snap)}."
+      say "  3. The computer starts as it was before the update. Check that it works."
+      say "  4. To keep it that way: open Btrfs Assistant → Snapper → select that snapshot → Restore → restart." ;;
+    *)
+      say "  This computer's boot menu can't start snapshots, so undo works from the desktop:"
+      say "  1. Open ${Bo}Btrfs Assistant${N} (install it with: sudo pacman -S btrfs-assistant)."
+      say "  2. Snapper tab → select ${Bo}Prime: before update${N}${snap:+ (#$snap)} → Restore."
+      say "  3. Restart the computer." ;;
+  esac
+  say
+  dim "Prefer a person to help? Show them this screen — it says exactly where the safe copy is."
+}
+
+cmd_history() { tail -n "${1:-30}" "$STATE/history.log" 2>/dev/null || say "  (nothing yet)"; }
+
+case "${1:-status}" in
+  status)        shift; cmd_status "$@" ;;
+  gates)         cmd_gates ;;
+  check)         cmd_check ;;
+  snapshots)     shift; cmd_snapshots "$@" ;;
+  undo)          cmd_undo ;;
+  history|log)   shift; cmd_history "$@" ;;
+  cycle)         cmd_cycle ;;
+  apply)         shift; cmd_apply "$@" ;;
+  set)           shift; cmd_set "$@" ;;
+  pause)         need_root; d="${2:-7}"; [[ "$d" =~ ^[0-9]{1,3}$ ]] || d=7
+                 sput PAUSED "$(( $(now) + d * 86400 ))"; hist "paused for $d days"; ok "automatic updates paused for $d days" ;;
+  resume)        need_root; rm -f "$STATE/PAUSED"; hist "resumed"; ok "automatic updates resumed" ;;
+  clear-failure) need_root; rm -f "$STATE/failcount"; hist "failure count cleared by a person"; ok "cleared — the nightly updates will try again" ;;
+  version)       echo "prime-system-update $VERSION" ;;
+  -h|--help|help) sed -n '2,27p' "$0" | sed 's/^# \{0,1\}//' ;;
+  *)             bad "unknown command: $1"; exit 2 ;;
+esac

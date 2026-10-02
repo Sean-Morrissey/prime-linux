@@ -1,0 +1,102 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://prime-linux.example/schemas/identity.schema.json",
+  "title": "Prime Linux identity seed",
+  "description": "The structured result of the first-boot interview (~/.config/prime/identity.yaml). One file per user, owned by them, editable by hand.",
+  "type": "object",
+  "required": ["version", "name"],
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "type": "integer",
+      "const": 1,
+      "description": "Schema version. Bump only with a migration."
+    },
+    "created": { "type": "string", "format": "date-time" },
+    "updated": { "type": "string", "format": "date-time" },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "description": "What the user wants to be called. Never a legal name requirement."
+    },
+    "pronouns": { "type": "string", "maxLength": 32 },
+    "language": {
+      "type": "string",
+      "pattern": "^[a-z]{2}(-[A-Z]{2})?$",
+      "description": "BCP-47-ish language tag, defaulted from the system locale."
+    },
+    "school": { "type": ["string", "null"], "maxLength": 120 },
+    "term": {
+      "type": ["string", "null"],
+      "pattern": "^[A-Za-z]+-[0-9]{4}$",
+      "description": "Directory-safe term label, e.g. Autumn-2026."
+    },
+    "courses": {
+      "type": "array",
+      "maxItems": 12,
+      "items": {
+        "type": "object",
+        "required": ["code"],
+        "additionalProperties": false,
+        "properties": {
+          "code": { "type": "string", "pattern": "^[A-Z]{2,6}-[0-9]{3,4}$" },
+          "name": { "type": "string", "maxLength": 120 },
+          "instructor": { "type": ["string", "null"], "maxLength": 120 },
+          "schedule": {
+            "type": ["string", "null"],
+            "description": "Free text or 'async'. Used to schedule reminders, never parsed strictly."
+          },
+          "essays": {
+            "type": "boolean",
+            "default": false,
+            "description": "Writing-heavy course: gets an essays/ directory."
+          },
+          "platform": { "type": ["string", "null"], "maxLength": 60 }
+        }
+      }
+    },
+    "projects": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "items": { "type": "string", "maxLength": 60 }
+      },
+      "description": "Groups chosen in Beat 3, e.g. {languages: [python], creative: [3d-printing], deferred: [java]}."
+    },
+    "preferences": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "session": { "enum": ["desktop", "prime"], "default": "desktop" },
+        "theme": { "enum": ["light", "dark"], "default": "dark" },
+        "voice": { "type": "boolean", "default": false },
+        "quiet_hours": {
+          "type": ["string", "null"],
+          "pattern": "^[0-2][0-9]:[0-5][0-9]-[0-2][0-9]:[0-5][0-9]$",
+          "default": "22:00-08:00"
+        },
+        "autonomy": {
+          "enum": ["suggest", "auto-user", "auto-all"],
+          "default": "suggest",
+          "description": "Maps to ~/.config/prime/capability-ladder.yaml. Destructive verbs stay at approve-each at every level."
+        },
+        "accessibility": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "text_scale": { "enum": ["normal", "large", "huge"], "default": "normal" },
+            "reduce_motion": { "type": "boolean", "default": false },
+            "colorblind_safe": { "type": "boolean", "default": false },
+            "screen_reader": { "type": "boolean", "default": false }
+          }
+        }
+      }
+    },
+    "freeform": {
+      "type": "string",
+      "maxLength": 4000,
+      "description": "Beat 6, verbatim. The 'soul' text: how they learn, what they hate, what they're aiming at."
+    }
+  }
+}

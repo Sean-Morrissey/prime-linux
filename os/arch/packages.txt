@@ -1,0 +1,127 @@
+# Prime Linux on CachyOS / Arch — every package comes from the official repos
+# (no AUR needed). The installer and prime-update install whatever is missing.
+
+# compositor + session
+hyprland
+hyprlock
+hypridle
+hyprpaper
+hyprpolkitagent
+hyprpm
+xdg-desktop-portal-hyprland
+xdg-desktop-portal-gtk
+uwsm
+qt5-wayland
+qt6-wayland
+
+# bar, menus, notifications, clipboard
+waybar
+nwg-dock-hyprland
+rofi
+swaync
+libnotify
+cliphist
+wl-clipboard
+wl-clip-persist
+jq
+
+# Spotlight, the screen saver and other GTK layer-shell windows + file search
+python
+python-gobject
+python-cairo
+gtk3
+gtk-layer-shell
+fd
+plocate
+
+# screenshots, screen recording, colour picker, emoji
+grim
+slurp
+satty
+gpu-screen-recorder
+wf-recorder
+hyprpicker
+rofimoji
+wtype
+
+# night light, volume/brightness popups
+hyprsunset
+swayosd
+
+# audio, network, bluetooth, brightness, media keys
+pipewire
+pipewire-pulse
+wireplumber
+pavucontrol
+networkmanager
+blueman
+brightnessctl
+playerctl
+nm-connection-editor
+bluez
+bluez-utils
+
+# laptops: battery, power modes (CachyOS's tuned-ppd also counts as this)
+upower
+power-profiles-daemon
+
+# printing
+cups
+cups-filters
+system-config-printer
+
+# phones, USB drives, network shares, trash; saved passwords for apps
+gvfs
+gvfs-mtp
+gvfs-smb
+udisks2
+gnome-keyring
+libsecret
+
+# apps
+kitty
+nemo
+gnome-text-editor
+gnome-calculator
+file-roller
+loupe
+papers
+celluloid
+gnome-software
+flatpak
+nwg-displays
+btop
+fastfetch
+xdg-utils
+xdg-user-dirs
+pacman-contrib
+pciutils
+imagemagick
+
+# look: fonts, icons, GTK theme, cursor
+inter-font
+ttf-jetbrains-mono-nerd
+noto-fonts
+noto-fonts-emoji
+papirus-icon-theme
+adw-gtk-theme
+breeze-cursors
+
+# building the title-bar plugin (hyprpm)
+base-devel
+git
+cmake
+meson
+cpio
+pkgconf
+
+# updates + safety (nightly updates, snapshots before updates, firewall, advisories)
+ufw
+arch-audit
+snapper
+snap-pac
+btrfs-assistant
+
+# welcome app + assistant UI (GTK 4 / libadwaita)
+gtk4
+libadwaita

@@ -1,0 +1,381 @@
+#!/usr/bin/python3
+"""Prime screen saver — Prime's light waves and the P emblem, when the screen locks.
+
+Slow ribbons of light in the brand's blue-to-violet flow across every screen; the
+P emblem drifts gently (so nothing burns in), with the time, the date and
+"Please Relax — I'll Manage Everything" under it. Any key, click or mouse
+movement shows the password screen (hyprlock) — like a Mac, the screen saver is
+the first face of the lock, and the desktop is never reachable without the
+password. A video that keeps the screen awake keeps the lock away too.
+
+While it shows: keyboard shortcuts are switched off (an empty Hyprland submap), the
+keyboard belongs to it, and it covers every screen. A screen plugged in meanwhile,
+or any failure, goes straight to the password screen (prime-lock makes sure).
+
+  prime-screensaver --lock           what prime-lock runs: show it, then the password screen
+  prime-screensaver                  a preview: any key or movement just closes it
+  prime-screensaver --stop           close it
+  prime-screensaver --screenshot F   render one frame to a PNG (design review, tests)
+  prime-screensaver --selftest       check the drawing and the wake-up rules, map nothing
+
+Switch it off with PRIME_NO_SCREENSAVER=1 in ~/.config/environment.d/.
+"""
+from __future__ import annotations
+
+import math
+import os
+import signal
+import sys
+import time
+
+import gi
+
+gi.require_version("Gtk", "3.0")
+gi.require_version("Gdk", "3.0")
+from gi.repository import Gdk, GLib, Gtk  # noqa: E402
+import cairo  # noqa: E402
+
+try:
+    gi.require_version("GtkLayerShell", "0.1")
+    from gi.repository import GtkLayerShell
+    HAVE_LAYER = True
+except (ValueError, ImportError):
+    GtkLayerShell = None
+    HAVE_LAYER = False
+
+FPS = 30
+LOCKER = os.environ.get("PRIME_LOCKER") or "hyprlock"   # the real lock (prime-lock passes its config)
+WAKE_MOVE = 12            # px of mouse travel that counts as "I'm back" (not a desk bump)
+GRACE = 1.0               # s after appearing in which movement is ignored (the last nudge)
+BLUE_TO_VIOLET = [(96, 165, 250), (115, 158, 250), (134, 152, 251), (154, 145, 251),
+                  (173, 139, 252), (192, 132, 252)]
+EMBLEM_TOP, EMBLEM_BOTTOM = (251, 191, 36), (244, 114, 182)    # amber → pink, as on the wallpaper
+TAGLINE = "Please Relax — I'll Manage Everything"
+
+
+def pidfile() -> str:
+    d = os.environ.get("XDG_RUNTIME_DIR", "")
+    if d and os.path.isdir(d) and os.access(d, os.W_OK):
+        return os.path.join(d, "prime-screensaver.pid")
+    return ""
+
+
+def rgba(c, a):
+    return c[0] / 255, c[1] / 255, c[2] / 255, a
+
+
+# ── drawing (pure: a frame is a function of size and time) ───────────────────
+
+def wave_y(i: int, x: float, w: float, h: float, t: float) -> float:
+    """The height of ribbon i at x: two slow sines, so the ribbons cross and part."""
+    phase = i * 0.9
+    base = h * (0.30 + 0.09 * i)
+    a = h * (0.07 + 0.015 * math.sin(t * 0.07 + i))
+    return (base
+            + a * math.sin(x / w * (2.2 + 0.25 * i) * math.pi + t * (0.18 + 0.03 * i) + phase)
+            + 0.35 * a * math.sin(x / w * 5.1 * math.pi - t * 0.11 + phase * 1.7))
+
+
+def emblem_offset(w: float, h: float, t: float) -> tuple:
+    """A slow Lissajous drift of the emblem around the centre (minutes per loop)."""
+    return (w * 0.16 * math.sin(t * 0.021), h * 0.10 * math.sin(t * 0.033 + 1.1))
+
+
+def draw_emblem(cr, cx: float, cy: float, size: float, breathe: float):
+    """The Orbit P (same geometry as layer/branding/mark.svg) in amber → pink."""
+    s = size / 256.0
+    cr.save()
+    cr.translate(cx - 128 * s, cy - 128 * s)
+    cr.scale(s, s)
+    cr.push_group()
+    # the ring (even-odd: outer minus inner), with the clearance around the stem cut out
+    cr.set_fill_rule(cairo.FILL_RULE_EVEN_ODD)
+    cr.arc(140, 104, 68, 0, 2 * math.pi)
+    cr.new_sub_path()
+    cr.arc(140, 104, 34, 0, 2 * math.pi)
+    cr.set_source_rgba(1, 1, 1, 1)
+    cr.fill()
+    cr.set_operator(cairo.OPERATOR_CLEAR)
+    _capsule(cr, 48, 26, 102, 232, 27)
+    cr.fill()
+    cr.set_operator(cairo.OPERATOR_OVER)
+    cr.set_fill_rule(cairo.FILL_RULE_WINDING)
+    _capsule(cr, 58, 36, 92, 222, 17)          # the stem
+    cr.fill()
+    shape = cr.pop_group()
+    grad = cairo.LinearGradient(0, 30, 0, 230)
+    grad.add_color_stop_rgba(0, *rgba(EMBLEM_TOP, 0.92 * breathe))
+    grad.add_color_stop_rgba(1, *rgba(EMBLEM_BOTTOM, 0.92 * breathe))
+    cr.set_source(grad)
+    cr.mask(shape)
+    cr.restore()
+
+
+def _capsule(cr, x0, y0, x1, y1, r):
+    cr.new_sub_path()
+    cr.arc(x0 + r, y0 + r, r, math.pi, 1.5 * math.pi)
+    cr.arc(x1 - r, y0 + r, r, 1.5 * math.pi, 2 * math.pi)
+    cr.arc(x1 - r, y1 - r, r, 0, 0.5 * math.pi)
+    cr.arc(x0 + r, y1 - r, r, 0.5 * math.pi, math.pi)
+    cr.close_path()
+
+
+def draw_frame(cr, w: float, h: float, t: float, now: time.struct_time | None = None):
+    # night sky: near-black with a faint violet glow low down
+    bg = cairo.LinearGradient(0, 0, 0, h)
+    bg.add_color_stop_rgb(0, 0.025, 0.025, 0.04)
+    bg.add_color_stop_rgb(1, 0.06, 0.04, 0.09)
+    cr.set_source(bg)
+    cr.paint()
+
+    # ribbons of light: a wide soft glow under a thin bright line
+    step = max(6.0, w / 240)
+    for i, c in enumerate(BLUE_TO_VIOLET):
+        cr.move_to(-10, wave_y(i, -10, w, h, t))
+        x = -10.0
+        while x <= w + 10:
+            cr.line_to(x, wave_y(i, x, w, h, t))
+            x += step
+        path = cr.copy_path()
+        cr.set_line_cap(cairo.LINE_CAP_ROUND)
+        cr.set_source_rgba(*rgba(c, 0.07))
+        cr.set_line_width(max(10.0, h / 60))
+        cr.stroke()
+        cr.append_path(path)
+        cr.set_source_rgba(*rgba(c, 0.55))
+        cr.set_line_width(max(1.5, h / 600))
+        cr.stroke()
+
+    # the emblem, the time and the tagline, drifting together
+    dx, dy = emblem_offset(w, h, t)
+    cx, cy = w / 2 + dx, h * 0.42 + dy
+    size = min(w, h) * 0.22
+    draw_emblem(cr, cx, cy, size, 0.85 + 0.15 * math.sin(t * 0.6))
+
+    now = now or time.localtime()
+    ty = cy + size * 0.80
+    _text(cr, time.strftime("%-I:%M", now), cx, ty, min(w, h) * 0.075, (0.96, 0.96, 0.97, 0.95), bold=True)
+    _text(cr, time.strftime("%A, %B %-d", now), cx, ty + min(w, h) * 0.06,
+          min(w, h) * 0.024, (0.85, 0.85, 0.9, 0.70))
+    _text(cr, TAGLINE, cx, ty + min(w, h) * 0.105, min(w, h) * 0.018, (0.75, 0.72, 0.95, 0.55))
+
+
+def _text(cr, s: str, cx: float, y: float, px: float, colour, bold: bool = False):
+    cr.select_font_face("Inter", cairo.FONT_SLANT_NORMAL,
+                        cairo.FONT_WEIGHT_BOLD if bold else cairo.FONT_WEIGHT_NORMAL)
+    cr.set_font_size(px)
+    ext = cr.text_extents(s)
+    cr.move_to(cx - ext.x_advance / 2, y)
+    cr.set_source_rgba(*colour)
+    cr.show_text(s)
+
+
+# ── the windows ───────────────────────────────────────────────────────────────
+
+class Saver:
+    def __init__(self, lock: bool = False):
+        self.start = time.monotonic()
+        self.windows = []
+        self.origin = None
+        self.lock = lock
+        self.locking = False
+        disp = Gdk.Display.get_default()
+        if lock and disp is not None:
+            # a screen plugged in now would show the desktop: lock at once instead
+            disp.connect("monitor-added", lambda *_: self.wake())
+        for i in range(disp.get_n_monitors() if disp else 1):
+            self.windows.append(self.window(disp.get_monitor(i) if disp else None))
+        GLib.timeout_add(int(1000 / FPS), self.tick)
+        if lock:
+            GLib.timeout_add(1000, self.locked_elsewhere)
+
+    def window(self, mon):
+        w = Gtk.Window(type=Gtk.WindowType.TOPLEVEL)
+        w.set_title("Prime screen saver")
+        w.set_app_paintable(True)
+        area = Gtk.DrawingArea()
+        area.connect("draw", lambda a, cr: draw_frame(cr, a.get_allocated_width(), a.get_allocated_height(),
+                                                       time.monotonic() - self.start + 40.0))
+        w.add(area)
+        if HAVE_LAYER and GtkLayerShell.is_supported():
+            GtkLayerShell.init_for_window(w)
+            GtkLayerShell.set_namespace(w, "prime-screensaver")
+            GtkLayerShell.set_layer(w, GtkLayerShell.Layer.OVERLAY)
+            for e in (GtkLayerShell.Edge.TOP, GtkLayerShell.Edge.BOTTOM,
+                      GtkLayerShell.Edge.LEFT, GtkLayerShell.Edge.RIGHT):
+                GtkLayerShell.set_anchor(w, e, True)
+            GtkLayerShell.set_exclusive_zone(w, -1)
+            GtkLayerShell.set_keyboard_mode(w, GtkLayerShell.KeyboardMode.EXCLUSIVE)
+            if mon is not None:
+                GtkLayerShell.set_monitor(w, mon)
+        else:
+            w.fullscreen()
+        w.add_events(Gdk.EventMask.POINTER_MOTION_MASK | Gdk.EventMask.BUTTON_PRESS_MASK
+                     | Gdk.EventMask.KEY_PRESS_MASK | Gdk.EventMask.SCROLL_MASK)
+        w.connect("key-press-event", self.wake)
+        w.connect("button-press-event", self.wake)
+        w.connect("scroll-event", self.wake)
+        w.connect("motion-notify-event", self.moved)
+        w.connect("destroy", lambda *_: Gtk.main_quit())
+        w.show_all()
+        w.get_window().set_cursor(Gdk.Cursor.new_for_display(w.get_display(), Gdk.CursorType.BLANK_CURSOR))
+        return w
+
+    def locked_elsewhere(self):
+        """The password screen came up some other way (going to sleep, Lock pressed
+        again): nothing is left to cover, so stop drawing behind it."""
+        import subprocess
+        if not self.locking and subprocess.run(["pidof", "hyprlock"], capture_output=True).returncode == 0:
+            Gtk.main_quit()
+            return False
+        return True
+
+    def tick(self):
+        for w in self.windows:
+            w.queue_draw()
+        return True
+
+    def moved(self, _w, ev):
+        if should_wake(self.origin, (ev.x_root, ev.y_root), time.monotonic() - self.start):
+            self.wake()
+        elif self.origin is None:
+            self.origin = (ev.x_root, ev.y_root)
+        return False
+
+    def wake(self, *_):
+        if not self.lock:
+            Gtk.main_quit()
+            return True
+        if not self.locking:
+            # start the real lock and keep covering the screens until it is up
+            self.locking = True
+            import subprocess
+            try:
+                subprocess.Popen(["sh", "-c", 'pidof hyprlock >/dev/null || exec ' + LOCKER],
+                                 start_new_session=True, stdin=subprocess.DEVNULL,
+                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            except OSError:
+                pass
+            GLib.timeout_add(150, self._lock_up, time.monotonic())
+        return True
+
+    def _lock_up(self, since: float):
+        import subprocess
+        up = subprocess.run(["pidof", "hyprlock"], capture_output=True).returncode == 0
+        if (up and time.monotonic() - since > 0.6) or time.monotonic() - since > 5:
+            Gtk.main_quit()
+            return False
+        return True
+
+
+def should_wake(origin, pos, elapsed: float) -> bool:
+    """Mouse movement wakes the desktop only after the first second (the nudge that
+    started the idle timer's last tick doesn't count) and only past a few pixels."""
+    if elapsed < GRACE or origin is None:
+        return False
+    return math.hypot(pos[0] - origin[0], pos[1] - origin[1]) > WAKE_MOVE
+
+
+# ── one at a time ─────────────────────────────────────────────────────────────
+
+def running_pid() -> int:
+    pf = pidfile()
+    try:
+        pid = int(open(pf).read().strip())
+        with open(f"/proc/{pid}/cmdline", "rb") as fh:
+            return pid if b"prime-screensaver" in fh.read() and pid != os.getpid() else 0
+    except (OSError, ValueError):
+        return 0
+
+
+def stop() -> int:
+    pid = running_pid()
+    if pid:
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except OSError:
+            pass
+    return 0
+
+
+def render(path: str, w: int = 1920, h: int = 1080):
+    surf = cairo.ImageSurface(cairo.FORMAT_ARGB32, w, h)
+    draw_frame(cairo.Context(surf), w, h, 60.0, time.strptime("2026-10-01 21:47", "%Y-%m-%d %H:%M"))
+    surf.write_to_png(path)
+
+
+def selftest() -> int:
+    fails = []
+
+    def check(name, ok):
+        print(f"  {'PASS' if ok else 'FAIL'}  {name}")
+        if not ok:
+            fails.append(name)
+
+    import tempfile
+    out = os.path.join(tempfile.mkdtemp(prefix="prime-saver-"), "f.png")
+    render(out, 640, 360)
+    check("a frame renders", os.path.getsize(out) > 5000)
+    surf = cairo.ImageSurface.create_from_png(out)
+    check("the frame is mostly dark (a screen saver, not a lamp)", _mean_brightness(surf) < 0.25)
+    check("ribbons stay on screen", all(0 < wave_y(i, x, 1920, 1080, t) < 1080
+                                        for i in range(6) for x in (0, 960, 1920) for t in (0, 500, 5000)))
+    dx, dy = emblem_offset(1920, 1080, 1234.0)
+    check("the emblem drifts but stays near the middle", abs(dx) <= 1920 * 0.16 + 1 and abs(dy) <= 1080 * 0.10 + 1)
+    check("a desk bump in the first second doesn't wake it", not should_wake((0, 0), (40, 40), 0.5))
+    check("a few pixels of jitter don't wake it", not should_wake((0, 0), (5, 5), 10))
+    check("a real mouse movement wakes it", should_wake((0, 0), (60, 0), 10))
+    print(f"\n{len(fails)} failure(s)")
+    return 1 if fails else 0
+
+
+def _mean_brightness(surf) -> float:
+    data, stride = surf.get_data(), surf.get_stride()
+    w, h, total, n = surf.get_width(), surf.get_height(), 0, 0
+    for y in range(0, h, 9):
+        for x in range(0, w, 9):
+            o = y * stride + x * 4
+            total += (data[o] + data[o + 1] + data[o + 2]) / (3 * 255)
+            n += 1
+    return total / max(n, 1)
+
+
+def main() -> int:
+    args = sys.argv[1:]
+    if args[:1] == ["--selftest"]:
+        return selftest()
+    if args[:1] == ["--screenshot"] and len(args) > 1:
+        render(args[1])
+        print(args[1])
+        return 0
+    if args[:1] == ["--stop"]:
+        return stop()
+    lock = args[:1] == ["--lock"]
+    if os.environ.get("PRIME_NO_SCREENSAVER") or running_pid():
+        return 0
+    pf = pidfile()
+    if pf:
+        with open(pf + ".tmp", "w") as fh:
+            fh.write(str(os.getpid()))
+        os.replace(pf + ".tmp", pf)
+    try:                                    # --stop: SIGTERM closes it cleanly
+        gi.require_version("GLibUnix", "2.0")
+        from gi.repository import GLibUnix
+        GLibUnix.signal_add(GLib.PRIORITY_DEFAULT, signal.SIGTERM, lambda *_: (Gtk.main_quit(), False)[1])
+    except (ValueError, ImportError, AttributeError):
+        GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGTERM, lambda *_: (Gtk.main_quit(), False)[1])
+    Saver(lock=lock)
+    try:
+        Gtk.main()
+    finally:
+        if pf:
+            try:
+                if open(pf).read().strip() == str(os.getpid()):
+                    os.unlink(pf)
+            except OSError:
+                pass
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

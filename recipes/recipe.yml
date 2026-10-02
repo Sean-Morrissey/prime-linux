@@ -1,0 +1,128 @@
+---
+# yaml-language-server: $schema=https://schema.blue-build.org/recipe-v1.json
+# Prime Linux — student-first atomic desktop with a resident AI agent.
+# Image publishes to ghcr.io/<your-github-user>/prime-linux
+name: prime-linux
+description: Prime Linux — a student-first atomic desktop that ships with a resident AI agent.
+
+# Base: Aurora (Universal Blue) — Fedora Atomic with KDE Plasma, positioned as a
+# maintenance-free productivity workstation. Ships drivers, codecs, flatpak+brew
+# setup, ujust helpers, automatic silent update staging, and — relevant to us —
+# restic, rclone and DejaDup, which is most of the backup story we owe a student.
+#
+# Why Aurora over Bazzite: it is 3.46 GiB against Bazzite's 4.69 GiB, its identity
+# is quiet (less upstream branding and first-run tooling to sand off before ours
+# shows through), and it is aimed at exactly what this distro is for. Bazzite's
+# gaming stack — Steam, Proton, Lutris, HDR/VRR, tweaked schedulers — is the one
+# thing it does better, and it is the right swap if the target machine is also the
+# machine someone games on. Rebasing between Universal Blue images later is a
+# single `bootc switch`, so this is not a one-way door.
+#
+#   Alternatives:
+#     ghcr.io/ublue-os/bazzite                -> same base + gaming stack
+#     ghcr.io/ublue-os/aurora-dx              -> Aurora + developer tooling
+#     ghcr.io/ublue-os/bluefin                -> GNOME instead of KDE
+#     ghcr.io/blue-build/base-images/fedora-kinoite -> bare KDE, no extras
+#
+# NVIDIA hardware caveat (verified against the registries): Bazzite and Bluefin
+# publish dedicated NVIDIA images (bazzite-nvidia, bluefin-nvidia); ublue-os/aurora
+# publishes none. Aurora carries the shared ublue akmods for NVIDIA, but "install
+# the driver after the fact" is not a promise to make to someone who has never used
+# Linux. If the target machine is NVIDIA, ship bazzite-nvidia or bluefin-nvidia.
+#
+# Tags: `latest` tracks the newest stable build (currently Fedora 44); `stable` is
+# the conservative alias. Pin a version tag instead of `latest` once this ships to
+# someone else, so their machine only moves when we decide it moves.
+base-image: ghcr.io/ublue-os/aurora
+image-version: latest
+
+modules:
+  # --- Packages ---------------------------------------------------------------
+  # The Prime file layer deliberately runs LAST, not first: our os-release rebrand
+  # must not be visible to modules that run at build time. It was visible before and
+  # it broke the build — see the note on the files module at the bottom.
+  - type: dnf
+    install:
+      packages:
+        # NOTE (verified 2026-09-21): the Hyprland session is NOT installed yet.
+        # `solopasha/hyprland` — the COPR this used to pull from — publishes ONLY
+        # fedora-rawhide, its last build succeeded 10 months ago, and its own project
+        # page says "Very likely personal repository for testing purpose, which you
+        # should not use." It cannot feed Fedora 44. Sourcing Hyprland is a milestone-2
+        # problem (build it from source in a build stage, or find a maintained repo);
+        # the default desktop for the target user is KDE anyway.
+        # Prime session shell + tools (all present in Fedora 44 — verified)
+        - waybar
+        - fuzzel
+        - kitty
+        - grim
+        - slurp
+        - wl-clipboard
+        - playerctl
+        - brightnessctl
+        # Student + dev basics
+        - git
+        - ripgrep
+        - fd-find
+        - jq
+        - fastfetch
+        - btop
+        - tmux
+        - python3-pip
+        - nodejs
+        - npm
+
+  # --- 3. Agent runtime (Hermes) — installer fetched at build time -------------
+  # TODO(phase 2): pin a version / vendor the installer instead of pulling latest.
+  - type: script
+    snippets:
+      - "curl -LsSf https://astral.sh/uv/install.sh | UV_UNMANAGED_INSTALL=/usr/local sh"
+
+  # --- 4. Store apps the agent + student workflow lean on ---------------------
+  - type: default-flatpaks
+    configurations:
+      - notify: false
+        scope: system
+        install:
+          - org.libreoffice.LibreOffice
+          - md.obsidian.Obsidian
+          - org.zotero.Zotero
+          - com.github.tchx84.Flatseal
+
+  # --- 5. The Prime layer: everything in files/system/ is copied over / --------
+  # Position matters twice over:
+  #   * AFTER dnf: our os-release rebrand ran first once and the dnf module then read
+  #     VERSION_ID=1 from it and asked COPR for a `fedora-1-x86_64` chroot — the build
+  #     died on "Chroot not found in the given Copr project". Branding lands after
+  #     anything that inspects the base system.
+  #   * BEFORE systemd: the units it enables (prime-update.timer, prime-boot-verify)
+  #     only exist once this module has copied them in. Enabling a unit that isn't
+  #     there yet fails the build.
+  - type: files
+    files:
+      - source: system
+        destination: /
+
+  # --- 6. Make the shipped scripts runnable ------------------------------------
+  # This has to come after the file layer: the first version of this recipe chmod'd
+  # these paths from an earlier module, where they did not exist yet — a silent
+  # build breaker. Belt and braces with the executable bit committed in git.
+  - type: script
+    snippets:
+      - "chmod +x /usr/libexec/prime/firstboot.sh /usr/libexec/prime/hw-probe.sh /usr/libexec/prime/prime /usr/libexec/prime/prime-autoupdate /usr/libexec/prime/prime-setup /usr/libexec/prime/first-login-interview.sh /usr/libexec/prime/backend-*.sh"
+
+  # --- 7. First-boot wizard + the unattended update cycle ---------------------
+  # NOTE: if the base ships its own first-run/welcome tooling, disable it here so
+  # two setup experiences don't race on first login. See Aurora's "mutations that
+  # don't work" guidance before overriding anything upstream owns.
+  - type: systemd
+    system:
+      enabled:
+        - prime-firstboot.service
+        # the whole "you never update this thing" promise: every 3 days, verified,
+        # at a moment that costs the user nothing. See docs/UPDATES.md
+        - prime-update.timer
+        - prime-boot-verify.service
+
+  # --- 8. Signing so updates verify --------------------------------------------
+  - type: signing

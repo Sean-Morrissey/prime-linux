@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# GPU load for the bar: percentage, temperature in the tooltip.
+# Finds the card itself (AMD via sysfs, NVIDIA via nvidia-smi, Intel shows
+# temperature only). Prints nothing when there is no readable GPU, which hides
+# the module.
+set -u
+usage="" temp="" name="GPU"
+for dev in /sys/class/drm/card[0-9]/device; do
+    [ -r "$dev/gpu_busy_percent" ] || continue
+    usage=$(<"$dev/gpu_busy_percent")
+    t=$(cat "$dev"/hwmon/hwmon*/temp1_input 2>/dev/null | head -1)
+    [ -n "$t" ] && temp=$((t / 1000))
+    name=$(lspci -s "$(basename "$(readlink -f "$dev")")" 2>/dev/null | sed -E 's/^[^:]*: //; s/.*\[(.*)\].*/\1/' | cut -c1-40)
+    break
+done
+if [ -z "$usage" ] && command -v nvidia-smi >/dev/null; then
+    IFS=', ' read -r usage temp < <(nvidia-smi --query-gpu=utilization.gpu,temperature.gpu --format=csv,noheader,nounits 2>/dev/null | head -1)
+    name=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1)
+fi
+[ -n "$usage" ] || exit 0
+
+if   (( usage >= 90 )); then cls="critical"
+elif (( usage >= 75 )); then cls="warning"
+else                        cls="normal"
+fi
+printf '{"text":"%s%%","class":"%s","tooltip":"%s · %s%%%s"}\n' \
+    "$usage" "$cls" "${name:-GPU}" "$usage" "${temp:+ · ${temp}°C}"

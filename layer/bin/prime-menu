@@ -1,0 +1,486 @@
+#!/usr/bin/env bash
+# prime-menu — the Prime menu: one key, one list, the whole desktop.
+#
+#   prime-menu                  the menu (sections)
+#   prime-menu --section apps   open one section directly  (--apps for short)
+#   prime-menu --list           print "id<TAB>label" for every row (tests)
+#   prime-menu --json           the whole merged list (Prime's + add-ons' + yours) as JSON;
+#                               Settings shows each pack's rows from it
+#   prime-menu --run <id>       run one row without showing anything
+#   prime-menu --check          verify every row's command actually exists
+#
+# The rows are declarative JSON (see REGISTRY below); nothing in this script
+# knows what an item does. Row kinds:
+#
+#   run    launch the command detached (GUI apps, scripts that open their own box)
+#   panel  run it in a Prime window that shows its progress and report in words
+#          (prime-panel); "term", the old name, means the same — never a terminal
+set -u
+
+MODE="menu"; SECTION=""; RUN_ID=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --list)    MODE="list";    shift ;;
+        --json)    MODE="json";    shift ;;
+        --apps)    SECTION="apps"; shift ;;
+        --run)     MODE="run";     RUN_ID="${2:-}"; shift 2 ;;
+        --section) SECTION="${2:-}"; shift 2 ;;
+        --check)   MODE="check";   shift ;;
+        *)         shift ;;
+    esac
+done
+
+RUNTIME="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+# no runtime dir (a bare shell, a container): use a private temp dir instead
+[ -d "$RUNTIME" ] && [ -w "$RUNTIME" ] || {
+    RUNTIME="${TMPDIR:-/tmp}/prime-$(id -u)"; mkdir -p -m 700 "$RUNTIME" 2>/dev/null
+    # another account could have made that folder first — then it isn't safe to use
+    if [ ! -O "$RUNTIME" ] || [ "$(stat -c %a "$RUNTIME")" != 700 ]; then RUNTIME="$(mktemp -d)"; fi
+}
+export XDG_RUNTIME_DIR="$RUNTIME"
+if [ -z "${WAYLAND_DISPLAY:-}" ]; then
+    WAYLAND_DISPLAY="$(ls "$RUNTIME" 2>/dev/null | grep -m1 '^wayland-[0-9]*$' || true)"
+    [ -n "$WAYLAND_DISPLAY" ] && export WAYLAND_DISPLAY
+fi
+# Menus are launched from the bar, which inherits the compositor's environment — but
+# a menu opened from a bare shell (a test, a phone-triggered action) has no instance
+# signature, and then every hyprctl row targets the wrong compositor or fails.
+if [ -z "${HYPRLAND_INSTANCE_SIGNATURE:-}" ] && [ -d "$RUNTIME/hypr" ]; then
+    HYPRLAND_INSTANCE_SIGNATURE="$(ls "$RUNTIME/hypr" 2>/dev/null | head -1)"
+    [ -n "$HYPRLAND_INSTANCE_SIGNATURE" ] && export HYPRLAND_INSTANCE_SIGNATURE
+fi
+
+BIN="$(dirname "$(readlink -f "$0")")"
+LAYER="$(readlink -f "$BIN/..")"
+. "$LAYER/addons/_lib/resolve.sh"     # shipped + personal (~/.config/prime/addons.d) add-ons
+THEME="$LAYER/default/rofi/menu.rasi"
+LOG="$RUNTIME/prime-menu.log"
+
+# The rows: Prime's menu.json, plus each enabled add-on's menu.json (its items are
+# appended to the section with the same id, or added as a new section), plus
+# ~/.config/prime/menu.json if you made one (same shape; your rows are appended).
+# PRIME_MENU=<file> uses exactly that file instead (tests).
+REGISTRY="${PRIME_MENU:-}"
+if [ -z "$REGISTRY" ]; then
+    REGISTRY="$RUNTIME/prime-menu.json"
+    frags=("$LAYER/default/menu.json")
+    while read -r d; do
+        [ -f "$d/menu.json" ] && frags+=("$d/menu.json")
+    done < <(enabled_addon_dirs)
+    [ -f "$HOME/.config/prime/menu.json" ] && frags+=("$HOME/.config/prime/menu.json")
+    # Appended rows that repeat one already in the section (same id, label or
+    # command — an older personal menu.json often copies Prime's own rows) are left
+    # out, and so are rows of a kind this menu can't run: both used to show up as
+    # doubled or dead rows.
+    jq -s 'def runnable: (.kind // "") as $k | ["run", "panel", "term"] | index($k) != null;
+           def key: (.label // "" | ascii_downcase | gsub("[^a-z0-9]"; ""));
+           def fresh($have): . as $i | runnable and
+               ([$have[] | select(.id == $i.id or key == ($i | key)
+                                  or ((.cmd // "") != "" and .cmd == $i.cmd))] | length == 0);
+           reduce .[1:][] as $f (.[0];
+             reduce ($f.sections // [])[] as $s (.;
+               if any(.sections[]; .id == $s.id)
+               then .sections |= map(if .id == $s.id
+                      then reduce ($s.items // [])[] as $i (.; .items as $have | if ($i | fresh($have)) then .items += [$i] else . end)
+                      else . end)
+               else .sections += [$s | .items = [(.items // [])[] | select(runnable)]] end))' "${frags[@]}" > "$REGISTRY.tmp" 2>>"$LOG" \
+        && mv -f "$REGISTRY.tmp" "$REGISTRY"
+fi
+[ "$MODE" = json ] && { cat "$REGISTRY"; exit $?; }
+BACK_ID="__back__"
+BACK_LABEL="‹ Back"
+
+log()    { printf '%s %s\n' "$(date +%H:%M:%S)" "$*" >>"$LOG" 2>/dev/null || true; }
+notify() { notify-send -a Prime -t "${2:-5000}" "Prime" "$1" >/dev/null 2>&1 || true; }
+launch_bg() { setsid nohup "$@" >/dev/null 2>>"$LOG" & disown 2>/dev/null || true; }
+strip_markup() { printf '%s' "$1" | sed 's/<[^>]*>//g'; }
+# Rows go to rofi with -markup-rows, so text from menu.json, add-ons and desktop files
+# must not carry a bare & < > ("Style & repair" rendered as "DDD": Pango gave up on the
+# whole row). Escape the TEXT; the <span>s we add around it stay markup. Quoted
+# replacements, so bash 5.2's patsub_replacement can't turn & back into the match.
+esc() { local s="$1" a='&amp;' l='&lt;' g='&gt;'; s="${s//&/"$a"}"; s="${s//</"$l"}"; s="${s//>/"$g"}"; printf '%s' "$s"; }
+# A fixed-width icon column: Nerd Font glyphs from the Mono family are all one cell
+# wide, so every label starts at the same x, with a real gap after the icon.
+icon_col() { printf '<span font_family="JetBrainsMono Nerd Font Mono" size="large">%s</span>   ' "${1:- }"; }
+dim()      { printf '  <span alpha="50%%" size="small">%s</span>' "$(esc "$1")"; }
+
+[ -f "$REGISTRY" ] || { echo "the menu list is missing: $REGISTRY" >&2; notify "The Prime menu couldn't load its list — Update everything (or Super+H) repairs it"; exit 1; }
+command -v jq >/dev/null 2>&1 || { notify "The Prime menu is missing a part it needs — Super+H checks and repairs the desktop"; exit 1; }
+
+# ── rows ─────────────────────────────────────────────────────────────────────
+# Fields are split by US (\x1f), not a tab: `read` treats tab as whitespace and
+# collapses empty fields, so a section without an icon (or a row without a hint)
+# slid its label into the icon slot.
+US=$'\x1f'
+section_rows() {          # id US icon US label US "N things"
+    jq -r '.sections[] | "\(.id)\u001f\(.icon // "")\u001f\(.label)\u001f\(.items | length) \(if (.items | length) == 1 then "thing" else "things" end)"' "$REGISTRY"
+}
+item_rows() {             # id US label US kind US cmd US hint US icon
+    jq -r --arg s "$1" '
+        (.sections[] | select(.id == $s)).items[]
+        | "\(.id)\u001f\(.label)\u001f\(.kind)\u001f\(.cmd // "")\u001f\(.hint // "")\u001f\(.icon // "")"' "$REGISTRY"
+}
+is_section() { jq -e --arg id "$1" '[.sections[].id] | index($id) != null' "$REGISTRY" >/dev/null 2>&1; }
+item_field()    { jq -r --arg id "$1" '[.sections[].items[] | select(.id == $id)][0] | .'"$2"' // ""' "$REGISTRY"; }
+section_field() { jq -r --arg id "$1" '[.sections[] | select(.id == $id)][0] | .'"$2"' // ""' "$REGISTRY"; }
+section_has()   { jq -e --arg id "$1" --arg k "$2" '(.sections[] | select(.id == $id)) | has($k)' "$REGISTRY" >/dev/null 2>&1; }
+
+# ── the applications themselves ──────────────────────────────────────────────
+# A section marked "list": "apps" gets every installed application appended to its
+# row list, so the Apps section IS the app menu — the thing he missed after the old
+# rofi drun was retired. The list comes from prime-spotlight.py's own loader, which
+# is what keeps the menu and Spotlight showing the same 99 apps; if that file ever
+# moves, the fallback parses /usr/share/applications exactly the same way.
+apps_rows() {             # [section id] — id<TAB>name<TAB>icon<TAB>comment
+    local sec="${1:-apps}" pins
+    pins="$(jq -r --arg s "$sec" '[(.sections[] | select(.id == $s))][0].pins // [] | .[]' "$REGISTRY" 2>/dev/null)"
+    PINNED="$pins" PRIME_SPOTLIGHT="$BIN/prime-spotlight" /usr/bin/python3 - "$@" <<'PY'
+import glob, os, re, sys
+
+def field(text, key):
+    for line in text.splitlines():
+        if line.startswith(key + "="):
+            return line.split("=", 1)[1].strip()
+    return ""
+
+apps = []
+try:
+    import importlib.util
+    from importlib.machinery import SourceFileLoader
+    spec = importlib.util.spec_from_loader("spot", SourceFileLoader("spot", os.environ["PRIME_SPOTLIGHT"]))
+    m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+    # system plumbing (Avahi browsers, webcam test tools…) stays out of the list
+    apps = [(n, did) for n, _exe, did, _c in m.load_apps() if m.listed(did)]
+except Exception:
+    dirs = ["/usr/share/applications", "/usr/local/share/applications",
+            os.path.expanduser("~/.local/share/applications")]
+    seen = set()
+    for d in dirs:
+        for f in glob.glob(os.path.join(d, "*.desktop")):
+            did = os.path.basename(f)[:-len(".desktop")]
+            if did in seen: continue
+            seen.add(did)
+            try: text = open(f, encoding="utf-8", errors="ignore").read()
+            except OSError: continue
+            if field(text, "NoDisplay").lower() == "true": continue
+            if field(text, "Type") not in ("", "Application"): continue
+            name = field(text, "Name")
+            if name: apps.append((name, did))
+
+by_id = {}
+for name, did in apps:
+    by_id.setdefault(did, name)
+
+# icon + comment come from the desktop file itself, keyed by its id
+meta = {}
+dirs = ["/usr/share/applications", "/usr/local/share/applications",
+        "/var/lib/flatpak/exports/share/applications",
+        os.path.expanduser("~/.local/share/applications")]
+for d in dirs:
+    for f in glob.glob(os.path.join(d, "*.desktop")):
+        did = os.path.basename(f)[:-len(".desktop")]
+        if did in meta:
+            continue
+        try:
+            text = open(f, encoding="utf-8", errors="ignore").read()
+        except OSError:
+            continue
+        meta[did] = (field(text, "Icon"), field(text, "Comment") or field(text, "GenericName"))
+
+# Resolve each icon to a real FILE. rofi happily takes a themed name, but a name the
+# current icon theme does not carry renders as an empty slot, and looking at ~99
+# desktop files most names are fine while a handful are not. Passing an absolute path
+# (best match from his themes) means the row shows his icon or the generic one —
+# never a blank column.
+ICON_THEMES = ["WhiteSur", "WhiteSur-dark", "Papirus-Dark", "Papirus", "Adwaita", "breeze", "hicolor"]
+ICON_ROOTS = ["/usr/share/icons", os.path.expanduser("~/.local/share/icons"), "/usr/share/pixmaps"]
+SIZE_RE = re.compile(r"/(\d+)(?:@2x)?/")
+
+def resolve_icon(name):
+    if not name:
+        return None
+    if name.startswith("/"):
+        return name if os.path.exists(name) else None
+    hits = []
+    for root in ICON_ROOTS:
+        for theme in ICON_THEMES:
+            for sub in ("*/*", "*/"):
+                for ext in ("svg", "png", "xpm"):
+                    hits += glob.glob(os.path.join(root, theme, sub, f"{name}.{ext}"))
+        if hits:
+            break
+    if not hits:
+        return None
+
+    def rank(path):
+        # his GTK theme first (it is what the rest of the desktop uses), then vector art,
+        # then the largest usable raster. Ranking by "@2x" alone used to hand Konsole and
+        # Files near-black 16px breeze bitmaps while Chrome got crisp WhiteSur art.
+        theme = next((ICON_THEMES.index(t) for t in ICON_THEMES if f"/{t}/" in path),
+                     len(ICON_THEMES))
+        m = SIZE_RE.search(path)
+        size = int(m.group(1)) * (2 if "@2x" in path else 1) if m else 0
+        return (theme, 0 if "scalable" in path else 1, -min(size, 48), len(path))
+
+    hits.sort(key=rank)
+    return hits[0]
+
+GENERIC = None
+for cand in ("application-x-executable", "application-default-icon"):
+    GENERIC = resolve_icon(cand)
+    if GENERIC:
+        break
+
+# --resolve <names...>: best matching icon FILE per name, one per line on stdout
+# (arguments, not stdin: the heredoc already occupies stdin)
+if sys.argv[1:2] == ["--resolve"]:
+    for n in sys.argv[2:]:
+        print(resolve_icon(n) or n)
+    sys.exit(0)
+
+pins = [p for p in os.environ.get("PINNED", "").split("\n") if p.strip()]
+printed = set()
+
+VERSIONY = re.compile(r"^[\w .+\-]*\d+\.\d+[\w.\-]*$")
+
+def tidy(comment, name):
+    """A one-line hint for the row, or "" when the desktop file has nothing useful."""
+    c = " ".join((comment or "").split())
+    if not c or c.lower() == name.lower() or len(c) < 4:
+        return ""
+    if c.startswith("http") or VERSIONY.match(c):   # "Console 0.47.1" tells him nothing
+        return ""
+    if len(c) > 46:
+        c = c[:46].rsplit(" ", 1)[0].rstrip(",;:-") + "\u2026"
+    return c
+
+def emit(did, name):
+    icon, comment = meta.get(did, (None, ""))
+    comment = tidy(comment, name)
+    path = resolve_icon(icon) or GENERIC or (icon or "")
+    print(f"app:{did}\t{name}\t{path}\t{comment}")
+
+for did in pins:
+    name = by_id.get(did)
+    if name and did not in printed:
+        printed.add(did)
+        emit(did, name)
+for name, did in sorted(apps, key=lambda a: a[0].lower()):
+    if did in printed: continue
+    printed.add(did)
+    emit(did, name)
+PY
+}
+
+# ── live state line (the reason to open the menu at all) ─────────────────────
+state_line() {
+    local parts=() updates out="" p
+    updates="$(jq -r '.text // empty' "$RUNTIME/waybar-updates.json" 2>/dev/null | sed 's/<[^>]*>//g' | tr -d ' ')"
+    case "$updates" in
+        ""|0) ;;
+        1)    parts+=("1 update waiting") ;;
+        *)    parts+=("$updates updates waiting") ;;
+    esac
+    for p in "${parts[@]}"; do out="${out}${out:+ · }$p"; done
+    printf '%s' "$out"
+}
+
+# ── dispatch ─────────────────────────────────────────────────────────────────
+run_item() {
+    local id="$1" kind cmd typed
+    # an application row: "app:<desktop id>" — launched the way desktop entries
+    # expect (gtk-launch), never by running the raw Exec= line
+    if [ "${id#app:}" != "$id" ]; then
+        local did="${id#app:}"
+        if [ "${PRIME_MENU_DRY:-0}" = "1" ]; then echo "LAUNCH: gtk-launch $did"; return 0; fi
+        launch_bg gtk-launch "$did"; log "launched app: $did"
+        return 0
+    fi
+    kind="$(item_field "$id" kind)"
+    cmd="$(item_field "$id" cmd)"
+    case "$kind" in
+        run)
+            [ -n "$cmd" ] || { log "no cmd for $id"; return 1; }
+            if [ "${PRIME_MENU_DRY:-0}" = "1" ]; then echo "RUN: $cmd"; return 0; fi
+            launch_bg bash -c "$cmd"; log "ran: $cmd" ;;
+        panel|term)
+            [ -n "$cmd" ] || { log "no cmd for $id"; return 1; }
+            if [ "${PRIME_MENU_DRY:-0}" = "1" ]; then echo "PANEL: $cmd"; return 0; fi
+            launch_bg "$BIN/prime-panel" --title "$(strip_markup "$(item_field "$id" label)")" -- bash -lc "$cmd"
+            log "ran in a Prime window: $cmd" ;;
+        *)  log "unknown kind '$kind' for item $id"; return 1 ;;
+    esac
+}
+
+# ── --check: does every row name something that exists? ──────────────────────
+if [ "$MODE" = "check" ]; then
+    fail=0
+    if command -v gtk-launch >/dev/null 2>&1; then printf 'ok   %-22s %s\n' "(app rows)" "$(command -v gtk-launch)"
+    else printf 'FAIL %-22s not installed: gtk-launch\n' "(app rows)"; fail=1; fi
+    n_apps="$(apps_rows apps | wc -l)"
+    if [ "$n_apps" -gt 0 ]; then printf 'ok   %-22s %s applications found\n' "(app list)" "$n_apps"
+    else printf 'FAIL %-22s no applications found\n' "(app list)"; fail=1; fi
+    n_icons="$(apps_rows apps | awk -F'\t' '$3 != "" && $3 != "application-x-executable" {n++} END {print n+0}')"
+    printf 'ok   %-22s %s of %s rows have a real icon file\n' "(app icons)" "$n_icons" "$n_apps"
+    while IFS=$'\t' read -r id label kind cmd hint; do
+        case "$kind" in
+            run|panel|term)
+                toks=(); read -r -a toks <<<"$cmd" || true
+                [ "${toks[0]:-}" = "exec" ] && toks=("${toks[@]:1}")
+                case "${toks[0]:-}" in
+                    bash|sh) target="${toks[1]:-}"; kindof="file" ;;
+                    "")      target="";            kindof="empty" ;;
+                    for|echo|if|while) target="${toks[0]}"; kindof="shell" ;;
+                    *)       target="${toks[0]}";  kindof="path" ;;
+                esac
+                target="${target/#\~/$HOME}"; target="${target%;}"
+                case "$kindof" in
+                    shell) printf 'ok   %-22s (shell snippet)\n' "$id" ;;
+                    file)
+                        if [ -f "$(eval echo "$target")" ]; then printf 'ok   %-22s %s\n' "$id" "$target"
+                        else printf 'FAIL %-22s missing file: %s\n' "$id" "$target"; fail=1; fi ;;
+                    path)
+                        if command -v "$target" >/dev/null 2>&1; then printf 'ok   %-22s %s\n' "$id" "$target"
+                        else printf 'FAIL %-22s not installed: %s\n' "$id" "$target"; fail=1; fi ;;
+                    *)  printf 'FAIL %-22s empty command\n' "$id"; fail=1 ;;
+                esac ;;
+            *)   printf 'FAIL %-22s unknown kind: %s\n' "$id" "$kind"; fail=1 ;;
+        esac
+    done < <(jq -r '.sections[].items[] | "\(.id)\t\(.label)\t\(.kind)\t\(.cmd // "")\t\(.hint // "")"' "$REGISTRY")
+    [ "$fail" = 0 ] && echo "menu.json: every row resolves" || echo "menu.json: PROBLEMS ABOVE"
+    exit "$fail"
+fi
+
+# ── --list / --run (headless) ────────────────────────────────────────────────
+if [ "$MODE" = "list" ]; then
+    if [ -n "$SECTION" ]; then
+        is_section "$SECTION" || { echo "no such section: $SECTION" >&2; exit 2; }
+        printf '%s\t%s\n' "$BACK_ID" "$BACK_LABEL"
+        item_rows "$SECTION" | awk -F'\x1f' '{printf "%s\t%s\n", $1, $2}'
+        section_has "$SECTION" list && apps_rows "$SECTION" | awk -F'\t' '{printf "%s\t%s\n", $1, $2}'
+    else
+        section_rows   | awk -F'\x1f' '{printf "%s\t%s %s\n", $1, $2, $3}'
+    fi
+    exit 0
+fi
+
+if [ "$MODE" = "run" ]; then
+    [ -n "$RUN_ID" ] || { echo "--run needs an item id" >&2; exit 2; }
+    run_item "$RUN_ID"
+    exit $?
+fi
+
+# ── the menu ─────────────────────────────────────────────────────────────────
+command -v rofi >/dev/null 2>&1 || { notify "The Prime menu is missing a part it needs — Super+H checks and repairs the desktop"; exit 1; }
+
+LABELS=(); IDS=(); ICONS=(); COMMENTS=()
+SHOW_ICONS=0
+if [ -z "$SECTION" ]; then
+    PROMPT="Prime"
+    while IFS="$US" read -r id icon label count; do
+        if section_has "$id" list; then count="$(apps_rows "$id" | wc -l) apps"; fi
+        LABELS+=("$(icon_col "$icon")$(esc "$label")$(dim "$count")")
+        IDS+=("$id")
+    done < <(section_rows)
+else
+    [ -n "$(section_field "$SECTION" label)" ] || { notify "No such section: $SECTION"; exit 2; }
+    PROMPT="$(section_field "$SECTION" label)"
+    LABELS+=("$(esc "$BACK_LABEL")"); IDS+=("$BACK_ID"); ICONS+=("go-previous"); COMMENTS+=("")
+    while IFS="$US" read -r id label kind cmd hint icon; do
+        if [ -n "$hint" ]; then LABELS+=("$(esc "$label")$(dim "$hint")")
+        else                      LABELS+=("$(esc "$label")"); fi
+        IDS+=("$id"); ICONS+=("$icon"); COMMENTS+=("")
+    done < <(item_rows "$SECTION")
+    if section_has "$SECTION" list; then
+        SHOW_ICONS=1
+        RESOLVE_LATER=1
+        while IFS=$'\t' read -r id label icon comment; do
+            if [ -n "$comment" ]; then LABELS+=("$(esc "$label")$(dim "$comment")")
+            else                      LABELS+=("$(esc "$label")"); fi
+            IDS+=("$id"); ICONS+=("$icon"); COMMENTS+=("")
+        done < <(apps_rows "$SECTION")
+    fi
+fi
+[ "${#LABELS[@]}" -gt 0 ] || { notify "No menu rows in $REGISTRY"; exit 1; }
+
+STATE="$(state_line)"
+# -mesg is Pango markup too: escape it like the rows
+# (the prompt already says where you are, so the line under it is news, or a hint)
+if [ -n "$STATE" ]; then MESG="$(esc "$STATE")"
+elif [ -z "$SECTION" ]; then MESG="Settings, style, updates and power — type to find anything"
+else MESG="Enter opens  ·  ‹ Back or Esc returns"; fi
+
+# One menu at a time: a second tap of the same button replaces this menu instead of
+# stacking a duplicate on top of it. The bracketed pattern cannot match this
+# script's own command line (the classic pkill -f self-kill).
+pkill -f 'rofi.*rofi/[m]enu[.]rasi' 2>/dev/null || true
+
+# rofi's icon syntax is "text\0icon\x1f<name>", and a bash variable cannot hold a NUL,
+# so the rows go out through a file written with printf. LABELS stays the match key.
+if [ "${RESOLVE_LATER:-0}" = 1 ]; then
+    need=0
+    for i in "${ICONS[@]}"; do case "$i" in ""|/*) ;; *) need=1 ;; esac; done
+    if [ "$need" = 1 ]; then
+        mapfile -t RESOLVED < <(apps_rows --resolve "${ICONS[@]}")
+        # a resolve pass that returns a different number of lines would shift every row's
+        # icon onto the wrong label, so only accept a 1:1 result
+        if [ "${#RESOLVED[@]}" = "${#ICONS[@]}" ]; then ICONS=("${RESOLVED[@]}")
+        else log "icon resolve mismatch (${#RESOLVED[@]} vs ${#ICONS[@]}) — keeping raw names"; fi
+    fi
+fi
+
+if [ "${PRIME_MENU_DEBUG_ICONS:-0}" = 1 ]; then
+    printf 'rows=%s\n' "${#LABELS[@]}"
+    for i in "${!LABELS[@]}"; do printf '  %-10s %s\n' "${IDS[$i]}" "${ICONS[$i]}"; done
+    exit 0
+fi
+
+ROWS_FILE="$RUNTIME/prime-menu-rows"
+: > "$ROWS_FILE"
+for i in "${!LABELS[@]}"; do
+    printf '%s' "${LABELS[$i]}" >> "$ROWS_FILE"
+    if [ "$SHOW_ICONS" = 1 ] && [ -n "${ICONS[$i]:-}" ]; then
+        printf '\0icon\x1f%s' "${ICONS[$i]}" >> "$ROWS_FILE"
+    fi
+    printf '\n' >> "$ROWS_FILE"
+done
+
+ICON_FLAGS=()
+# The typing box. prime-menu.rasi deliberately packs only [message, listview] — it is
+# also the shared right-click theme, where a search box is noise — so the menu re-packs
+# mainbox here with an inputbar on top. Without it there is nowhere to type: the Apps
+# page scrolled 100 rows and he had to hunt for a name instead of typing three letters.
+SEARCH_STR=(
+    -theme-str 'mainbox { children: [ inputbar, message, listview ]; }'
+    -theme-str 'entry { placeholder: "Type to filter…"; }'
+)
+LAYOUT_STR=("${SEARCH_STR[@]}" -theme-str 'listview { lines: 12; }')
+if [ "$SHOW_ICONS" = 1 ]; then
+    # the theme install.sh sets (Papirus-Dark), or WhiteSur where someone installed it
+    ICON_THEME="$(gsettings get org.gnome.desktop.interface icon-theme 2>/dev/null | tr -d "'")"
+    ICON_FLAGS=(-show-icons -icon-theme "${ICON_THEME:-Papirus-Dark}")
+    SHOW_ICONS=1
+    # the app list is the one page with icons + a second line of text, so it gets a
+    # wider panel and taller rows than the right-click menus (same theme otherwise)
+    LAYOUT_STR=("${SEARCH_STR[@]}"
+                -theme-str 'window { width: 780px; background-color: rgba(10,10,14,1.0); }'
+                -theme-str 'listview { lines: 11; }'
+                -theme-str 'element-icon { size: 28px; }')
+fi
+
+# -click-to-exit: clicking anywhere outside closes it (Windows-like).
+# -steal-focus:   keyboard focus goes back to the window he was using.
+# -markup-rows:   lets the dim hints render.
+# -format i: rofi answers with the row's index, so a label's markup or escaping can
+# never stop the choice matching its row.
+choice="$("$BIN/prime-rofi" -dmenu -i -no-custom -format i \
+            -click-to-exit -steal-focus -markup-rows "${ICON_FLAGS[@]}" \
+            -theme "$THEME" -p "$PROMPT" -mesg "$MESG" "${LAYOUT_STR[@]}" < "$ROWS_FILE")" || exit 0
+case "$choice" in ''|*[!0-9]*) log "no row chosen: $choice"; exit 0 ;; esac
+id="${IDS[$choice]:-}"
+[ -n "$id" ] || { log "no row at index $choice"; exit 0; }
+log "chose: $id"
+if [ "$id" = "$BACK_ID" ]; then exec "$0"
+elif is_section "$id";   then exec "$0" --section "$id"
+else run_item "$id"; exit $?
+fi

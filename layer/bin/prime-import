@@ -1,0 +1,1102 @@
+#!/usr/bin/env python3
+"""prime-import — bring a desktop you set up before Prime along, without losing anything.
+
+  prime-import                 show what it would bring over (same as --dry-run)
+  prime-import --dry-run       the plan, in plain words; changes nothing
+  prime-import --apply         save a full backup first, then bring it over
+  prime-import --undo          put the previous setup back exactly as it was
+
+Options:
+  --from DIR    read the old settings from DIR (a folder laid out like ~/.config,
+                e.g. the copy the installer saved in ~/.config-backups/prime-install-…)
+                instead of ~/.config. Files it doesn't find there come from ~/.config.
+  --name NAME   the personal add-on to write (default: my-desktop)
+  --yes         don't ask before --apply (the installer, tests)
+
+What comes over, into a personal add-on (~/.config/prime/addons.d/NAME/, yours,
+never touched by prime-update — see docs/MIGRATING.md):
+  * your own keyboard shortcuts, each with a description (Super+/ lists them);
+    ones that would clash with Prime's are reported and left switched off
+  * window rules for your apps, your own environment settings, the programs you
+    start with the desktop (not the ones Prime runs itself: bar, wallpaper…)
+  * the bar items Prime doesn't have, with their styles
+  * your own background services (systemd user units)
+and, into Prime's own files: your screens (monitors.conf), which workspace goes
+on which screen and graphics-card settings (hardware.conf), your keyboard
+layouts (keyboard.conf), and your wallpaper and accent colour (theme.conf).
+
+It never copies secrets (API keys, tokens, *.key, .env, auth.json: lines and
+units holding them stay where they are), and it never deletes anything: files it
+replaces are renamed (…before-prime), and --apply saves everything first.
+"""
+from __future__ import annotations
+
+import datetime as _dt
+import glob
+import json
+import os
+import re
+import shlex
+import shutil
+import subprocess
+import sys
+import tarfile
+
+HOME = os.path.expanduser("~")
+CFG = os.path.join(HOME, ".config")
+BIN = os.path.dirname(os.path.realpath(__file__))
+LAYER = os.path.realpath(os.path.join(BIN, ".."))
+STATE_DIR = os.path.join(os.environ.get("XDG_STATE_HOME") or os.path.join(HOME, ".local/state"), "prime/import")
+BACKUPS = os.path.join(HOME, ".config-backups")
+PERSONAL = os.environ.get("PRIME_PERSONAL_ADDONS") or os.path.join(CFG, "prime/addons.d")
+# what --apply saves and --undo puts back, relative to $HOME
+SAVED = [".config/hypr", ".config/waybar", ".config/rofi", ".config/swaync", ".config/kitty",
+         ".config/prime", ".config/systemd/user"]
+NEVER_SAVED = {".config/prime/ai.key"}          # the AI key never goes into a backup
+
+# ── secrets: never copied ────────────────────────────────────────────────────
+SECRET_VALUE = re.compile(
+    r"(sk-or-v1-[A-Za-z0-9]{12,}|sk-(?:proj-|ant-)?[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{20,}|"
+    r"xox[abprs]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{30,}|hf_[A-Za-z0-9]{20,}|"
+    r"gsk_[A-Za-z0-9]{20,}|glpat-[A-Za-z0-9_-]{20,}|eyJ[A-Za-z0-9_-]{15,}\.[A-Za-z0-9_-]{10,})")
+SECRET_ASSIGN = re.compile(
+    r"(?i)[A-Za-z0-9_]*(api[_-]?key|apikey|token|secret|passw(?:or)?d|credential|private[_-]?key|bearer|auth)"
+    r"[A-Za-z0-9_]*\s*[=:,]\s*['\"]?(?![$%~/])[^\s'\",]{8,}")
+SECRET_FILES = re.compile(r"(?i)(^|/)(\.env(\..*)?|auth\.json|.*\.key|.*\.pem|credentials(\.json)?|.*token.*)$")
+
+
+def has_secret(text: str) -> bool:
+    return bool(SECRET_VALUE.search(text) or SECRET_ASSIGN.search(text))
+
+
+# ── small helpers ────────────────────────────────────────────────────────────
+def expand(path: str, base: str | None = None) -> str:
+    p = path.strip().strip("'\"")
+    p = p.replace("%h", HOME).replace("$HOME", HOME).replace("${HOME}", HOME)
+    p = os.path.expanduser(p)
+    if base and not os.path.isabs(p):
+        p = os.path.join(base, p)
+    return os.path.normpath(p)
+
+
+def tilde(path: str) -> str:
+    return "~" + path[len(HOME):] if path == HOME or path.startswith(HOME + "/") else path
+
+
+def jsonc(text: str):
+    """JSON with // and /* */ comments and trailing commas (waybar's format)."""
+    out, i, n, s = [], 0, len(text), None
+    while i < n:
+        c = text[i]
+        if s:
+            out.append(c)
+            if c == "\\" and i + 1 < n:
+                out.append(text[i + 1]); i += 2; continue
+            if c == s:
+                s = None
+            i += 1
+        elif c == '"':
+            s = c; out.append(c); i += 1
+        elif text.startswith("//", i):
+            j = text.find("\n", i); i = n if j < 0 else j
+        elif text.startswith("/*", i):
+            j = text.find("*/", i + 2); i = n if j < 0 else j + 2
+        else:
+            out.append(c); i += 1
+    return json.loads(re.sub(r",(\s*[}\]])", r"\1", "".join(out)))
+
+
+def say(line=""):
+    print(line, flush=True)
+
+
+# ── reading Hyprland's config ────────────────────────────────────────────────
+class Line:
+    def __init__(self, key, value, raw, where, section):
+        self.key, self.value, self.raw, self.where, self.section = key, value, raw, where, section
+
+
+def strip_comment(line: str) -> str:
+    # Hyprland: "#" starts a comment, "##" is a literal "#"
+    out, i = [], 0
+    while i < len(line):
+        if line[i] == "#":
+            if line[i:i + 2] == "##":
+                out.append("#"); i += 2; continue
+            break
+        out.append(line[i]); i += 1
+    return "".join(out).strip()
+
+
+def is_prime_path(p: str) -> bool:
+    return "prime-linux" in p or p.startswith(os.path.join(CFG, "prime/"))
+
+
+def read_hypr(path, roots, vars_, lines, seen, notes, section=()):
+    path = os.path.realpath(path)
+    if path in seen or not os.path.isfile(path):
+        return
+    seen.add(path)
+    stack = list(section)
+    for no, raw in enumerate(open(path, errors="replace"), 1):
+        text = strip_comment(raw.rstrip("\n"))
+        if not text:
+            continue
+        where = f"{tilde(path)}:{no}"
+        if text.endswith("{"):
+            stack.append(text[:-1].strip()); continue
+        if text == "}":
+            stack and stack.pop(); continue
+        m = re.match(r"^([$\w.:\-]+)\s*=\s*(.*)$", text)
+        if not m:
+            notes.append((where, raw.strip(), "not a setting line")); continue
+        key, value = m.group(1), m.group(2).strip()
+        if key.startswith("$") and not stack:
+            vars_[key] = value
+            lines.append(Line("$var", value, raw.strip(), where, ()))
+            continue
+        if key == "source" and not stack:
+            target = subst(value, vars_)
+            found = []
+            for root in [os.path.dirname(path)] + roots:
+                cand = sorted(glob.glob(expand(target, root)))
+                if cand:
+                    found = cand; break
+            if is_prime_path(expand(target)) or (found and all(is_prime_path(f) for f in found)):
+                lines.append(Line("source-prime", value, raw.strip(), where, ())); continue
+            if not found:
+                notes.append((where, raw.strip(), "the file it loads isn't there")); continue
+            for f in found:
+                read_hypr(f, roots, vars_, lines, seen, notes)
+            continue
+        lines.append(Line(key, value, raw.strip(), where, tuple(stack)))
+
+
+def subst(text: str, vars_: dict) -> str:
+    # longest names first so $mainModShift wins over $mainMod
+    for k in sorted(vars_, key=len, reverse=True):
+        text = text.replace(k, vars_[k])
+    return text
+
+
+# ── shortcuts ────────────────────────────────────────────────────────────────
+MOD = {"SUPER": "SUPER", "WIN": "SUPER", "LOGO": "SUPER", "MOD4": "SUPER", "META": "SUPER",
+       "CTRL": "CTRL", "CONTROL": "CTRL", "ALT": "ALT", "MOD1": "ALT", "SHIFT": "SHIFT"}
+MOD_ORDER = ["SUPER", "CTRL", "ALT", "SHIFT"]
+NICE_MOD = {"SUPER": "Super", "CTRL": "Ctrl", "ALT": "Alt", "SHIFT": "Shift"}
+
+
+def mods_of(text):
+    out = set()
+    for w in re.split(r"[\s_+]+", text.upper()):
+        if w:
+            out.add(MOD.get(w, w))
+    return tuple(m for m in MOD_ORDER if m in out) + tuple(sorted(out - set(MOD_ORDER)))
+
+
+def parse_bind(key, value, vars_):
+    """→ dict(flags, mods, key, desc, disp, arg) or None"""
+    flags = key[4:]
+    parts = [p.strip() for p in subst(value, vars_).split(",")]
+    if len(parts) < 3:
+        return None
+    mods, k = mods_of(parts[0]), parts[1]
+    if "d" in flags:
+        if len(parts) < 4:
+            return None
+        desc, disp, arg = parts[2], parts[3], ", ".join(parts[4:])
+    else:
+        desc, disp, arg = "", parts[2], ", ".join(parts[3:])
+    return {"flags": flags, "mods": mods, "key": k, "desc": desc, "disp": disp.strip(), "arg": arg.strip()}
+
+
+def slot(b):
+    return (b["mods"], b["key"].lower(), "r" in b["flags"])
+
+
+def nice_keys(b):
+    k = b["key"]
+    k = {"return": "Enter", "space": "Space", "slash": "/", "minus": "-", "comma": ",", "period": "."}.get(k.lower(), k)
+    if len(k) == 1:
+        k = k.upper()
+    return " + ".join([NICE_MOD.get(m, m.title()) for m in b["mods"]] + [k])
+
+
+APPS = {"steam": "Steam", "spotify": "Spotify", "spotify-launcher": "Spotify", "discord": "Discord",
+        "vesktop": "Discord (Vesktop)", "obsidian": "Obsidian", "firefox": "Firefox", "kitty": "the terminal",
+        "alacritty": "the terminal", "konsole": "the terminal", "nemo": "Files", "thunar": "Files",
+        "nautilus": "Files", "code": "Code", "chromium": "Chromium", "google-chrome-stable": "Chrome",
+        "thunderbird": "Thunderbird", "signal-desktop": "Signal", "telegram-desktop": "Telegram",
+        "obs": "OBS Studio", "gimp": "GIMP", "krita": "Krita", "blender": "Blender", "vlc": "VLC",
+        "mpv": "mpv", "pavucontrol": "the sound mixer", "btop": "Activity", "htop": "Activity",
+        "lutris": "Lutris", "heroic": "Heroic", "libreoffice": "LibreOffice", "zed": "Zed",
+        "zeditor": "Zed", "slack": "Slack", "zoom": "Zoom", "syncthing": "Syncthing"}
+DISPATCH = {"killactive": "Close window", "togglefloating": "Float / tile window", "pseudo": "Pseudo-tile window",
+            "togglesplit": "Flip split direction", "exit": "Log out", "pin": "Pin window",
+            "centerwindow": "Centre window", "fullscreen": "Full screen", "cyclenext": "Next window",
+            "movewindow": "Move window", "resizewindow": "Resize window", "togglegroup": "Group windows"}
+
+
+def humanize(word):
+    w = re.sub(r"\.(sh|py|fish|pl)$", "", os.path.basename(word))
+    w = re.sub(r"[-_.]+", " ", w).strip()
+    w = re.sub(r"\bptt\b", "push to talk", w, flags=re.I)
+    return w[:1].upper() + w[1:] if w else "a command"
+
+
+def program_of(cmd):
+    words = shlex.split(cmd, posix=True) if cmd else []
+    while words and re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", words[0]):
+        words.pop(0)
+    while words and words[0] in ("uwsm", "app", "--", "env", "setsid", "nohup", "exec", "gtk-launch", "uwsm-app"):
+        words.pop(0)
+    if len(words) >= 3 and words[0] == "flatpak" and words[1] == "run":
+        return words[-1].split(".")[-1].lower(), words[3:]
+    return (os.path.basename(words[0]) if words else ""), words[1:]
+
+
+def describe(b):
+    if b["desc"]:
+        d = b["desc"]
+    elif b["disp"] == "exec":
+        try:
+            prog, args = program_of(b["arg"])
+        except ValueError:
+            prog, args = b["arg"].split()[0] if b["arg"] else "", []
+        if prog.lower() in APPS:
+            d = "Open " + APPS[prog.lower()]
+        elif prog == "systemctl" and len(args) >= 3:
+            d = f"{args[-2].title()} {humanize(args[-1].replace('.service', ''))}"
+        else:
+            extra = " ".join(a for a in args[:2] if re.fullmatch(r"[A-Za-z][\w-]{0,15}", a))
+            d = f"{humanize(prog)}{(' ' + extra) if extra else ''}"
+    elif b["disp"] in ("workspace",):
+        d = f"Go to workspace {b['arg']}"
+    elif b["disp"].startswith("movetoworkspace"):
+        d = f"Send window to workspace {b['arg']}"
+    else:
+        d = DISPATCH.get(b["disp"], f"{b['disp']} {b['arg']}".strip())
+    if "r" in b["flags"]:
+        d += " (when the key is let go)"
+    return d.replace(",", " ·").strip()
+
+
+def bindd_line(b):
+    flags = b["flags"] if "d" in b["flags"] else b["flags"] + "d"
+    mods = " ".join(b["mods"])
+    return f"bind{flags} = {mods}, {b['key']}, {describe(b)}, {b['disp']}" + (f", {b['arg']}" if b["arg"] else "")
+
+
+def prime_binds():
+    """Prime's own shortcuts and every shipped pack's: slot → (description, dispatcher, arg)."""
+    vars_ = {"$bin": os.path.join(LAYER, "bin"), "$prime": LAYER, "$terminal": "kitty", "$files": "nemo"}
+    out = {}
+    files = sorted(glob.glob(os.path.join(LAYER, "default/hypr/*.conf"))) + \
+        sorted(glob.glob(os.path.join(LAYER, "addons/*/hypr.conf")))
+    for f in files:
+        for raw in open(f):
+            m = re.match(r"^\s*(bind[a-z]*)\s*=\s*(.*)$", strip_comment(raw))
+            if m:
+                b = parse_bind(m.group(1), m.group(2), vars_)
+                if b:
+                    out[slot(b)] = (b["desc"] or b["disp"], b["disp"], b["arg"])
+    # reserved even when the pack is off (docs/PACKS.md), and core keys
+    for k in "GPHCEVRSFNT":
+        out.setdefault((("SUPER", "ALT"), k.lower(), False), (f"kept for Prime's packs (Super+Alt+{k})", "", ""))
+    for mods, k in [(("SUPER", "SHIFT"), "r"), (("SUPER", "SHIFT"), "c"), (("SUPER", "SHIFT"), "k"),
+                    (("SUPER", "CTRL"), "e"), (("SUPER", "CTRL"), "n"), (("SUPER", "CTRL"), "i"), (("SUPER", "CTRL"), "space")]:
+        out.setdefault((mods, k, False), ("one of Prime's own keys", "", ""))
+    return out
+
+
+def same_action(b, prime):
+    _, disp, arg = prime
+    if b["disp"] != disp:
+        return False
+    if b["disp"] != "exec":
+        return re.sub(r"\s+", "", b["arg"]) == re.sub(r"\s+", "", arg)
+    try:
+        return program_of(b["arg"])[0] == program_of(arg)[0]
+    except ValueError:
+        return b["arg"] == arg
+
+
+# ── window rules: old forms → Hyprland's current one ─────────────────────────
+BOOL_RULES = {"float": "float", "tile": "tile", "fullscreen": "fullscreen", "maximize": "maximize",
+              "pin": "pin", "center": "center", "pseudo": "pseudo", "noblur": "no_blur",
+              "noshadow": "no_shadow", "noanim": "no_anim", "nofocus": "no_focus", "nodim": "no_dim",
+              "noinitialfocus": "no_initial_focus", "stayfocused": "stay_focused", "dimaround": "dim_around",
+              "immediate": "immediate", "xray": "xray", "noborder": "border_size 0"}
+ARG_RULES = {"workspace": "workspace", "size": "size", "move": "move", "opacity": "opacity", "monitor": "monitor",
+             "idleinhibit": "idle_inhibit", "bordersize": "border_size", "rounding": "rounding",
+             "maxsize": "max_size", "minsize": "min_size", "suppressevent": "suppress_event",
+             "animation": "animation", "group": "group", "tag": "tag"}
+MATCHERS = {"class": "class", "title": "title", "initialclass": "initial_class", "initialtitle": "initial_title",
+            "xwayland": "xwayland", "floating": "float", "fullscreen": "fullscreen", "pinned": "pin",
+            "workspace": "workspace", "focus": "focus", "tag": "tag"}
+
+
+def convert_rule(key, value):
+    """→ the rule in today's syntax, or None if it can't be converted safely."""
+    if key == "windowrule" and "match:" in value:
+        return f"windowrule = {value}"
+    parts = [p.strip() for p in value.split(",")]
+    effect, matches = parts[0], parts[1:]
+    if key == "windowrule":                      # oldest form: windowrule = RULE, REGEX
+        matches = [f"class:{','.join(matches)}"]
+    words = effect.split()
+    if not words:
+        return None
+    name = words[0].lower()
+    if name in BOOL_RULES and len(words) == 1:
+        new = BOOL_RULES[name] + ("" if " " in BOOL_RULES[name] else " on")
+    elif name in ARG_RULES and len(words) > 1:
+        new = ARG_RULES[name] + " " + " ".join(words[1:])
+    else:
+        return None
+    out = []
+    for m in matches:
+        mm = re.match(r"^(\w+):(.*)$", m)
+        if not mm or mm.group(1).lower() not in MATCHERS:
+            return None
+        out.append(f"match:{MATCHERS[mm.group(1).lower()]} {mm.group(2).strip()}")
+    return f"windowrule = {new}, " + ", ".join(out) if out else None
+
+
+# ── what Prime already runs at login ─────────────────────────────────────────
+PRIME_RUNS = re.compile(r"(^|/)(waybar|swaync|swaync-client|mako|dunst|hyprpaper|swww|swww-daemon|swaybg|hypridle|"
+                        r"swayidle|nm-applet|blueman-applet|cliphist|wl-paste|wl-clip-persist|dbus-update-activation-environment|"
+                        r"hyprpolkitagent|polkit[\w.-]*|xdg-desktop-portal[\w-]*|hyprsunset|wlsunset|gammastep|"
+                        r"nwg-dock[\w-]*|hyprpm|hyprctl|prime-[\w-]+)$")
+HARDWARE_ENV = re.compile(r"^(MESA_|AMD_|RADV_|VK_|__GL|__NV|NVD_|LIBVA_|VDPAU_|GBM_|WLR_|AQ_|DRI_PRIME|HSA_|"
+                          r"ROC|HIP_|CUDA_|__EGL|LIBGL_|KWIN_DRM|DXVK_|PROTON_)")
+
+
+def prime_env():
+    out = {}
+    for raw in open(os.path.join(LAYER, "default/hypr/env.conf")):
+        m = re.match(r"^\s*env\s*=\s*([^,]+),(.*)$", strip_comment(raw))
+        if m:
+            out[m.group(1).strip()] = m.group(2).strip()
+    return out
+
+
+def starts_bar(cmd):
+    return "waybar" in cmd
+
+
+# ── waybar ───────────────────────────────────────────────────────────────────
+def prime_bar_modules():
+    names = set()
+    for f in ("config.jsonc", "sidebar.jsonc"):
+        try:
+            d = jsonc(open(os.path.join(LAYER, "default/waybar", f)).read())
+        except (OSError, ValueError):
+            continue
+        for k, v in d.items():
+            if k.startswith("modules-") and isinstance(v, list):
+                names.update(v)
+            elif isinstance(v, dict):
+                names.add(k)
+    return names
+
+
+# built-in bar items Prime already shows in its own way
+PRIME_HAS = {"pulseaudio", "wireplumber", "mpris", "hyprland/language", "keyboard-state", "power-profiles-daemon",
+             "wlr/workspaces", "sway/workspaces", "hyprland/window", "idle_inhibitor", "custom/notification",
+             "custom/power", "custom/updates", "backlight", "privacy", "custom/launcher", "custom/logo"}
+
+
+def css_id(module):
+    # "custom/gpu" → "#custom-gpu"; "pulseaudio#mic" → "#pulseaudio.mic"
+    base, _, extra = module.partition("#")
+    return "#" + base.replace("/", "-") + ("." + extra if extra else "")
+
+
+def css_rules(text):
+    text = re.sub(r"/\*.*?\*/", "", text, flags=re.S)
+    defines = dict(re.findall(r"@define-color\s+([\w-]+)\s+([^;]+);", text))
+    body = re.sub(r"@define-color[^;]*;", "", text)
+    body = re.sub(r"@import[^;]*;", "", body)
+    rules = []
+    for m in re.finditer(r"([^{}]+)\{([^{}]*)\}", body):
+        rules.append((m.group(1).strip(), m.group(2).strip()))
+    return defines, rules
+
+
+def keep_css(defines, rules, modules):
+    ids = [css_id(m) for m in modules]
+    pat = re.compile("(" + "|".join(re.escape(i) for i in ids) + r")(?![\w-])") if ids else None
+    kept, used = [], set()
+    for sel, body in rules:
+        if pat and pat.search(sel):
+            kept.append(f"{sel} {{\n    " + "\n    ".join(x.strip() + ";" for x in body.split(";") if x.strip()) + "\n}")
+            used.update(re.findall(r"@([\w-]+)", body))
+    head = [f"@define-color {k} {defines[k].strip()};" for k in sorted(used) if k in defines]
+    return head, kept
+
+
+# ── the importer ─────────────────────────────────────────────────────────────
+class Import:
+    def __init__(self, src, name):
+        self.src = src                    # where the old settings are read from (like ~/.config)
+        self.name = name
+        self.addon = os.path.join(PERSONAL, name)
+        self.notes = []                   # (where, text, why) — not brought over
+        self.secrets = []                 # where — never copied
+        self.plan = {}
+
+    def find(self, rel):
+        for root in (self.src, CFG):
+            p = os.path.join(root, rel)
+            if os.path.exists(p):
+                return p
+        return None
+
+    # -- hyprland --------------------------------------------------------------
+    def hypr_config(self):
+        p = os.path.join(self.src, "hypr/hyprland.conf")
+        if self.src == CFG and os.path.isfile(p) and "prime-linux" in open(p, errors="replace").read():
+            # already Prime's file: the old one is in the installer's backup
+            olds = sorted(glob.glob(os.path.join(BACKUPS, "prime-install-*/hypr/hyprland.conf")))
+            olds = [o for o in olds if "prime-linux" not in open(o, errors="replace").read()]
+            if olds:
+                self.src = os.path.dirname(os.path.dirname(olds[-1]))
+                return olds[-1]
+            before = os.path.join(CFG, "hypr/hyprland.conf.before-prime")
+            if os.path.isfile(before):
+                return before
+            return None
+        return p if os.path.isfile(p) else None
+
+    def scan(self):
+        conf = self.hypr_config()
+        self.conf_path = conf
+        vars_, lines = {}, []
+        if conf:
+            read_hypr(conf, [os.path.join(self.src, "hypr"), os.path.join(CFG, "hypr")], vars_, lines, set(), self.notes)
+        self.vars = vars_
+        pb, penv = prime_binds(), prime_env()
+        P = self.plan = {"binds": [], "clashes": [], "same": [], "monitors": [], "workspaces": [], "rules": [],
+                         "env_hw": [], "env": [], "exec": [], "kb": {}, "accent": None, "wall": None,
+                         "bar": {"top": {}, "side": {}}, "bar_css": [], "bar_skipped": [], "units": [],
+                         "units_enabled": [], "units_left": []}
+        mine = {}
+        for ln in lines:
+            if ln.key in ("$var", "source-prime"):
+                continue
+            text = subst(ln.value, vars_)
+            if has_secret(ln.raw) or has_secret(text):
+                self.secrets.append(ln.where); continue
+            if ln.section:
+                sec = ln.section[0]
+                if sec == "input" and ln.key in ("kb_layout", "kb_variant", "kb_options", "kb_model") and len(ln.section) == 1:
+                    P["kb"][ln.key] = text
+                elif sec == "general" and ln.key == "col.active_border":
+                    P["accent"] = P["accent"] or first_colour(text)
+                    self.notes.append((ln.where, ln.raw, "Prime draws window borders in your accent colour"))
+                else:
+                    self.notes.append((ln.where, ln.raw, f"a '{'/'.join(ln.section)}' setting — Prime has its own; copy it into ~/.config/hypr/hyprland.conf if you miss it"))
+                continue
+            if ln.key.startswith("bind"):
+                b = parse_bind(ln.key, ln.value, vars_)
+                if not b:
+                    self.notes.append((ln.where, ln.raw, "couldn't read this shortcut")); continue
+                s = slot(b)
+                if s in pb and same_action(b, pb[s]):
+                    P["same"].append((nice_keys(b), pb[s][0])); continue
+                if s in pb:
+                    P["clashes"].append((b, pb[s][0], ln.where)); continue
+                if s in mine:
+                    self.notes.append((ln.where, ln.raw, f"{nice_keys(b)} was already bound above — Hyprland would run both")); continue
+                mine[s] = b
+                P["binds"].append(b)
+            elif ln.key == "unbind":
+                self.notes.append((ln.where, ln.raw, "removing one of the old setup's keys — not needed on Prime"))
+            elif ln.key == "monitor":
+                P["monitors"].append(text)
+            elif ln.key == "workspace":
+                (P["workspaces"] if "monitor:" in text else P["rules"]).append(f"workspace = {text}")
+            elif ln.key in ("windowrule", "windowrulev2"):
+                new = convert_rule(ln.key, text)
+                if new:
+                    P["rules"].append(new)
+                else:
+                    self.notes.append((ln.where, ln.raw, "a window rule Prime couldn't translate to today's format"))
+            elif ln.key == "layerrule":
+                self.notes.append((ln.where, ln.raw, "a rule for the old bar or launcher — Prime styles its own"))
+            elif ln.key == "env":
+                name, _, val = text.partition(",")
+                name = name.strip()
+                if penv.get(name) == val.strip():
+                    continue
+                (P["env_hw"] if HARDWARE_ENV.match(name) else P["env"]).append(f"env = {name},{val.strip()}")
+            elif ln.key == "exec-once":
+                prog = ""
+                try:
+                    prog = program_of(text)[0]
+                except ValueError:
+                    pass
+                if starts_bar(text) or PRIME_RUNS.search(prog or "-") or "hyprpaper" in text:
+                    self.notes.append((ln.where, ln.raw, "Prime starts its own (bar, wallpaper, notifications…)"))
+                else:
+                    P["exec"].append(f"exec-once = {text}")
+                    m = re.search(r"\bswww img\s+(\S+)|\bswaybg\b.*?-i\s+(\S+)", text)
+                    if m:
+                        P["wall"] = P["wall"] or expand(m.group(1) or m.group(2))
+            elif ln.key == "exec":
+                self.notes.append((ln.where, ln.raw, "runs at every reload — add it back by hand if you need it"))
+            else:
+                self.notes.append((ln.where, ln.raw, "not something Prime brings over"))
+        self.scan_wallpaper()
+        self.scan_waybar(lines)
+        self.scan_units()
+
+    def scan_wallpaper(self):
+        P = self.plan
+        hp = self.find("hypr/hyprpaper.conf")
+        if hp and not P["wall"]:
+            text = open(hp, errors="replace").read()
+            m = re.search(r"^\s*wallpaper\s*=\s*[^,\n]*,\s*(.+)$", text, re.M) or \
+                re.search(r"^\s*path\s*=\s*(.+)$", text, re.M) or re.search(r"^\s*preload\s*=\s*(.+)$", text, re.M)
+            if m:
+                P["wall"] = expand(m.group(1))
+        wp = self.find("waypaper/config.ini")
+        if wp and not P["wall"]:
+            m = re.search(r"^\s*wallpaper\s*=\s*(.+)$", open(wp, errors="replace").read(), re.M)
+            if m:
+                P["wall"] = expand(m.group(1))
+        if P["wall"] and not os.path.isfile(P["wall"]):
+            self.notes.append(("wallpaper", P["wall"], "the wallpaper file isn't there any more")); P["wall"] = None
+
+    def bar_configs(self, lines):
+        """The bars that were actually started: the default config plus any -c/--config the
+        old setup launched (from the window manager, launch scripts or services)."""
+        found = []
+        for n in ("waybar/config", "waybar/config.jsonc", "waybar/config.json"):
+            p = self.find(n)
+            if p:
+                found.append((p, None)); break
+        texts = [subst(l.value, self.vars) for l in lines if l.key in ("exec-once", "exec")]
+        wb = self.find("waybar")
+        if wb:
+            for f in glob.glob(os.path.join(wb, "*.sh")):
+                texts.append(open(f, errors="replace").read())
+        ud = self.find("systemd/user")
+        if ud:
+            for f in glob.glob(os.path.join(ud, "*.service")):
+                texts.append(open(f, errors="replace").read())
+        for t in texts:
+            for seg in re.split(r"[;&|\n]", t):
+                if "waybar" not in seg:
+                    continue
+                c = re.search(r"(?:-c|--config)[ =](\S+)", seg)
+                s = re.search(r"(?:-s|--style)[ =](\S+)", seg)
+                if c:
+                    p = self.relocate(expand(c.group(1)))
+                    st = self.relocate(expand(s.group(1))) if s else None
+                    found = [(q, st if q == p else qs) for q, qs in found]
+                    if all(q != p for q, _ in found):
+                        found.append((p, st))
+        return [(p, s) for p, s in found if os.path.isfile(p)]
+
+    def relocate(self, p):
+        """A path under ~/.config read from the old setup: prefer the --from copy."""
+        if p.startswith(CFG + "/") and self.src != CFG:
+            alt = os.path.join(self.src, p[len(CFG) + 1:])
+            if os.path.exists(alt):
+                return alt
+        return p
+
+    def scan_waybar(self, lines):
+        P, prime = self.plan, prime_bar_modules()
+        styles = {}
+        for path, style in self.bar_configs(lines):
+            try:
+                data = jsonc(open(path, errors="replace").read())
+            except ValueError as e:
+                self.notes.append((tilde(path), "", f"couldn't read this bar config ({e})")); continue
+            for bar in (data if isinstance(data, list) else [data]):
+                if not isinstance(bar, dict):
+                    continue
+                defs = {}
+                inc = bar.get("include", [])
+                for f in ([inc] if isinstance(inc, str) else inc):
+                    try:
+                        defs.update(jsonc(open(self.relocate(expand(f, os.path.dirname(path))), errors="replace").read()))
+                    except (OSError, ValueError):
+                        self.notes.append((tilde(path), f, "an included bar file couldn't be read"))
+                defs.update({k: v for k, v in bar.items() if isinstance(v, dict)})
+                which = "side" if bar.get("position") in ("left", "right") else "top"
+                frag = P["bar"][which]
+                for group in ("modules-left", "modules-center", "modules-right"):
+                    for m in bar.get(group, []) or []:
+                        if m in prime or m.split("#")[0] in PRIME_HAS:
+                            if m.startswith("custom/") or m.split("#")[0] in PRIME_HAS:
+                                P["bar_skipped"].append((m, "Prime's bar already has this"))
+                            continue
+                        if m.startswith("group/"):
+                            P["bar_skipped"].append((m, "a group of items — add it back by hand")); continue
+                        d = defs.get(m, {})
+                        blob = json.dumps(d)
+                        if has_secret(blob):
+                            self.secrets.append(f"bar item {m} ({tilde(path)})"); continue
+                        if m in frag.setdefault("modules", {}):
+                            continue
+                        frag["modules"][m] = d
+                        frag.setdefault("insert", {}).setdefault(group, {"modules": []})["modules"].append(m)
+                        for k in ("exec", "on-click", "on-click-right"):
+                            cmd = d.get(k)
+                            if isinstance(cmd, str) and cmd.strip():
+                                exe = expand(cmd.split()[0])
+                                if exe.startswith("/") and not os.path.exists(exe):
+                                    P["bar_skipped"].append((m, f"note: {tilde(exe)} isn't there — the item will be empty"))
+                css = style or os.path.join(os.path.dirname(path), "style.css")
+                styles.setdefault(css, set()).update(P["bar"][which].get("modules", {}).keys())
+        for css, mods in styles.items():
+            if not os.path.isfile(css):
+                continue
+            defines, rules = css_rules(open(css, errors="replace").read())
+            head, kept = keep_css(defines, rules, sorted(mods))
+            if kept:
+                P["bar_css"].append(f"/* from {tilde(css)} */")
+                P["bar_css"] += head + kept
+            m = re.search(r"@define-color\s+(?:accent|accent_color|primary)\s+([^;]+);", open(css, errors="replace").read())
+            if m and not P["accent"]:
+                P["accent"] = first_colour(m.group(1))
+        if any(has_secret(x) for x in P["bar_css"]):
+            self.secrets.append("bar styles"); P["bar_css"] = []
+
+    def scan_units(self):
+        P = self.plan
+        ud = os.path.join(self.src, "systemd/user")
+        if not os.path.isdir(ud):
+            ud = os.path.join(CFG, "systemd/user")
+        if not os.path.isdir(ud):
+            return
+        ours = {os.path.basename(f) for f in glob.glob(os.path.join(LAYER, "systemd/*"))}
+        enabled = {os.path.basename(f) for f in glob.glob(os.path.join(ud, "*.wants/*"))}
+        for f in sorted(glob.glob(os.path.join(ud, "*"))):
+            n = os.path.basename(f)
+            if not re.search(r"\.(service|timer|path|socket)$", n) or os.path.islink(f) or not os.path.isfile(f):
+                continue
+            if n in ours or n.startswith("prime-bar@") or SECRET_FILES.search(n):
+                continue
+            text = open(f, errors="replace").read()
+            if has_secret(text):
+                self.secrets.append(f"service {n}")
+                P["units_left"].append((n, "it has a password or key written inside — left where it is, untouched"))
+                continue
+            if "waybar" in text:
+                P["units_left"].append((n, "it starts another bar — Prime runs its own; switch it off if you see two bars"))
+                continue
+            P["units"].append((n, f))
+            if n in enabled:
+                P["units_enabled"].append(n)
+
+    # -- the plan, in words ------------------------------------------------------
+    def report(self, out=say):
+        P = self.plan
+        out(f"Reading your old setup from {tilde(self.conf_path) if self.conf_path else '(no Hyprland settings found)'}")
+        out()
+        out(f"Into your own add-on  {tilde(self.addon)}/  (never changed by updates):")
+        out(f"  Shortcuts ({len(P['binds'])}):")
+        for b in P["binds"]:
+            out(f"    {nice_keys(b):<26} {describe(b)}")
+        if P["clashes"]:
+            out(f"  Shortcuts that clash with Prime's ({len(P['clashes'])}) — kept but switched off, so no key does two things:")
+            for b, theirs, where in P["clashes"]:
+                out(f"    {nice_keys(b):<26} {describe(b)}   ✗ Prime uses it for: {theirs}")
+        if P["same"]:
+            out(f"  Already Prime's shortcuts, nothing to bring: {len(P['same'])}")
+        if P["rules"]:
+            out(f"  Window rules for your apps ({len(P['rules'])})")
+        if P["env"]:
+            out(f"  Your environment settings: {', '.join(e.split('=', 1)[1].split(',')[0].strip() for e in P['env'])}")
+        if P["exec"]:
+            out("  Started with the desktop:")
+            for e in P["exec"]:
+                out(f"    {e.split('=', 1)[1].strip()}")
+        for which in ("top", "side"):
+            mods = P["bar"][which].get("modules", {})
+            if mods:
+                out(f"  {'Top bar' if which == 'top' else 'Side bar'} items: {', '.join(mods)}")
+        if P["bar_css"]:
+            out(f"  Their styles ({sum(1 for x in P['bar_css'] if '{' in x)} rules)")
+        for m, why in P["bar_skipped"]:
+            out(f"    {m}: {why}")
+        if P["units"]:
+            out("  Background services (managed by the add-on from now on):")
+            for n, _ in P["units"]:
+                out(f"    {n}{'  (on)' if n in P['units_enabled'] else ''}")
+        for n, why in P["units_left"]:
+            out(f"    {n}: {why}")
+        out()
+        out("Into Prime's own settings files:")
+        if P["monitors"]:
+            out(f"  Screens → ~/.config/hypr/monitors.conf: " + "; ".join(m.split(",")[0].strip() for m in P["monitors"]))
+        if P["workspaces"] or P["env_hw"]:
+            out(f"  → ~/.config/hypr/hardware.conf: {len(P['workspaces'])} workspace→screen rules"
+                + (f", graphics settings {', '.join(e.split('=', 1)[1].split(',')[0].strip() for e in P['env_hw'])}" if P["env_hw"] else ""))
+        if P["kb"]:
+            out(f"  Keyboard layouts → ~/.config/hypr/keyboard.conf: {P['kb'].get('kb_layout', '')}")
+        if P["wall"] or P["accent"]:
+            out(f"  Theme → ~/.config/prime/theme.conf: "
+                + ", ".join(x for x in [f"wallpaper {tilde(P['wall'])}" if P["wall"] else "", f"accent #{P['accent']}" if P["accent"] else ""] if x))
+        if self.secrets:
+            out()
+            out(f"Never copied — they hold a key, token or password ({len(self.secrets)}):")
+            for w in self.secrets:
+                out(f"  {w}")
+        out()
+        out(f"Not brought over: {len(self.notes)} line(s) — listed in the add-on's not-imported.conf, with why.")
+
+
+def first_colour(text):
+    m = re.search(r"rgba?\(\s*([0-9a-fA-F]{6})(?:[0-9a-fA-F]{2})?\s*\)|0x[0-9a-fA-F]{2}([0-9a-fA-F]{6})|#([0-9a-fA-F]{6})\b", text)
+    if not m:
+        return None
+    return (m.group(1) or m.group(2) or m.group(3)).lower()
+
+
+# ── apply ────────────────────────────────────────────────────────────────────
+def private_dir(path):
+    os.makedirs(path, mode=0o700, exist_ok=True)
+    os.chmod(path, 0o700)
+    st = os.lstat(path)
+    if st.st_uid != os.getuid() or os.path.islink(path):
+        sys.exit(f"{path} isn't yours — stopping, nothing was changed.")
+
+
+def write(path, text, mode=0o644):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = path + ".prime-import.tmp"
+    with open(tmp, "w") as f:
+        f.write(text)
+    os.chmod(tmp, mode)
+    os.replace(tmp, path)
+
+
+def move_aside(path):
+    """Rename (never delete) a file Prime is about to replace."""
+    if not os.path.lexists(path):
+        return None
+    dst = path + ".before-prime"
+    if os.path.lexists(dst):
+        dst = f"{path}.before-prime-{_dt.datetime.now():%Y%m%d-%H%M%S}"
+    os.rename(path, dst)
+    return dst
+
+
+RESTORE = r'''#!/usr/bin/env bash
+# Puts your desktop settings back exactly as they were before `prime-import --apply`
+# on @WHEN@. Same as `prime-import --undo`. Safe to run more than once.
+#   bash @SELF@
+set -euo pipefail
+B="@DIR@"
+cd "$HOME"
+umask 077
+PATHS=(@PATHS@)
+# keep what is there now too, in case you want any of it back (never the AI key)
+have=(); for p in "${PATHS[@]}"; do [ -e "$p" ] && have+=("$p"); done
+[ ${#have[@]} -gt 0 ] && tar -czf "$B/after-import-$(date +%Y%m%d-%H%M%S).tar.gz" --exclude=.config/prime/ai.key "${have[@]}" 2>/dev/null || true
+python3 - "$B" "${PATHS[@]}" <<'PY'
+import os, sys, tarfile, shutil
+b, paths = sys.argv[1], sys.argv[2:]
+home = os.path.expanduser("~")
+keep = {".config/prime/ai.key"}                    # never in the backup: leave it be
+existed = set(open(os.path.join(b, "existed.txt")).read().split())
+with tarfile.open(os.path.join(b, "before.tar.gz")) as t:
+    members = t.getmembers()
+    names = {m.name.rstrip("/") for m in members}
+    # 1. take away what the import added (files, links, folders not in the backup)
+    for p in paths:
+        top = os.path.join(home, p)
+        if p not in existed:
+            if os.path.lexists(top):
+                for root, dirs, files in os.walk(top, topdown=False):
+                    for f in files + dirs:
+                        full = os.path.join(root, f); rel = os.path.relpath(full, home)
+                        if rel in keep:
+                            continue
+                        if os.path.islink(full) or not os.path.isdir(full): os.unlink(full)
+                        else:
+                            try: os.rmdir(full)
+                            except OSError: pass
+                try: os.rmdir(top)
+                except OSError: pass
+            continue
+        for root, dirs, files in os.walk(top, topdown=False):
+            for f in files + dirs:
+                full = os.path.join(root, f); rel = os.path.relpath(full, home)
+                if rel in keep:
+                    continue
+                if os.path.islink(full) or not os.path.isdir(full):
+                    os.unlink(full)            # every file comes back from the backup below
+                elif rel not in names:
+                    shutil.rmtree(full, ignore_errors=True)
+    # 2. put every saved file back, with its permissions and times
+    for m in members:
+        full = os.path.join(home, m.name)
+        if m.isdir() and os.path.isdir(full):
+            continue
+        kw = {"filter": "fully_trusted"} if hasattr(tarfile, "data_filter") else {}
+        t.extract(m, home, set_attrs=True, **kw)
+    for m in members:                               # folders last, so their times stick
+        if m.isdir():
+            full = os.path.join(home, m.name)
+            os.chmod(full, m.mode); os.utime(full, (m.mtime, m.mtime))
+PY
+date +%s > "$B/undone"
+if [ -z "${PRIME_NO_LIVE:-}" ] && systemctl --user show-environment >/dev/null 2>&1; then
+    systemctl --user daemon-reload || true
+fi
+if [ -z "${PRIME_NO_LIVE:-}" ] && [ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]; then
+    hyprctl reload >/dev/null 2>&1 || true
+fi
+echo "Your previous desktop settings are back (from $B)."
+'''
+
+
+def backup(stamp):
+    d = os.path.join(BACKUPS, f"import-{stamp}")
+    private_dir(BACKUPS)
+    private_dir(d)
+    existed = [p for p in SAVED if os.path.lexists(os.path.join(HOME, p))]
+    with open(os.path.join(d, "existed.txt"), "w") as f:
+        f.write("\n".join(existed) + "\n")
+    tar_path = os.path.join(d, "before.tar.gz")
+    old = os.umask(0o077)
+    try:
+        with tarfile.open(tar_path, "w:gz") as t:
+            for p in existed:
+                # a folder that is a link (dotfiles kept elsewhere): save what it points to,
+                # so the undo puts the contents back through the link
+                t.add(os.path.realpath(os.path.join(HOME, p)), arcname=p,
+                      filter=lambda ti: None if ti.name in NEVER_SAVED else ti)
+    finally:
+        os.umask(old)
+    os.chmod(tar_path, 0o600)
+    script = os.path.join(d, "restore.sh")
+    write(script, RESTORE.replace("@DIR@", d).replace("@WHEN@", stamp).replace("@SELF@", tilde(script))
+          .replace("@PATHS@", " ".join(shlex.quote(p) for p in SAVED)), 0o700)
+    return d
+
+
+def apply(imp: Import, assume_yes: bool):
+    P = imp.plan
+    if not os.path.isdir(os.path.join(HOME, ".local/share/prime-linux/layer")):
+        sys.exit("Prime Linux isn't installed for this account yet. Install it first (install.sh), then run prime-import.")
+    last = last_state()
+    if last and not os.path.exists(os.path.join(last["backup"], "undone")):
+        sys.exit(f"An earlier import is still in place (from {last['stamp']}). Undo it first: prime-import --undo")
+    if not imp.conf_path:
+        sys.exit("No Hyprland settings to bring over were found. Nothing was changed.")
+    if not assume_yes and sys.stdin.isatty():
+        a = input("Back everything up and bring it over now? [y/N] ").strip().lower()
+        if a not in ("y", "yes"):
+            sys.exit("Nothing was changed.")
+    stamp = _dt.datetime.now().strftime("%Y%m%d-%H%M%S")
+
+    # 1. a full backup before anything changes
+    say("[1/4] Saving everything first")
+    env = dict(os.environ, PRIME_NONINTERACTIVE="1")
+    r = subprocess.run([os.path.join(BIN, "prime-desktop-backup"), "save", "before-import"],
+                       stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, env=env)
+    if r.returncode != 0:
+        sys.exit("Couldn't save the desktop settings first — nothing was changed.")
+    d = backup(stamp)
+    say(f"    saved: {tilde(r.stdout.strip())}")
+    say(f"    saved: {tilde(d)}/before.tar.gz  (undo: prime-import --undo, or bash {tilde(d)}/restore.sh)")
+    os.makedirs(STATE_DIR, exist_ok=True)
+    with open(os.path.join(STATE_DIR, "last.json"), "w") as f:
+        json.dump({"stamp": stamp, "backup": d, "name": imp.name, "from": imp.conf_path}, f)
+
+    # 2. the personal add-on
+    say(f"[2/4] Writing your add-on: {tilde(imp.addon)}")
+    a = imp.addon
+    if os.path.lexists(a):
+        move_aside(a)
+    os.makedirs(a)
+    write(os.path.join(a, "addon.conf"),
+          f'# Written by prime-import on {stamp} from {tilde(imp.conf_path)}. Yours: edit freely;\n'
+          '# prime-update never changes this folder. Switch it off: prime-addon disable '
+          f'{imp.name}\nTITLE="My desktop (imported)"\nICON="󰋜"\n'
+          'DESCRIPTION="Your shortcuts, bar items and services from before Prime"\n'
+          f'UNITS="{" ".join(P["units_enabled"])}"\n')
+    h = [f"# Your Hyprland settings from before Prime (prime-import, {stamp}).",
+         "# Prime's defaults load first, then this file, then ~/.config/hypr/hyprland.conf.", ""]
+    if P["binds"]:
+        h += ["# ── Your shortcuts (Super+/ lists them) ──"] + [bindd_line(b) for b in P["binds"]] + [""]
+    if P["clashes"]:
+        h += ["# ── Shortcuts that clash with Prime's — switched off so no key does two things.",
+              "# To use yours instead: copy the line into ~/.config/hypr/hyprland.conf with",
+              "# `unbind = MODS, KEY` above it, and remove the leading '# '."]
+        for b, theirs, where in P["clashes"]:
+            h += [f"# {bindd_line(b)}    # {nice_keys(b)} is Prime's: {theirs}"]
+        h += [""]
+    if P["rules"]:
+        h += ["# ── Window rules for your apps ──"] + P["rules"] + [""]
+    if P["env"]:
+        h += ["# ── Your environment settings ──"] + P["env"] + [""]
+    if P["exec"]:
+        h += ["# ── Started with the desktop ──"] + P["exec"] + [""]
+    write(os.path.join(a, "hypr.conf"), "\n".join(h))
+    for which in ("top", "side"):
+        frag = P["bar"][which]
+        if frag.get("modules"):
+            write(os.path.join(a, f"waybar-{which}.json"), json.dumps(frag, indent=2, ensure_ascii=False) + "\n")
+    if P["bar_css"]:
+        write(os.path.join(a, "waybar.css"), "/* Your bar items' styles from before Prime (prime-import). */\n"
+              + "\n".join(P["bar_css"]) + "\n")
+    if P["units"]:
+        os.makedirs(os.path.join(a, "systemd"))
+        for n, f in P["units"]:
+            shutil.copy2(f, os.path.join(a, "systemd", n))
+    nl = ["# What prime-import did NOT bring over, and why. Nothing here is loaded;",
+          "# copy a line into ~/.config/hypr/hyprland.conf if you want it back.", ""]
+    for where, raw, why in imp.notes:
+        nl += [f"# {where} — {why}", f"#   {raw}" if raw and not has_secret(raw) else "#   (line not shown)"]
+    for w in imp.secrets:
+        nl += [f"# {w} — holds a key, token or password: never copied (it is still in your old file)"]
+    write(os.path.join(a, "not-imported.conf"), "\n".join(nl) + "\n")
+    rep = []
+    imp.report(lambda line="": rep.append(line))
+    write(os.path.join(a, "import-report.txt"), "\n".join(rep) + "\n")
+
+    # 3. Prime's own files: screens, hardware, keyboard, theme
+    say("[3/4] Screens, keyboard, wallpaper and accent")
+    hy = os.path.join(CFG, "hypr")
+    os.makedirs(hy, exist_ok=True)
+    cur = os.path.join(hy, "hyprland.conf")
+    if not (os.path.isfile(cur) and "prime-linux" in open(cur, errors="replace").read()):
+        moved = move_aside(cur)
+        shutil.copy2(os.path.join(LAYER, "seed/hypr/hyprland.conf"), cur)
+        if moved:
+            say(f"    your old {tilde(cur)} is now {tilde(moved)} (renamed, not deleted)")
+    if P["monitors"]:
+        write(os.path.join(hy, "monitors.conf"),
+              "# Screens — Menu → Settings → Displays rewrites this file. (Brought over by prime-import.)\n"
+              + "".join(f"monitor = {m}\n" for m in P["monitors"]))
+    hw = os.path.join(hy, "hardware.conf")
+    old = open(hw).read() if os.path.isfile(hw) else ""
+    old = re.sub(r"\n?# >>> prime-import.*?# <<< prime-import\n", "", old, flags=re.S)
+    block = []
+    if P["workspaces"]:
+        block += ["# which workspace opens on which screen"] + P["workspaces"]
+    if P["env_hw"]:
+        block += ["# graphics-card settings from your old setup"] + P["env_hw"]
+    if block:
+        write(hw, old.rstrip("\n") + ("\n" if old.strip() else "") +
+              "# >>> prime-import (your screens and graphics card; safe to edit)\n" + "\n".join(block) + "\n# <<< prime-import\n")
+    elif not os.path.exists(hw):
+        write(hw, "")
+    kb = os.path.join(hy, "keyboard.conf")
+    if P["kb"] or not os.path.exists(kb):
+        body = "".join(f"    {k} = {v}\n" for k, v in P["kb"].items()) or "    kb_layout = us\n"
+        write(kb, "# Keyboard layouts — written by Settings → Keyboard layout (prime-keyboard).\n"
+                  "# Switch between them with Super+Ctrl+Space. You can edit this file too.\n"
+                  f"input {{\n{body}}}\n")
+    for f in ("monitors.conf", "addons.conf"):
+        if not os.path.exists(os.path.join(hy, f)):
+            write(os.path.join(hy, f), "")
+    # a bar config of the old setup's under Prime's names would replace Prime's bar
+    for n in ("config.jsonc", "sidebar.jsonc"):
+        moved = move_aside(os.path.join(CFG, "waybar", n)) if os.path.isfile(os.path.join(CFG, "waybar", n)) else None
+        if moved:
+            say(f"    {tilde(os.path.join(CFG, 'waybar', n))} renamed to {os.path.basename(moved)} (it would replace Prime's bar)")
+    tc = os.path.join(CFG, "prime/theme.conf")
+    state = {}
+    if os.path.isfile(tc):
+        for line in open(tc):
+            k, _, v = line.strip().partition("=")
+            if k:
+                try:
+                    state[k] = shlex.split(v)[0] if v else ""
+                except ValueError:
+                    state[k] = v
+    if P["wall"]:
+        state["WALL"] = P["wall"]
+    if P["accent"]:
+        state["ACCENT"] = P["accent"]
+    state.setdefault("TEXT", "default")
+    if P["wall"] or P["accent"]:
+        write(tc, "".join(f"{k}={shlex.quote(v)}\n" for k, v in state.items()))
+        subprocess.run([os.path.join(BIN, "prime-theme"), "--apply"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    # 4. switch the add-on on (links its services, rebuilds the bar and shortcuts)
+    say("[4/4] Switching your add-on on")
+    env.update(PRIME_ADDON_PACKAGES="skip", PRIME_AI_SETUP="keep")
+    r = subprocess.run([os.path.join(BIN, "prime-addon"), "enable", imp.name], stdout=subprocess.PIPE,
+                       stderr=subprocess.STDOUT, text=True, env=env)
+    if r.returncode != 0:
+        say(r.stdout[-1500:])
+        say(f"The add-on was written but didn't switch on. Try: prime-addon enable {imp.name}"
+            "   — or go back: prime-import --undo")
+        return 1
+    say("")
+    say(f"Done. Your old setup is now the add-on '{imp.name}' — prime-addon list shows it (personal).")
+    say(f"What came over and what didn't: {tilde(os.path.join(a, 'import-report.txt'))}")
+    say("Changed your mind? prime-import --undo puts everything back exactly as it was.")
+    return 0
+
+
+def last_state():
+    try:
+        return json.load(open(os.path.join(STATE_DIR, "last.json")))
+    except (OSError, ValueError):
+        return None
+
+
+def undo():
+    s = last_state()
+    if not s:
+        sys.exit("There's no import to undo.")
+    script = os.path.join(s["backup"], "restore.sh")
+    if os.path.exists(os.path.join(s["backup"], "undone")):
+        say(f"The import from {s['stamp']} was already undone. Running the restore again keeps it that way.")
+    if not os.path.isfile(script):
+        sys.exit(f"The backup for the import of {s['stamp']} isn't there any more ({tilde(s['backup'])}).")
+    return subprocess.run(["bash", script]).returncode
+
+
+def main(argv):
+    mode, src, name, yes = "dry-run", CFG, "my-desktop", False
+    i = 0
+    while i < len(argv):
+        a = argv[i]
+        if a in ("--dry-run", "--plan"):
+            mode = "dry-run"
+        elif a == "--apply":
+            mode = "apply"
+        elif a == "--undo":
+            mode = "undo"
+        elif a == "--yes":
+            yes = True
+        elif a == "--from" and i + 1 < len(argv):
+            src = os.path.realpath(expand(argv[i + 1])); i += 1
+        elif a == "--name" and i + 1 < len(argv):
+            name = argv[i + 1]; i += 1
+        elif a in ("-h", "--help"):
+            print(__doc__); return 0
+        else:
+            print(__doc__, file=sys.stderr); return 2
+        i += 1
+    if mode == "undo":
+        return undo()
+    if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,40}", name) or os.path.isfile(os.path.join(LAYER, "addons", name, "addon.conf")):
+        sys.exit(f"'{name}' can't be the add-on's name (lower-case letters, digits, - and _; not one of Prime's).")
+    if not os.path.isdir(src):
+        sys.exit(f"{src} isn't a folder.")
+    imp = Import(src, name)
+    imp.scan()
+    if mode == "dry-run":
+        imp.report()
+        say()
+        say("Nothing was changed. To do it:  prime-import --apply   (it saves everything first; undo: prime-import --undo)")
+        return 0
+    return apply(imp, yes)
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

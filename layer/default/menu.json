@@ -1,0 +1,477 @@
+{
+  "sections": [
+    {
+      "id": "apps",
+      "label": "Apps",
+      "icon": "󰣇",
+      "list": "apps",
+      "pins": [
+        "nemo",
+        "org.gnome.Software",
+        "firefox",
+        "chromium",
+        "steam"
+      ],
+      "items": [
+        {
+          "id": "apps.spotlight",
+          "label": "Search everything",
+          "hint": "Super+Space",
+          "kind": "run",
+          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-spotlight"
+        },
+        {
+          "id": "apps.packs",
+          "label": "Set this computer up for…",
+          "hint": "Gaming · Coding · Creating · Studying",
+          "kind": "run",
+          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-addon pick"
+        },
+        {
+          "id": "apps.store",
+          "label": "App Store",
+          "hint": "install apps with a click",
+          "kind": "run",
+          "cmd": "exec gnome-software"
+        },
+        {
+          "id": "apps.welcome",
+          "label": "Set up my computer again",
+          "hint": "the welcome steps: look, packs, updates, assistant",
+          "kind": "run",
+          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-welcome"
+        },
+        {
+          "id": "apps.activity",
+          "label": "Activity",
+          "hint": "what's using the computer right now",
+          "kind": "run",
+          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-activity"
+        }
+      ]
+    },
+    {
+      "id": "settings",
+      "label": "Settings",
+      "icon": "󰒓",
+      "items": [
+        {
+          "id": "set.all",
+          "label": "All settings — Wi-Fi, sound, display, mouse, gaming, storage…",
+          "hint": "Super+I",
+          "kind": "run",
+          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-system-settings"
+        },
+        {
+          "id": "set.shortcuts",
+          "label": "Keyboard shortcuts",
+          "hint": "Super+/",
+          "kind": "run",
+          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-keys"
+        },
+        {
+          "id": "set.theme",
+          "label": "Theme — wallpaper, accent colour, text size",
+          "hint": "Super+Shift+W",
+          "kind": "run",
+          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-theme"
+        },
+        {
+          "id": "set.text",
+          "label": "Text size",
+          "hint": "one size for the whole desktop",
+          "kind": "run",
+          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-theme --text"
+        },
+        {
+          "id": "set.saver",
+          "label": "Screen saver — preview",
+          "hint": "shows when the screen locks; any key asks for the password",
+          "kind": "run",
+          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-screensaver"
+        },
+        {
+          "id": "set.displays",
+          "label": "Displays",
+          "hint": "arrange screens, resolution, refresh rate",
+          "kind": "run",
+          "cmd": "exec nwg-displays"
+        },
+        {
+          "id": "set.network",
+          "label": "Wi-Fi & network",
+          "kind": "run",
+          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-wifi",
+          "hint": "join a network, turn Wi-Fi on or off"
+        },
+        {
+          "id": "set.bluetooth",
+          "label": "Bluetooth",
+          "kind": "run",
+          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-bluetooth",
+          "hint": "connect headphones, mice, speakers"
+        },
+        {
+          "id": "set.audio",
+          "label": "Sound",
+          "hint": "speakers, headphones, microphone",
+          "kind": "run",
+          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-sound"
+        },
+        {
+          "id": "set.keyboard",
+          "label": "Keyboard layout",
+          "hint": "languages — Super+Ctrl+Space switches",
+          "kind": "run",
+          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-keyboard"
+        },
+        {
+          "id": "set.power",
+          "label": "Power mode",
+          "hint": "battery saver · balanced · performance",
+          "kind": "run",
+          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-power-profile"
+        },
+        {
+          "id": "set.printers",
+          "label": "Printers",
+          "hint": "add a printer, see what's printing",
+          "kind": "run",
+          "cmd": "exec system-config-printer"
+        },
+        {
+          "id": "set.netadv",
+          "label": "Network settings (advanced)",
+          "hint": "VPN, fixed IP, hidden networks",
+          "kind": "run",
+          "cmd": "exec nm-connection-editor"
+        },
+        {
+          "id": "set.apps",
+          "label": "Default apps",
+          "hint": "browser and file manager",
+          "kind": "run",
+          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-default-apps"
+        },
+        {
+          "id": "set.store",
+          "label": "App Store",
+          "kind": "run",
+          "cmd": "exec gnome-software"
+        },
+        {
+          "id": "set.addons",
+          "label": "Packs & add-ons",
+          "hint": "optional extras, e.g. the AI assistant",
+          "kind": "run",
+          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-addon pick"
+        },
+        {
+          "id": "set.hyprconf",
+          "label": "Advanced window & keyboard settings",
+          "hint": "your own settings file, opens in Text Editor",
+          "kind": "run",
+          "cmd": "exec gnome-text-editor ~/.config/hypr/hyprland.conf"
+        },
+        {
+          "id": "set.autonomy",
+          "label": "How much Prime may do on its own",
+          "hint": "ask every time · small stuff · just do it",
+          "kind": "panel",
+          "cmd": "~/.local/share/prime-linux/layer/bin/prime-settings autonomy"
+        }
+      ]
+    },
+    {
+      "id": "toggles",
+      "label": "Quick switches",
+      "icon": "󰔡",
+      "items": [
+        {
+          "id": "tog.menu",
+          "label": "All switches, with what's on now",
+          "kind": "run",
+          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-toggle menu"
+        },
+        {
+          "id": "tog.night",
+          "label": "Night light on / off",
+          "hint": "Super+Ctrl+N",
+          "kind": "run",
+          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-toggle nightlight"
+        },
+        {
+          "id": "tog.dnd",
+          "label": "Do not disturb on / off",
+          "hint": "Super+Shift+K",
+          "kind": "run",
+          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-toggle dnd"
+        },
+        {
+          "id": "tog.awake",
+          "label": "Keep awake on / off",
+          "hint": "Super+Ctrl+I — no dimming or lock",
+          "kind": "run",
+          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-toggle idle"
+        },
+        {
+          "id": "tog.layout",
+          "label": "Next keyboard layout",
+          "hint": "Super+Ctrl+Space",
+          "kind": "run",
+          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-keyboard next"
+        },
+        {
+          "id": "tog.power",
+          "label": "Power mode",
+          "hint": "battery saver · balanced · performance",
+          "kind": "run",
+          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-power-profile"
+        },
+        {
+          "id": "tog.anim",
+          "label": "Animations on / off",
+          "kind": "run",
+          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-toggle-animations"
+        }
+      ]
+    },
+    {
+      "id": "tools",
+      "label": "Capture & tools",
+      "icon": "󰄀",
+      "items": [
+        {
+          "id": "tool.shot",
+          "label": "Screenshot a region",
+          "hint": "Print or Super+Shift+S",
+          "kind": "run",
+          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-snip area"
+        },
+        {
+          "id": "tool.rec",
+          "label": "Record a region of the screen",
+          "hint": "Super+Shift+R — again to stop",
+          "kind": "run",
+          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-record area"
+        },
+        {
+          "id": "tool.recfull",
+          "label": "Record the whole screen with sound",
+          "hint": "Super+Ctrl+Shift+R",
+          "kind": "run",
+          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-record screen --sound"
+        },
+        {
+          "id": "tool.recstop",
+          "label": "Stop recording",
+          "hint": "or click the red dot on the bar",
+          "kind": "run",
+          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-record stop"
+        },
+        {
+          "id": "tool.colour",
+          "label": "Pick a colour from the screen",
+          "hint": "Super+Shift+C — copies its code",
+          "kind": "run",
+          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-colour"
+        },
+        {
+          "id": "tool.emoji",
+          "label": "Emoji",
+          "hint": "Super+Ctrl+E",
+          "kind": "run",
+          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-emoji"
+        },
+        {
+          "id": "tool.calc",
+          "label": "Calculator",
+          "hint": "or type sums into Spotlight",
+          "kind": "run",
+          "cmd": "exec gnome-calculator"
+        },
+        {
+          "id": "tool.clip",
+          "label": "Clipboard history",
+          "hint": "Super+V",
+          "kind": "run",
+          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-clip-picker"
+        },
+        {
+          "id": "tool.webapp",
+          "label": "Make a website into an app",
+          "hint": "WhatsApp, YouTube, Gmail…",
+          "kind": "run",
+          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-webapp"
+        },
+        {
+          "id": "tool.webapprm",
+          "label": "Remove a web app",
+          "kind": "run",
+          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-webapp remove"
+        }
+      ]
+    },
+    {
+      "id": "style",
+      "label": "Style & repair",
+      "icon": "󰸉",
+      "items": [
+        {
+          "id": "style.doctor",
+          "label": "Check and fix the desktop",
+          "hint": "Super+H",
+          "kind": "run",
+          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-doctor"
+        },
+        {
+          "id": "style.filehistory",
+          "label": "Get a file back",
+          "hint": "your files as they were an hour, a day or a week ago",
+          "kind": "run",
+          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-file-history"
+        },
+        {
+          "id": "style.restore",
+          "label": "Restore desktop settings",
+          "hint": "undo — back to a copy saved before an update",
+          "kind": "run",
+          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-desktop-backup restore"
+        },
+        {
+          "id": "style.save",
+          "label": "Save desktop settings now",
+          "hint": "a copy is also saved before every update",
+          "kind": "run",
+          "cmd": "~/.local/share/prime-linux/layer/bin/prime-desktop-backup save manual && notify-send -a Prime 'Desktop settings saved'"
+        },
+        {
+          "id": "style.restartbars",
+          "label": "Restart the bar",
+          "hint": "Super+W",
+          "kind": "run",
+          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-bar restart"
+        },
+        {
+          "id": "style.anim",
+          "label": "Animations on / off",
+          "kind": "run",
+          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-toggle-animations"
+        },
+        {
+          "id": "style.reload",
+          "label": "Reload window settings",
+          "kind": "run",
+          "cmd": "hyprctl reload && notify-send -a Prime 'Window settings reloaded'"
+        },
+        {
+          "id": "style.help",
+          "label": "Get help",
+          "hint": "a report to send to whoever helps you",
+          "kind": "run",
+          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-help"
+        }
+      ]
+    },
+    {
+      "id": "update",
+      "label": "Update",
+      "icon": "󰚰",
+      "items": [
+        {
+          "id": "upd.all",
+          "label": "Update everything",
+          "hint": "the system, apps and Prime — a snapshot is taken first",
+          "kind": "run",
+          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-update"
+        },
+        {
+          "id": "upd.settings",
+          "label": "Update settings",
+          "hint": "automatic · ask me · security only · off",
+          "kind": "run",
+          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-updates-settings"
+        },
+        {
+          "id": "upd.undo",
+          "label": "Undo last update",
+          "hint": "go back to the snapshot taken before it",
+          "kind": "panel",
+          "cmd": "~/.local/share/prime-linux/layer/bin/prime-update --undo"
+        },
+        {
+          "id": "upd.security",
+          "label": "Security check",
+          "kind": "panel",
+          "cmd": "~/.local/share/prime-linux/layer/bin/prime-security"
+        },
+        {
+          "id": "upd.check",
+          "label": "What's waiting to update",
+          "kind": "run",
+          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-updates-count --list"
+        },
+        {
+          "id": "upd.snapshots",
+          "label": "System snapshots",
+          "hint": "the saved states you can go back to from the start-up menu",
+          "kind": "run",
+          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-snapshots"
+        }
+      ]
+    },
+    {
+      "id": "power",
+      "label": "Power",
+      "icon": "󰐥",
+      "items": [
+        {
+          "id": "power.menu",
+          "label": "Lock · sleep · restart · shut down",
+          "kind": "run",
+          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-power-menu"
+        },
+        {
+          "id": "power.lock",
+          "label": "Lock the screen",
+          "hint": "Super+L",
+          "kind": "run",
+          "cmd": "loginctl lock-session"
+        }
+      ]
+    },
+    {
+      "id": "about",
+      "label": "About",
+      "icon": "󰋽",
+      "items": [
+        {
+          "id": "about.help",
+          "label": "Get help",
+          "hint": "a report to send to whoever helps you",
+          "kind": "run",
+          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-help"
+        },
+        {
+          "id": "about.prime",
+          "label": "About Prime",
+          "kind": "run",
+          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-about"
+        },
+        {
+          "id": "about.info",
+          "label": "This computer",
+          "kind": "run",
+          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-about --computer"
+        },
+        {
+          "id": "about.barkeys",
+          "label": "Use the bar from the keyboard",
+          "hint": "Super+Alt+B",
+          "kind": "run",
+          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-bar --keys"
+        }
+      ]
+    }
+  ]
+}

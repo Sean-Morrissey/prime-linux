@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=About Prime
+Comment=Version, shortcuts and where to find things
+Exec=@LAYER@/bin/prime-about
+Icon=prime-linux
+Categories=System;
+Keywords=version;info;

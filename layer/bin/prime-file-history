@@ -1,0 +1,132 @@
+#!/usr/bin/env bash
+# prime-file-history — your own files, as they were an hour, a day or a week ago.
+#
+# System snapshots (before every update) cover the system, not home folders, and
+# the desktop backups cover settings only. File History keeps automatic snapshots
+# of the disk your home folder is on — hourly, daily, weekly, monthly — and lets
+# you open any of those moments in Files to copy a lost or overwritten file back.
+# Snapshots are read-only and cost almost no space until files change; the oldest
+# go first, and never more than a quarter of the disk is used for them.
+#
+#   prime-file-history                   pick a moment, see your home folder as it was then
+#   prime-file-history list              the moments (number, time) — what the picker shows
+#   prime-file-history open <number>     open that moment in Files
+#   prime-file-history status [--tsv]    on / off / not possible on this disk
+#   prime-file-history setup --user NAME (administrator; the installer runs it) switch it
+#                                        on, or let one more account see its own snapshots
+#
+# Needs btrfs with /home as its own subvolume — what the CachyOS installer makes by
+# default. On any other disk it says so and changes nothing.
+set -u
+BIN="$(dirname "$(readlink -f "$0")")"
+CONF=home
+HOME_MNT="${PRIME_FH_HOME_MOUNT:-/home}"
+notify() { notify-send -a Prime -t 8000 "File History" "$1" >/dev/null 2>&1 || true; }
+
+possible() {   # /home is a btrfs subvolume of its own
+    [ "$(findmnt -no FSTYPE "$HOME_MNT" 2>/dev/null)" = btrfs ] || return 1
+    command -v snapper >/dev/null || return 1
+    btrfs subvolume show "$HOME_MNT" >/dev/null 2>&1
+}
+configured() { [ -e "${PRIME_FH_CONFIGS:-/etc/snapper/configs}/$CONF" ]; }
+
+setup() {
+    local user=""
+    while [ $# -gt 0 ]; do case "$1" in --user) user="${2:-}"; shift ;; esac; shift; done
+    [ "$(id -u)" = 0 ] || [ -n "${PRIME_FH_TESTING:-}" ] || { echo "setup needs administrator rights" >&2; return 4; }
+    [[ -z "$user" || "$user" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] || { echo "not a user name: $user" >&2; return 2; }
+    if ! possible; then
+        echo "  File History: not possible here (your home folder isn't on its own btrfs subvolume)"
+        return 0
+    fi
+    if ! configured; then
+        snapper --no-dbus -c "$CONF" create-config "$HOME_MNT" || { echo "  File History: couldn't be switched on"; return 1; }
+        # keep: 12 hourly, 7 daily, 4 weekly, 3 monthly — and never more than a quarter
+        # of the disk, never leaving less than a quarter free (snapper's cleanup enforces it)
+        snapper --no-dbus -c "$CONF" set-config TIMELINE_CREATE=yes TIMELINE_CLEANUP=yes \
+            TIMELINE_MIN_AGE=3600 TIMELINE_LIMIT_HOURLY=12 TIMELINE_LIMIT_DAILY=7 \
+            TIMELINE_LIMIT_WEEKLY=4 TIMELINE_LIMIT_MONTHLY=3 TIMELINE_LIMIT_YEARLY=0 \
+            SPACE_LIMIT=0.25 FREE_LIMIT=0.25 NUMBER_CLEANUP=yes NUMBER_LIMIT=20 SYNC_ACL=yes
+        echo "  File History: on — your files are kept hourly, daily, weekly and monthly"
+    else
+        echo "  File History: already on (its settings are kept as they are)"
+    fi
+    if [ -n "$user" ]; then   # each account sees the snapshots of its own home folder
+        local allowed
+        allowed="$(snapper --no-dbus --jsonout -c "$CONF" get-config 2>/dev/null | jq -r '.ALLOW_USERS // ""' 2>/dev/null)"
+        case " $allowed " in
+            *" $user "*) ;;
+            *) snapper --no-dbus -c "$CONF" set-config "ALLOW_USERS=${allowed:+$allowed }$user" SYNC_ACL=yes ;;
+        esac
+    fi
+    if [ -z "${PRIME_FH_TESTING:-}" ]; then
+        systemctl enable --now snapper-timeline.timer snapper-cleanup.timer >/dev/null 2>&1 || true
+    else
+        systemctl enable --now snapper-timeline.timer snapper-cleanup.timer
+    fi
+    return 0
+}
+
+status() {
+    local tsv=0; [ "${1:-}" = --tsv ] && tsv=1
+    local lvl msg fix=""
+    if ! possible; then lvl=info; msg="File History isn't possible on this disk (it needs btrfs, which CachyOS uses by default)"
+    elif ! configured; then lvl=warn; msg="File History is off — your own files have no undo"; fix="Update everything switches it on"
+    else lvl=ok; msg="File History is on — get any file back from the last hours, days or weeks (Settings → Storage → Get a file back)"; fi
+    if [ $tsv = 1 ]; then printf '%s\t%s\t%s\n' "$lvl" "$msg" "$fix"; else echo "$msg${fix:+ — $fix}"; fi
+}
+
+# number<TAB>when, newest first; only moments this account can open
+list() {
+    configured || return 0
+    snapper -c "$CONF" --csvout --separator $'\t' list --columns number,date 2>/dev/null \
+        | awk -F'\t' 'NR > 1 && $1 != 0 {print $1 "\t" $2}' | sort -t$'\t' -k1,1nr
+}
+
+pretty() {   # a snapper date → "Today, 14:00" / "Yesterday, 09:00" / "Mon 28 Sep, 18:00"
+    local d="$1" day
+    day="$(date -d "$d" +%F 2>/dev/null)" || { echo "$d"; return; }
+    if [ "$day" = "$(date +%F)" ]; then date -d "$d" '+Today, %H:%M'
+    elif [ "$day" = "$(date -d yesterday +%F)" ]; then date -d "$d" '+Yesterday, %H:%M'
+    else date -d "$d" '+%a %-d %b, %H:%M'; fi
+}
+
+folder_of() {   # the account's home folder inside snapshot N
+    local rel="${HOME#"$HOME_MNT"}"
+    printf '%s/.snapshots/%s/snapshot%s\n' "$HOME_MNT" "$1" "$rel"
+}
+
+open_n() {
+    local n="$1" dir
+    [[ "$n" =~ ^[0-9]+$ ]] || { echo "not a snapshot number: $n" >&2; return 2; }
+    dir="$(folder_of "$n")"
+    [ -d "$dir" ] || { notify "That moment isn't there any more (the oldest are tidied away)."; return 1; }
+    notify "This is your home folder as it was then. Copy what you need back to your folders — nothing here can be changed or deleted."
+    if [ -n "${PRIME_FH_TESTING:-}" ]; then echo "OPEN $dir"; else setsid -f xdg-open "$dir" >/dev/null 2>&1; fi
+}
+
+picker() {
+    if ! possible || ! configured; then
+        notify "$(status)"; return 0
+    fi
+    local rows="" n when
+    while IFS=$'\t' read -r n when; do
+        [ -n "$n" ] && rows+="$(pretty "$when")"$'\t'"$n"$'\n'
+    done < <(list)
+    [ -n "$rows" ] || { notify "No moments saved yet — the first one is made within the hour."; return 0; }
+    local pick
+    pick="$(cut -f1 <<<"${rows%$'\n'}" | ROFI_HINT="pick a moment  ·  your home folder opens as it was then  ·  Esc cancels" \
+            "$BIN/prime-rofi" -dmenu -i -no-custom -format i -p "󰋚 Get a file back" -theme spotlight)" || return 0
+    [[ "$pick" =~ ^[0-9]+$ ]] || return 0
+    open_n "$(sed -n "$((pick + 1))p" <<<"$rows" | cut -f2)"
+}
+
+case "${1:-}" in
+    "")      picker ;;
+    list)    list | while IFS=$'\t' read -r n when; do printf '%s\t%s\n' "$n" "$(pretty "$when")"; done ;;
+    open)    open_n "${2:?which number?}" ;;
+    status)  shift; status "$@" ;;
+    setup)   shift; setup "$@" ;;
+    -h|--help) sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//' ;;
+    *) echo "unknown: $1 (try --help)" >&2; exit 2 ;;
+esac

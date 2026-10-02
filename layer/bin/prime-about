@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+# prime-about — what Prime is, which version, and where to find things.
+# Opens in a Prime window; in a terminal it prints the same rows.
+#
+#   prime-about              About Prime
+#   prime-about --computer   This computer: model, processor, graphics, memory, disk
+set -u
+LAYER="$(readlink -f "$(dirname "$(readlink -f "$0")")/..")"
+REPO="$(readlink -f "$LAYER/..")"
+BIN="$LAYER/bin"
+if [ -z "${PRIME_PANEL:-}${PRIME_NO_PANEL:-}" ] && [ ! -t 1 ] && [ -n "${WAYLAND_DISPLAY:-}${DISPLAY:-}" ]; then
+    if [ "${1:-}" = --computer ]; then
+        exec "$BIN/prime-panel" --title "This computer" --subtitle "What's inside, in plain words." -- "$0" --computer
+    fi
+    exec "$BIN/prime-panel" --title "About Prime" \
+        --subtitle "A fast desktop that sets itself up, explains itself, and can undo a bad update." -- "$0"
+fi
+row() { if [ -n "${PRIME_PANEL:-}" ]; then printf '@row %s\t%s\n' "$1" "$2"; else printf '  %-16s %s\n' "$1" "$2"; fi; }
+
+if [ "${1:-}" = --computer ]; then
+    model="$(cat /sys/devices/virtual/dmi/id/sys_vendor /sys/devices/virtual/dmi/id/product_name 2>/dev/null | paste -sd' ')"
+    cpu="$(LC_ALL=C lscpu 2>/dev/null | sed -n 's/^Model name: *//p' | head -1)"
+    gpu="$(lspci 2>/dev/null | grep -iE 'vga|3d|display' | sed -E 's/^[^:]*: *[^:]*: //; s/ \(rev [0-9a-f]+\)//' | paste -sd';' | sed 's/;/ · /g')"
+    mem="$(free -b 2>/dev/null | awk '/^Mem:/ { printf "%.0f GB (%.0f GB free)", $2/1e9, $7/1e9 }')"
+    disk="$(df -B1 / 2>/dev/null | awk 'NR==2 { printf "%.0f GB (%.0f GB free)", $2/1e9, $4/1e9 }')"
+    up="$(uptime -p 2>/dev/null | sed 's/^up //')"
+    row "Computer"   "${model:-unknown}"
+    row "Processor"  "${cpu:-unknown} · $(nproc) cores"
+    row "Graphics"   "${gpu:-unknown}"
+    row "Memory"     "${mem:-unknown}"
+    row "Disk"       "${disk:-unknown}"
+    row "System"     "Prime on $(. /etc/os-release 2>/dev/null; echo "${NAME:-Linux}")"
+    [ -n "$up" ] && row "Switched on" "$up ago"
+    exit 0
+fi
+
+ver="$(git -C "$REPO" describe --tags --always 2>/dev/null || echo unknown)"
+when="$(git -C "$REPO" log -1 --format=%cd --date=format:'%-d %B %Y' 2>/dev/null)"
+base="$(. /etc/os-release 2>/dev/null; echo "${NAME:-}")"
+addons=""
+. "$LAYER/addons/_lib/resolve.sh"
+while read -r d; do
+    DESCRIPTION=""; . "$d/addon.conf"
+    addons+="${addons:+, }${DESCRIPTION%% — *}"
+done < <(enabled_addon_dirs)
+
+row "Version"       "Prime $ver${when:+ · $when}"
+row "Prime means"   "P.R.I.M.E — Please Relax I'll Manage Everything"
+[ -n "$base" ] && row "Built on" "$base"
+row "Start menu"    "Super+X, or click the P at the top left — apps, recent files, power"
+row "Search"        "Super+Space — apps, files, sums, the web"
+row "Settings"      "Super+I — Wi-Fi, sound, display, updates, everything"
+row "Bar, by keys"  "Super+Alt+B — every bar item from the keyboard"
+row "Shortcuts"     "Super+/ — every shortcut, searchable"
+row "Theme"         "Super+Shift+W — wallpaper, accent colour, text size"
+row "Health check"  "Super+H — checks the desktop and repairs it"
+row "Updates"       "Click the update count in the bar, or Settings → Updates"
+row "Undo"          "Settings → About & Help → Restore desktop settings"
+row "Add-ons"       "${addons:-none yet — Settings → Apps → Packs and add-ons}"
+[ -n "${PRIME_PANEL:-}" ] && echo "@summary Settings → Updates keeps Prime and everything else up to date."

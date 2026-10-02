@@ -1,0 +1,11 @@
+// top bar (synthetic fixture)
+{
+    "layer": "top",
+    "position": "top",
+    "height": 34,
+    "include": ["~/.config/waybar/modules.json"],
+    "modules-left": ["hyprland/workspaces", "custom/hermes"],
+    "modules-center": ["clock"],
+    "modules-right": ["custom/speak", "custom/gpu", "custom/weather", "temperature", "pulseaudio", "network", "tray"],
+    "clock": { "format": "{:%H:%M}" },
+}

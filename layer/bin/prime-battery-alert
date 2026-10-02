@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# prime-battery-alert — warns once when the battery gets low (15%) and again
+# when it's nearly empty (5%), unless the charger is plugged in. Runs as the
+# prime-battery-alert user service; exits straight away on computers with no
+# battery.  --once checks a single time (tests).
+set -u
+bat="$(ls -d /sys/class/power_supply/BAT* 2>/dev/null | head -1)"
+[ -n "$bat" ] || exit 0
+warned=100
+while :; do
+    cap="$(cat "$bat/capacity" 2>/dev/null || echo 100)"; st="$(cat "$bat/status" 2>/dev/null)"
+    if [ "$st" = Discharging ]; then
+        if [ "$cap" -le 5 ] && [ "$warned" -gt 5 ]; then
+            notify-send -a Prime -u critical "Battery almost empty — $cap%" "Plug in the charger now, or save your work: the computer will turn off soon."; warned=5
+        elif [ "$cap" -le 15 ] && [ "$warned" -gt 15 ]; then
+            notify-send -a Prime -u critical "Battery low — $cap%" "Plug in the charger soon. Battery saver: click the battery on the bar."; warned=15
+        fi
+    else
+        warned=100
+    fi
+    [ "${1:-}" = --once ] && exit 0
+    sleep 60
+done

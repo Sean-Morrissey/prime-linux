@@ -1,0 +1,8 @@
+[Unit]
+Description=Keep copied text after the app it came from closes
+PartOf=prime-session.target
+
+[Service]
+ExecStart=/usr/bin/wl-clip-persist --clipboard regular
+Restart=on-failure
+RestartSec=2

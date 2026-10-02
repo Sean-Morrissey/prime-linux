@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Snip-sheet rows the AI add-on contributes (see prime-snip).
+HERE="$(dirname "$(readlink -f "$0")")"
+case "${1:-}" in
+    --list) echo "󰚩  Ask Prime about this" ;;
+    *"Ask Prime"*) exec "$HERE/prime-ask" "" --image "$2" ;;
+esac

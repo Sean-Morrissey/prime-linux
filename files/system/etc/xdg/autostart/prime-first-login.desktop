@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Name=Prime Setup
+GenericName=Set up this machine
+Comment=Answer a few questions and this machine becomes yours
+Exec=/usr/libexec/prime/first-login-interview.sh
+TryExec=/usr/libexec/prime/first-login-interview.sh
+Terminal=false
+NoDisplay=false
+X-GNOME-Autostart-enabled=true
+X-KDE-autostart-after=panel
+# Autostart on the first login only — the script itself checks whether the interview
+# has already been done and exits immediately if it has. It also appears in the
+# application menu, because re-running it on purpose should be normal.

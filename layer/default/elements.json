@@ -1,0 +1,414 @@
+{
+  "version": 2,
+  "_comment": "Right-click menus for the bar and desktop. Engine: bin/prime-context. Each element: label, state (shell command → one human-readable line), ask (question template used by an assistant add-on, {state} is filled in), items (label + cmd; \"__ask_state__\" rows only show when an assistant add-on is enabled).",
+  "generic_items": [],
+  "utility_items": [
+    {
+      "id": "copy",
+      "label": "󰆏  Copy this value",
+      "kind": "copy"
+    }
+  ],
+  "fallback": {
+    "label": "This item",
+    "state": ""
+  },
+  "elements": {
+    "bar.logo": {
+      "label": "Start",
+      "state": "printf '%s on %s · workspace %s' \"$XDG_CURRENT_DESKTOP\" \"$(uname -r)\" \"$(hyprctl -j activeworkspace 2>/dev/null | jq -r .name)\"",
+      "ask": "The logo element in my bar is my app launcher. My session: {state}. What should I know about this setup?",
+      "items": [
+        {
+          "label": "󰀻  Search everything",
+          "cmd": "~/.local/share/prime-linux/layer/bin/prime-spotlight"
+        },
+        {
+          "label": "󰒓  Open Settings",
+          "cmd": "~/.local/share/prime-linux/layer/bin/prime-system-settings"
+        },
+        {
+          "label": "󰒓  Open the power menu",
+          "cmd": "~/.local/share/prime-linux/layer/bin/prime-power-menu"
+        }
+      ],
+      "no_copy": true
+    },
+    "bar.media": {
+      "label": "Now playing",
+      "state": "~/.local/share/prime-linux/layer/bin/prime-media 2>/dev/null | jq -r '(.tooltip // .text) | split(\"\\n\")[0]' 2>/dev/null || echo 'nothing playing'",
+      "ask": "My media controls read: {state}. What is playing, and is the widget showing the right thing?",
+      "items": [
+        {
+          "label": "󰒮  Previous track",
+          "cmd": "~/.local/share/prime-linux/layer/bin/prime-media prev"
+        },
+        {
+          "label": "󰐊  Play / pause",
+          "cmd": "~/.local/share/prime-linux/layer/bin/prime-media toggle"
+        },
+        {
+          "label": "󰒭  Next track",
+          "cmd": "~/.local/share/prime-linux/layer/bin/prime-media next"
+        },
+        {
+          "label": "󰕾  Volume +5%",
+          "cmd": "~/.local/share/prime-linux/layer/bin/prime-media volup"
+        },
+        {
+          "label": "󰖀  Volume −5%",
+          "cmd": "~/.local/share/prime-linux/layer/bin/prime-media voldown"
+        }
+      ]
+    },
+    "bar.tray": {
+      "label": "Tray icons",
+      "state": "busctl --user list 2>/dev/null | awk '/StatusNotifierItem/ {print $1}' | sed 's/org.kde.//' | head -8 | paste -sd', ' - | cut -c1-140",
+      "ask": "These apps are registered in my tray: {state}. Anything here I should clean up?",
+      "items": [
+        {
+          "label": "󰂚  Open the notification centre",
+          "cmd": "swaync-client -t -sw"
+        }
+      ],
+      "no_copy": true
+    },
+    "bar.clock": {
+      "label": "Clock",
+      "state": "timeout 2 date '+%A %d %B %Y · %H:%M %Z'",
+      "ask": "My clock reads {state}. What should I be getting to right now?",
+      "items": [
+        {
+          "label": "󰆏  Copy the date and time",
+          "cmd": "date '+%A %d %B %Y %H:%M %Z' | wl-copy"
+        }
+      ],
+      "no_copy": true
+    },
+    "bar.audio": {
+      "label": "Sound",
+      "state": "~/.local/share/prime-linux/layer/bin/prime-audio-pill 2>/dev/null | jq -r '.tooltip // .text' 2>/dev/null || echo 'unknown'",
+      "ask": "My audio state: {state}. Is the output device and level sensible?",
+      "items": [
+        {
+          "label": "󰓃  Choose speakers / headphones / microphone",
+          "cmd": "~/.local/share/prime-linux/layer/bin/prime-sound"
+        },
+        {
+          "label": "󰕾  Sound settings",
+          "cmd": "pavucontrol"
+        },
+        {
+          "label": "󰝟  Mute / unmute",
+          "cmd": "~/.local/share/prime-linux/layer/bin/prime-osd volume mute"
+        },
+        {
+          "label": "󰕾  Volume +5%",
+          "cmd": "~/.local/share/prime-linux/layer/bin/prime-osd volume up"
+        },
+        {
+          "label": "󰖀  Volume −5%",
+          "cmd": "~/.local/share/prime-linux/layer/bin/prime-osd volume down"
+        }
+      ]
+    },
+    "bar.network": {
+      "label": "Network",
+      "state": "printf '%s · ' \"$(nmcli -t -f STATE,CONNECTIVITY general 2>/dev/null | paste -sd' ' -)\"; ip -brief addr show 2>/dev/null | awk '/^[a-z]/ && $1!=\"lo\" && $2==\"UP\" {printf \"%s %s; \", $1, $3}'",
+      "ask": "My network state: {state}. Is the connection healthy, and what is my IP?",
+      "items": [
+        {
+          "label": "󰤨  Wi-Fi & networks",
+          "cmd": "~/.local/share/prime-linux/layer/bin/prime-wifi"
+        },
+        {
+          "label": "󰈀  Advanced network settings",
+          "cmd": "nm-connection-editor"
+        },
+        {
+          "label": "󰤨  Turn Wi-Fi on or off",
+          "cmd": "nmcli radio wifi toggle"
+        },
+        {
+          "label": "󰆏  Copy this computer's network address",
+          "cmd": "ip -brief addr show | awk '/^[a-z]/ && $1!=\"lo\" && $2==\"UP\" {print $1, $3}' | wl-copy"
+        }
+      ],
+      "no_copy": true
+    },
+    "bar.bluetooth": {
+      "label": "Bluetooth",
+      "state": "printf 'powered %s · %s device(s) connected' \"$(timeout 3 bluetoothctl show 2>/dev/null | awk -F': ' '/Powered/{print $2}')\" \"$(timeout 3 bluetoothctl devices Connected 2>/dev/null | wc -l)\"",
+      "ask": "My bluetooth state: {state}. Anything wrong, or anything I should pair?",
+      "items": [
+        {
+          "label": "󰂱  Connect a device",
+          "cmd": "~/.local/share/prime-linux/layer/bin/prime-bluetooth"
+        },
+        {
+          "label": "󰂯  Bluetooth settings",
+          "cmd": "blueman-manager"
+        },
+        {
+          "label": "󰂲  Turn Bluetooth on or off",
+          "cmd": "bluetoothctl power off 2>/dev/null || bluetoothctl power on"
+        }
+      ]
+    },
+    "bar.cpu": {
+      "label": "Processor",
+      "state": "printf 'load %s · top: ' \"$(cut -d' ' -f1-3 /proc/loadavg)\"; ps -eo pcpu,args --sort=-pcpu 2>/dev/null | tail -n +2 | head -3 | awk '{n=split($2,p,\"/\"); printf \"%s %s%%; \", p[n], $1}'",
+      "ask": "My CPU element shows {state}. What is eating it, and should I care?",
+      "items": [
+        {
+          "label": "󰻠  Open Activity",
+          "cmd": "~/.local/share/prime-linux/layer/bin/prime-activity"
+        },
+        {
+          "label": "󰈈  What's keeping it busy — ask Prime",
+          "cmd": "__ask_state__"
+        }
+      ]
+    },
+    "bar.memory": {
+      "label": "Memory",
+      "state": "free -h | awk '/^Mem:/ {printf \"%s used of %s · top: \", $3, $2}'; ps -eo pmem,comm --sort=-pmem 2>/dev/null | tail -n +2 | head -3 | awk '{printf \"%s %s%%; \", $2, $1}'",
+      "ask": "My memory element shows {state}. Is anything leaking or overloaded?",
+      "items": [
+        {
+          "label": "󰍛  Open Activity",
+          "cmd": "~/.local/share/prime-linux/layer/bin/prime-activity"
+        },
+        {
+          "label": "󰈈  What's using memory — ask Prime",
+          "cmd": "__ask_state__"
+        }
+      ]
+    },
+    "bar.gpu": {
+      "label": "Graphics",
+      "state": "~/.local/share/prime-linux/layer/bin/prime-gpu-monitor | jq -r '.tooltip // \"no graphics load reading on this computer\"'",
+      "ask": "My GPU element shows {state}. Is that healthy for this graphics card, and is anything using it that shouldn't be?",
+      "items": [
+        {
+          "label": "󰢮  Open Activity",
+          "cmd": "~/.local/share/prime-linux/layer/bin/prime-activity"
+        },
+        {
+          "label": "󰈈  Graphics in detail — ask Prime",
+          "cmd": "__ask_state__"
+        }
+      ]
+    },
+    "bar.updates": {
+      "label": "Updates",
+      "state": "jq -r '(.tooltip // .text) | split(\"\\n\")[0]' \"${XDG_RUNTIME_DIR:-/run/user/1000}/waybar-updates.json\" 2>/dev/null || echo 'not counted yet'",
+      "ask": "My update counter says: {state}. What should I do about it, and is a CachyOS update risky right now?",
+      "items": [
+        {
+          "label": "󰚰  Update everything",
+          "cmd": "~/.local/share/prime-linux/layer/bin/prime-update"
+        },
+        {
+          "label": "󰋚  See what's waiting",
+          "cmd": "~/.local/share/prime-linux/layer/bin/prime-updates-count --list"
+        },
+        {
+          "label": "󰏗  App Store",
+          "cmd": "gnome-software"
+        },
+        {
+          "label": "󰑓  Recount updates now",
+          "cmd": "~/.local/share/prime-linux/layer/bin/prime-updates-count --refresh"
+        }
+      ]
+    },
+    "bar.theme": {
+      "label": "Theme",
+      "state": "timeout 3 hyprctl hyprpaper listloaded 2>/dev/null | head -1 | xargs -r basename || echo unknown",
+      "ask": "My wallpaper element shows {state}. What should I know about how my wallpapers are set?",
+      "items": [
+        {
+          "label": "󰸉  Theme — wallpaper, accent, text size",
+          "cmd": "~/.local/share/prime-linux/layer/bin/prime-theme"
+        }
+      ],
+      "no_copy": true
+    },
+    "bar.notification": {
+      "label": "Notifications",
+      "state": "timeout 2 swaync-client -s 2>/dev/null | jq -r '.tooltip // .alt // .class' 2>/dev/null || echo 'notification centre not running'",
+      "ask": "My notification element shows {state}. Anything in there I should deal with?",
+      "items": [
+        {
+          "label": "󰂚  Open the notification centre",
+          "cmd": "swaync-client -t -sw"
+        },
+        {
+          "label": "󰂛  Do not disturb — on or off",
+          "cmd": "~/.local/share/prime-linux/layer/bin/prime-toggle dnd"
+        },
+        {
+          "label": "󰃢  Clear all notifications",
+          "cmd": "swaync-client -C"
+        }
+      ],
+      "no_copy": true
+    },
+    "bar.power": {
+      "label": "Power",
+      "state": "uptime -p",
+      "ask": "My power element is {state}. Anything about this machine's power state I should know?",
+      "items": [
+        {
+          "label": "󰐥  Open the power menu",
+          "cmd": "bash ~/.local/share/prime-linux/layer/bin/prime-power-menu"
+        },
+        {
+          "label": "󰌾  Lock the screen",
+          "cmd": "loginctl lock-session"
+        }
+      ],
+      "no_copy": true
+    },
+    "bar.workspaces": {
+      "label": "Workspaces",
+      "state": "printf 'on workspace %s of %s · ' \"$(hyprctl -j activeworkspace 2>/dev/null | jq -r .name)\" \"$(hyprctl -j workspaces 2>/dev/null | jq -r 'length')\"; hyprctl -j clients 2>/dev/null | jq -r '[.[] | .class] | join(\", \")' | cut -c1-120",
+      "ask": "My workspace state: {state}. Is my window arrangement sensible?",
+      "items": [
+        {
+          "label": "󰆏  Copy the workspace map",
+          "cmd": "hyprctl -j clients | jq -r '.[] | \"ws \\(.workspace.name): \\(.class) — \\(.title)\"' | wl-copy"
+        }
+      ],
+      "no_copy": true
+    },
+    "bar.taskbar": {
+      "label": "Open windows",
+      "state": "hyprctl -j clients 2>/dev/null | jq -r '.[] | .class' | paste -sd', ' - | cut -c1-140",
+      "ask": "These windows are open: {state}. Anything I should close or move?",
+      "items": [
+        {
+          "label": "󰆏  Copy the window list",
+          "cmd": "hyprctl -j clients | jq -r '.[] | \"\\(.class) — \\(.title) [ws \\(.workspace.name)]\"' | wl-copy"
+        },
+        {
+          "label": "󰒿  Minimize the focused window",
+          "cmd": "hyprctl dispatch movetoworkspacesilent special:minimized"
+        },
+        {
+          "label": "󰅖  Close the focused window",
+          "cmd": "hyprctl dispatch killactive"
+        }
+      ],
+      "no_copy": true
+    },
+    "desktop": {
+      "label": "Desktop",
+      "state": "printf 'workspace %s · %s · %s windows open' \"$(hyprctl -j activeworkspace 2>/dev/null | jq -r .name)\" \"$(date '+%A %H:%M')\" \"$(hyprctl -j clients 2>/dev/null | jq -r 'length')\"",
+      "ask": "I right-clicked my desktop. Current state: {state}. What can I set up here so my desktop works the way I want?",
+      "items": [
+        {
+          "label": "󰈔  New text file",
+          "cmd": "f=\"$HOME/Desktop/untitled-$(date +%H%M%S).txt\"; touch \"$f\" && notify-send -a Prime 'New file' \"$(basename \"$f\") on the Desktop\""
+        },
+        {
+          "label": "󰉋  New folder",
+          "cmd": "mkdir -p \"$HOME/Desktop/New folder\" && notify-send -a Prime 'New folder' 'Created on the Desktop'"
+        },
+        {
+          "label": "󰉖  Open the file manager",
+          "cmd": "nemo \"$HOME/Desktop\""
+        },
+        {
+          "label": "󰆍  Open a terminal here",
+          "cmd": "kitty --directory \"$HOME/Desktop\""
+        },
+        {
+          "label": "󰅌  Open the clipboard",
+          "cmd": "~/.local/share/prime-linux/layer/bin/prime-clip-picker"
+        },
+        {
+          "label": "󰸉  Change the wallpaper",
+          "cmd": "~/.local/share/prime-linux/layer/bin/prime-theme"
+        },
+        {
+          "label": "󰕧  Display settings",
+          "cmd": "nwg-displays"
+        }
+      ],
+      "no_copy": true
+    },
+    "bar.battery": {
+      "label": "Battery",
+      "state": "for b in /sys/class/power_supply/BAT*; do printf '%s%% · %s · ' \"$(cat $b/capacity)\" \"$(cat $b/status)\"; done; printf 'power mode: %s' \"$(powerprofilesctl get 2>/dev/null || echo n/a)\"",
+      "ask": "My battery reads: {state}. Is that healthy, and how do I make it last longer?",
+      "items": [
+        {
+          "label": "󰂄  Power mode — saver / balanced / performance",
+          "cmd": "~/.local/share/prime-linux/layer/bin/prime-power-profile"
+        },
+        {
+          "label": "󰌪  Battery saver now",
+          "cmd": "~/.local/share/prime-linux/layer/bin/prime-power-profile power-saver"
+        },
+        {
+          "label": "󰅶  Keep awake on / off",
+          "cmd": "~/.local/share/prime-linux/layer/bin/prime-toggle idle"
+        }
+      ]
+    },
+    "bar.recording": {
+      "label": "Screen recording",
+      "state": "~/.local/share/prime-linux/layer/bin/prime-record status | jq -r 'if .text == \"\" then \"not recording\" else .tooltip end'",
+      "ask": "I'm recording my screen: {state}. Anything I should know?",
+      "items": [
+        {
+          "label": "󰙧  Stop and save",
+          "cmd": "~/.local/share/prime-linux/layer/bin/prime-record stop"
+        },
+        {
+          "label": "󰉋  Open the recordings folder",
+          "cmd": "xdg-open \"$(xdg-user-dir VIDEOS)/Recordings\""
+        }
+      ],
+      "no_copy": true
+    },
+    "bar.toggles": {
+      "label": "Quick switches",
+      "state": "printf 'night light %s · keep awake %s · do not disturb %s' \"$(~/.local/share/prime-linux/layer/bin/prime-toggle status nightlight)\" \"$(~/.local/share/prime-linux/layer/bin/prime-toggle status idle)\" \"$(~/.local/share/prime-linux/layer/bin/prime-toggle status dnd)\"",
+      "ask": "My quick switches: {state}. What do these do?",
+      "items": [
+        {
+          "label": "󰖔  Night light on / off",
+          "cmd": "~/.local/share/prime-linux/layer/bin/prime-toggle nightlight"
+        },
+        {
+          "label": "󰅶  Keep awake on / off",
+          "cmd": "~/.local/share/prime-linux/layer/bin/prime-toggle idle"
+        },
+        {
+          "label": "󰂛  Do not disturb on / off",
+          "cmd": "~/.local/share/prime-linux/layer/bin/prime-toggle dnd"
+        }
+      ],
+      "no_copy": true
+    },
+    "bar.keyboard": {
+      "label": "Keyboard layout",
+      "state": "printf 'layouts: %s' \"$(~/.local/share/prime-linux/layer/bin/prime-keyboard current)\"",
+      "ask": "My keyboard layouts are {state}. How do I type special characters?",
+      "items": [
+        {
+          "label": "󰌌  Next layout",
+          "cmd": "~/.local/share/prime-linux/layer/bin/prime-keyboard next"
+        },
+        {
+          "label": "󰒓  Add or remove layouts",
+          "cmd": "~/.local/share/prime-linux/layer/bin/prime-keyboard"
+        }
+      ],
+      "no_copy": true
+    }
+  }
+}

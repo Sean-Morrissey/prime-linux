@@ -1,0 +1,194 @@
+#!/usr/bin/env python3
+"""prime-bar — start one Prime Linux bar (what prime-bar@top / prime-bar@side run).
+
+  prime-bar top | side     build the config + style, then exec waybar
+  prime-bar restart        restart both bars (Super+W)
+  prime-bar --keys         every bar item in a list, for the keyboard (Super+Alt+B):
+                           pick one to get its menu — the same as right-clicking it
+  prime-bar --keys --list  the rows that list shows (tests)
+  prime-bar --print top    print the merged config (tests)
+
+The shipped defaults stay untouched. At start-up this merges, in order:
+  1. layer/default/waybar/{config,sidebar}.jsonc  (or ~/.config/waybar/<same> if you made one)
+  2. every enabled add-on's waybar.json fragment  (~/.config/prime/addons)
+and builds a stylesheet that imports: theme colours → default style → add-on
+styles → ~/.config/waybar/user.css. Output goes to $XDG_RUNTIME_DIR/prime-bar/.
+"""
+import json, os, re, subprocess, sys
+
+HOME = os.path.expanduser("~")
+LAYER = os.path.realpath(os.path.join(os.path.dirname(os.path.realpath(__file__)), ".."))
+_rt = os.environ.get("XDG_RUNTIME_DIR", "")
+if not (_rt and os.access(_rt, os.W_OK)):
+    # fallback must be ours and private — another account could pre-create it
+    import stat, tempfile
+    _rt = f"/tmp/prime-{os.getuid()}"
+    try:
+        os.makedirs(_rt, mode=0o700, exist_ok=True)
+        st = os.lstat(_rt)
+        if not stat.S_ISDIR(st.st_mode) or st.st_uid != os.getuid() or stat.S_IMODE(st.st_mode) != 0o700:
+            raise PermissionError
+    except OSError:
+        _rt = tempfile.mkdtemp()
+RUN = os.path.join(_rt, "prime-bar")
+FILES = {"top": ("config.jsonc", "style.css"), "side": ("sidebar.jsonc", "sidebar.css")}
+
+
+def jsonc(path):
+    text = re.sub(r'(?m)^\s*//.*$', "", open(path).read())
+    data = json.loads(text)
+    return data[0] if isinstance(data, list) else data
+
+
+PERSONAL = os.environ.get("PRIME_PERSONAL_ADDONS") or os.path.join(HOME, ".config/prime/addons.d")
+
+
+def addon_dir(n):
+    """Shipped add-on first, then a personal one (~/.config/prime/addons.d) — same rule as resolve.sh."""
+    if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,40}", n):
+        return None
+    for root in (os.path.join(LAYER, "addons"), PERSONAL):
+        if os.path.isfile(os.path.join(root, n, "addon.conf")):
+            return os.path.join(root, n)
+    return None
+
+
+def addons():
+    try:
+        names = [l.strip() for l in open(os.path.join(HOME, ".config/prime/addons")) if l.strip() and not l.startswith("#")]
+    except OSError:
+        return []
+    return [d for d in map(addon_dir, names) if d]
+
+
+def build(which):
+    cfg_name, css_name = FILES[which]
+    user_cfg = os.path.join(HOME, ".config/waybar", cfg_name)
+    cfg = jsonc(user_cfg if os.path.exists(user_cfg) else os.path.join(LAYER, "default/waybar", cfg_name))
+    css = [os.path.join(HOME, ".config/prime/theme/colors.css"), os.path.join(LAYER, "default/waybar", css_name)]
+    for a in addons():
+        frag = os.path.join(a, f"waybar-{which}.json")
+        if os.path.exists(frag):
+            f = json.load(open(frag))
+            for side, specs in f.get("insert", {}).items():
+              for spec in (specs if isinstance(specs, list) else [specs]):
+                  # "after" may name an item inside a group (e.g. custom/gpu in
+                  # group/stats): then the new items join that group
+                  mods = cfg.setdefault(side, [])
+                  after = spec.get("after")
+                  if after and after not in mods:
+                      for g in [m for m in mods if m.startswith("group/")]:
+                          inner = cfg.get(g, {}).get("modules", [])
+                          if after in inner:
+                              mods = inner
+                              break
+                  at = mods.index(after) + 1 if after in mods else len(mods)
+                  mods[at:at] = [m for m in spec["modules"] if m not in mods]
+            cfg.update(f.get("modules", {}))
+        if os.path.exists(os.path.join(a, "waybar.css")):
+            css.append(os.path.join(a, "waybar.css"))
+    # waybar doesn't expand ~ in image paths
+    for k, v in cfg.items():
+        if isinstance(v, dict) and isinstance(v.get("path"), str):
+            v["path"] = os.path.expanduser(v["path"])
+    css.append(os.path.join(HOME, ".config/waybar/user.css"))
+    os.makedirs(RUN, exist_ok=True)
+    cfg_out, css_out = os.path.join(RUN, f"{which}.json"), os.path.join(RUN, f"{which}.css")
+    json.dump(cfg, open(cfg_out, "w"), indent=1, ensure_ascii=False)
+    with open(css_out, "w") as fh:
+        for c in css:
+            if os.path.exists(c):
+                fh.write(f'@import url("file://{c}");\n')
+    return cfg, cfg_out, css_out
+
+
+def element_id(module):
+    """The right-click menu (prime-context element) behind a bar module."""
+    if module.startswith("custom/media"):
+        return "bar.media"
+    name = module.split("/")[-1].split("#")[-1]
+    return "bar." + {"logo": "logo"}.get(name, name)
+
+
+def keyboard_rows():
+    """[(element id, label)] in bar order, top bar then side bar, each element once."""
+    labels = {}
+    for frag in [os.path.join(LAYER, "default/elements.json")] + \
+            [os.path.join(a, "elements.json") for a in addons()]:
+        try:
+            for k, v in json.load(open(frag)).get("elements", {}).items():
+                labels.setdefault(k, v.get("label", k))
+        except (OSError, ValueError):
+            pass
+    labels["bar.logo"] = "Start"
+    rows, seen = [], set()
+    for which in ("top", "side"):
+        cfg = build(which)[0]
+        for side in ("modules-left", "modules-center", "modules-right"):
+            items = []
+            for m in cfg.get(side, []):   # a group lists its members in place
+                items += cfg.get(m, {}).get("modules", []) if m.startswith("group/") else [m]
+            for m in items:
+                eid = element_id(m)
+                if eid in seen or eid not in labels:
+                    continue
+                seen.add(eid)
+                rows.append((eid, labels[eid]))
+    return rows
+
+
+def keys(list_only):
+    rows = keyboard_rows()
+    if list_only:
+        for eid, label in rows:
+            print(f"{eid}\t{label}")
+        return 0
+    env = dict(os.environ, ROFI_HINT="↑↓ move  ·  Enter opens that item's menu  ·  Esc closes  ·  type to filter")
+    r = subprocess.run([os.path.join(LAYER, "bin/prime-rofi"), "-dmenu", "-i", "-no-custom", "-format", "i",
+                        "-p", "Bar", "-theme", "spotlight"], input="\n".join(l for _, l in rows),
+                       capture_output=True, text=True, env=env)
+    if r.returncode != 0 or not r.stdout.strip().isdigit():
+        return 0
+    os.execv(os.path.join(LAYER, "bin/prime-context"),
+             ["prime-context", rows[int(r.stdout.strip())][0]])
+
+
+def wait_for_top_bar(timeout: float = 6.0):
+    """The side bar waits until the top bar is on screen. The compositor fits each
+    bar into the space the earlier ones left: a side bar that appears first claims
+    the left edge, and the top bar then starts 52px in instead of spanning the
+    screen. No Hyprland (or no top bar within a few seconds): start anyway."""
+    import time
+    end = time.monotonic() + timeout
+    while time.monotonic() < end:
+        try:
+            r = subprocess.run(["hyprctl", "layers", "-j"], capture_output=True, text=True, timeout=2)
+            for mon in json.loads(r.stdout or "{}").values():
+                for level in mon.get("levels", {}).values():
+                    if any(l.get("namespace") == "waybar" and l.get("y") == 0 and l.get("w", 0) > 2 * l.get("h", 0)
+                           for l in level):
+                        return
+        except (OSError, ValueError, subprocess.TimeoutExpired, AttributeError):
+            return
+        time.sleep(0.2)
+
+
+def main():
+    arg = sys.argv[1] if len(sys.argv) > 1 else "top"
+    if arg == "--keys":
+        return keys("--list" in sys.argv)
+    if arg == "restart":
+        os.execvp("systemctl", ["systemctl", "--user", "restart", "prime-bar@top", "prime-dock"])
+    if arg == "--print":
+        print(json.dumps(build(sys.argv[2])[0], indent=1, ensure_ascii=False))
+        return 0
+    if arg not in FILES:
+        print(__doc__); return 2
+    _, cfg_out, css_out = build(arg)
+    if arg == "side" and os.environ.get("HYPRLAND_INSTANCE_SIGNATURE"):
+        wait_for_top_bar()
+    os.execvp("waybar", ["waybar", "-c", cfg_out, "-s", css_out])
+
+
+if __name__ == "__main__":
+    sys.exit(main())

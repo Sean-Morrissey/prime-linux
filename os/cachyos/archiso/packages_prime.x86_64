@@ -1,0 +1,170 @@
+# Prime OS — target-side packages for the desktop layer
+#
+# Derived from `pacman -Qe` on the reference desktop (the author's CachyOS rig), 2026-09-27,
+# filtered to what the product actually needs. Grouped by job, not alphabetically, so a
+# change here is reviewable. Nothing is listed because it "looked useful".
+#
+# These install into the TARGET system (the installed machine), not the live ISO.
+
+# --- session: compositor, lock, idle, wallpaper, portals ----------------------------
+hyprland
+hyprpaper
+hypridle
+hyprlock
+xdg-desktop-portal-hyprland
+xdg-desktop-portal-gtk
+polkit-kde-agent
+qt5-wayland
+qt6-wayland
+
+# --- the two bars + the launcher ----------------------------------------------------
+waybar
+nwg-dock-hyprland
+rofi
+wofi
+
+# --- notifications, clipboard, screenshots, media keys ------------------------------
+swaync
+wl-clipboard
+grim
+slurp
+playerctl
+
+# --- login screen + a browser (no way to log in, or no browser, is not a desktop) ----
+sddm
+firefox
+
+# --- terminals + file manager -------------------------------------------------------
+kitty
+alacritty
+thunar
+nemo
+gvfs
+xdg-user-dirs
+
+# --- audio ---------------------------------------------------------------------------
+pipewire
+pipewire-pulse
+pipewire-alsa
+wireplumber
+pavucontrol
+
+# --- network, bluetooth, power -------------------------------------------------------
+networkmanager
+network-manager-applet
+bluez
+bluez-utils
+power-profiles-daemon
+
+# --- fonts + iconography (a bar with boxes instead of glyphs is a defect) ------------
+noto-fonts
+noto-fonts-cjk
+noto-fonts-emoji
+ttf-jetbrains-mono-nerd
+ttf-meslo-nerd
+ttf-dejavu
+ttf-liberation
+papirus-icon-theme
+
+# --- snapshots, rollback, boot menu --------------------------------------------------
+btrfs-progs
+snapper
+snap-pac
+cachyos-snapper-support
+efibootmgr
+os-prober
+plymouth
+cachyos-plymouth-bootanimation
+
+# --- the agent runtime + what the Prime layer is written in --------------------------
+python
+nodejs
+npm
+git
+wget
+curl
+uv
+
+# --- day-to-day tools the workspace surfaces rely on ---------------------------------
+btop
+fastfetch
+pacman-contrib
+docker
+
+# =====================================================================================
+# NOT AVAILABLE FROM A REPO — these are AUR or third-party on the reference machine and
+# cannot be installed during an image build. They need a local package repo or a
+# first-boot step (neither exists yet). Listed so the gap is visible, not forgotten.
+# =====================================================================================
+# bibata-cursor-theme-bin        (AUR)  — cursor theme
+# whitesur-gtk-theme             (AUR)  — GTK theme
+# whitesur-icon-theme            (AUR)  — icon theme
+# libastal-git / libastal-4-git  (AUR)  — the bar pills' GTK4 layer-shell bindings
+# python-pywal / wallust               — wallpaper-driven theming
+# google-chrome / discord / lmstudio-bin / orca-slicer-bin — the author's own apps, not ours
+
+# --- the Prime layer (layer/): what it needs beyond the above ------------------------
+# Mirrors os/arch/packages.txt (the install-script path), so an ISO install and a
+# CachyOS + install-script machine end up with the same desktop. tests/check-static.sh
+# fails if the two drift apart.
+adw-gtk-theme
+base-devel
+blueman
+breeze-cursors
+brightnessctl
+cliphist
+cmake
+cpio
+fd
+flatpak
+gnome-software
+gnome-text-editor
+gtk-layer-shell
+gtk3
+hyprpm
+hyprpolkitagent
+imagemagick
+inter-font
+jq
+libnotify
+meson
+nwg-displays
+pciutils
+pkgconf
+plocate
+python-cairo
+python-gobject
+satty
+uwsm
+wl-clip-persist
+xdg-utils
+
+# --- added with the integrated layer (parity, updates & safety, packs) -------------
+# everything os/arch/packages.txt lists, so a fresh install needs no download for Prime
+arch-audit
+btrfs-assistant
+celluloid
+cups
+cups-filters
+file-roller
+gnome-calculator
+gnome-keyring
+gpu-screen-recorder
+gtk4
+gvfs-mtp
+gvfs-smb
+hyprpicker
+hyprsunset
+libadwaita
+libsecret
+loupe
+nm-connection-editor
+papers
+rofimoji
+swayosd
+system-config-printer
+udisks2
+ufw
+upower
+wf-recorder
+wtype

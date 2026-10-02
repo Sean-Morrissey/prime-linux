@@ -1,0 +1,417 @@
+#!/usr/bin/env bash
+# Prime — the first-run interview.
+#
+# This is the part that makes the machine theirs. It asks; it does not interrogate.
+# Every question arrives with a suggestion and a reason, every question can be
+# skipped for free, and what it remembers afterwards is not the answers so much as
+# *where the person disagreed with the suggestion* — accepting a default is a weak
+# signal, overriding one is a strong one.
+#
+# Phase 1 on purpose: no model, no network, no API key. It is a script. It works on
+# a machine with no internet and no account, which is the machine a first boot
+# usually is. The AI-narrated version reads the same answers from the same files.
+#
+# Usage:
+#   prime-setup                          interactive, writes ~/.config/prime/
+#   prime-setup --answers answers.txt    scripted (used by the tests)
+#   prime-setup --beats 1,2,4            re-run only some beats
+#   prime-setup --print                  show what is there now and exit
+#
+# Answers file format: one line per question, in order. '#' comments and blank
+# lines are ignored, except that a blank *answer* means "take the suggestion".
+#
+# Outputs (all in the user's own directory — nothing here ships in the image):
+#   ~/.config/prime/identity.yaml    the answers, in the documented schema
+#   ~/.config/prime/answers.log      every question, what Prime suggested, what was
+#                                    chosen, and whether the suggestion was taken
+#   ~/College/<term>/<CODE>/         a folder per course, with a README to write in
+
+set -uo pipefail
+
+CONFIG_DIR="${PRIME_CONFIG_DIR:-$HOME/.config/prime}"
+COLLEGE_DIR="${PRIME_COLLEGE_DIR:-$HOME/College}"
+ANSWERS_FILE=""
+BEATS="1,2,3,4,5,6"
+PRINT_ONLY=0
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --answers) ANSWERS_FILE="$2"; shift 2 ;;
+    --config-dir) CONFIG_DIR="$2"; shift 2 ;;
+    --college-dir) COLLEGE_DIR="$2"; shift 2 ;;
+    --beats) BEATS="$2"; shift 2 ;;
+    --print) PRINT_ONLY=1; shift ;;
+    -h|--help) sed -n '2,26p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    *) echo "unknown option: $1" >&2; exit 2 ;;
+  esac
+done
+
+IDENTITY="$CONFIG_DIR/identity.yaml"
+ANSWERS_LOG="$CONFIG_DIR/answers.log"
+mkdir -p "$CONFIG_DIR"
+
+c_reset=$'\033[0m'; c_dim=$'\033[2m'; c_ok=$'\033[32m'; c_b=$'\033[1m'; c_warn=$'\033[33m'
+say()  { printf '%s\n' "$*"; }
+ok()   { printf '  %s✓%s %s\n' "$c_ok" "$c_reset" "$*"; }
+dim()  { printf '%s%s%s\n' "$c_dim" "$*" "$c_reset"; }
+beat() { printf '\n%s%s%s\n' "$c_b" "$*" "$c_reset"; }
+
+want_beat() { case ",$BEATS," in *",$1,"*) return 0 ;; *) return 1 ;; esac; }
+
+if [ -n "$ANSWERS_FILE" ]; then
+  [ -r "$ANSWERS_FILE" ] || { echo "cannot read answers file: $ANSWERS_FILE" >&2; exit 2; }
+  # Pre-load the answer stream: comments stripped, blank lines KEPT (a blank line is
+  # a real answer — "take the suggestion"). Reading it line-by-line while also
+  # skipping comments is what made the first version of this shift every answer by
+  # one and call the user by their Unix username.
+  mapfile -t ANSWER_LINES < <(grep -v '^[[:space:]]*#' "$ANSWERS_FILE")
+fi
+_answer_line=0
+
+# ---------------------------------------------------------------- what is there
+# Re-running a single beat must not wipe the others, so the existing file is read
+# back in first and used as the defaults for anything this run does not ask about.
+load_existing() {
+  [ -r "$IDENTITY" ] || return 0
+  local dump
+  dump="$(python3 - "$IDENTITY" <<'PY' 2>/dev/null
+import sys, shlex
+try:
+    import yaml
+    d = yaml.safe_load(open(sys.argv[1])) or {}
+except Exception:
+    raise SystemExit
+def s(v):
+    if v is None: return ""
+    if isinstance(v, bool): return "true" if v else "false"
+    return str(v)
+p = d.get("preferences") or {}
+acc = p.get("accessibility") if isinstance(p.get("accessibility"), dict) else {}
+courses = d.get("courses") or []
+cstr = ", ".join(f"{s(c.get('code'))} {s(c.get('name'))}".strip()
+                 for c in courses if isinstance(c, dict))
+proj = d.get("projects") or {}
+agent = d.get("agent") or {}
+out = {
+    "CREATED": s(d.get("created")),
+    "NAME": s(d.get("name")),
+    "PRONOUNS": s(d.get("pronouns")),
+    "LANGUAGE": s(d.get("language")),
+    "SCHOOL": s(d.get("school")),
+    "TERM": s(d.get("term")),
+    "COURSES": cstr,
+    "PROJ_LANGS": ", ".join(proj.get("languages") or []),
+    "PROJ_CREATIVE": ", ".join(proj.get("creative") or []),
+    "SESSION": s(p.get("session")),
+    "THEME": s(p.get("theme")),
+    "VOICE": "on" if p.get("voice") is True else "off",
+    "AUTONOMY": s(p.get("autonomy")),
+    "TEXT_SCALE": s(acc.get("text_scale")),
+    "QUIET": s(p.get("quiet_hours")),
+    "AGENT_CONNECT": "now" if s(agent.get("connected")) == "pending" else "later",
+    "SPEND_CAP": s(agent.get("monthly_cap_usd")),
+    "FREEFORM": s(d.get("freeform")),
+}
+for k, v in out.items():
+    print(f"{k}={shlex.quote(v)}")
+PY
+)"
+  [ -n "$dump" ] && eval "$dump"
+  return 0
+}
+# The whole interview is this function. A question without a suggestion wastes the
+# person's attention, so suggestion and reason are required arguments.
+NEXT_ANSWER=""
+ask() { # ask <key> <question> <suggestion> <reason>
+  local key="$1" question="$2" suggestion="$3" reason="$4" answer=""
+  printf '\n%s\n' "$question"
+  if [ -n "$suggestion" ]; then
+    printf '  %ssuggested: %s%s  — %s\n' "$c_dim" "$suggestion" "$c_reset" "$reason"
+  else
+    dim "  (no suggestion — this one is yours)"
+  fi
+  if [ -n "$ANSWERS_FILE" ]; then
+    # Scripted run. Blank lines are ignored here (a stray blank in a hand-written
+    # fixture must not silently become an answer — that bug called the user by their
+    # Unix username); the explicit token '=' means "take the suggestion".
+    answer=""
+    while [ "$_answer_line" -lt "${#ANSWER_LINES[@]}" ]; do
+      answer="${ANSWER_LINES[$_answer_line]}"
+      _answer_line=$(( _answer_line + 1 ))
+      [ -n "${answer//[[:space:]]/}" ] && break
+      answer=""
+    done
+  else
+    printf '  > '
+    IFS= read -r answer
+  fi
+
+  local outcome
+  if [ "$answer" = "=" ]; then
+    answer="$suggestion"
+    outcome="took the suggestion"
+  elif [ "$answer" = "skip" ] || { [ -z "$answer" ] && [ -z "$suggestion" ]; }; then
+    answer="$suggestion"; outcome="skipped"
+  elif [ -z "$answer" ]; then
+    answer="$suggestion"; outcome="took the suggestion"
+  elif [ "$answer" = "$suggestion" ]; then
+    outcome="took the suggestion"
+  else
+    outcome="chose their own"
+  fi
+
+  printf '{"q":"%s","suggested":"%s","answer":"%s","outcome":"%s"}\n' \
+    "${question//\"/\'}" "${suggestion//\"/\'}" "${answer//\"/\'}" "$outcome" >> "$ANSWERS_LOG"
+  [ "${PRIME_SETUP_QUIET:-0}" = "1" ] || ok "$answer ${c_dim}($outcome)${c_reset}"
+  NEXT_ANSWER="$answer"
+}
+
+# YAML-safe: always quoted, so a name with a colon or a dash cannot break the file
+yq() { printf '"%s"' "${1//\"/\\\"}"; }
+
+# ---------------------------------------------------------------- local facts
+detect_language() { printf '%s' "${LANG%%_*}"; [ -n "${LANG:-}" ] && true; }
+detect_pronouns() { printf 'they/them'; }
+
+# ---------------------------------------------------------------- beats
+beat_1() { # who are you
+  beat "1. First things first — who are you?"
+  dim "  This one is not optional, but it is also just a name. It goes on the machine's"
+  dim "  own screen and nowhere else. Nothing about you is sent anywhere."
+
+  # the suggestion is the current value when there is one: re-running a beat should
+  # be idempotent, not a way to accidentally reset things
+  ask name "What should I call you?" "${NAME:-$(whoami)}" "it is the name your account already has"
+  NAME="$NEXT_ANSWER"
+  ask pronouns "And how should I refer to you?" "${PRONOUNS:-$(detect_pronouns)}" "safe if you do not care either way"
+  PRONOUNS="$NEXT_ANSWER"
+  ask language "Which language do you want me in?" "${LANGUAGE:-$(detect_language)}" "that is what this machine is set to"
+  LANGUAGE="$NEXT_ANSWER"
+}
+
+beat_2() { # what are you studying
+  beat "2. What are you studying?"
+  dim "  Type your courses like this: MATH-1010 College Algebra, ENGL-1100 Basic"
+  dim "  Composition. I will make you a folder for each one and keep an eye on dates."
+  dim "  Say 'skip' and the machine still works — you can tell me later."
+
+  ask school "Which school?" "${SCHOOL:-}" ""
+  SCHOOL="$NEXT_ANSWER"
+  ask term "What do you call this term?" "${TERM:-Autumn-2026}" "it is the term starting now"
+  TERM="$NEXT_ANSWER"
+  ask courses "What are you taking?" "${COURSES:-}" "list them and I will build the folders"
+
+  COURSES="$NEXT_ANSWER"
+  if [ -n "$COURSES" ] && [ "${COURSES,,}" != "skip" ]; then
+    mkdir -p "$COLLEGE_DIR"
+    local made=0
+    IFS=',' read -ra parts <<< "$COURSES"
+    for p in "${parts[@]}"; do
+      p="$(printf '%s' "$p" | sed 's/^ *//; s/ *$//')"
+      [ -n "$p" ] || continue
+      local code name
+      code="$(printf '%s' "$p" | grep -oE '^[A-Za-z]{2,6}-?[0-9]{3,4}' || true)"
+      name="$(printf '%s' "$p" | sed -E 's/^[A-Za-z]{2,6}-?[0-9]{3,4}[[:space:]]*//')"
+      [ -n "$code" ] || code="$p"
+      local dir="$COLLEGE_DIR/$TERM/$code"
+      mkdir -p "$dir"
+      if [ ! -e "$dir/README.md" ]; then
+        printf '# %s — %s\n\nTerm: %s\n\nAssignment notes, drafts and coursework go here.\nPrime reads this folder; nothing in it leaves this machine.\n' \
+          "$code" "${name:-course}" "$TERM" > "$dir/README.md"
+      fi
+      ok "made $COLLEGE_DIR/$TERM/$code"
+      made=$((made+1))
+    done
+    [ "$made" -gt 0 ] && ok "$made course folder(s) created under $COLLEGE_DIR/$TERM"
+  else
+    dim "  no courses yet — say 'Prime, I enrolled in a spring class' whenever that changes"
+  fi
+}
+
+beat_3() { # what are you building
+  beat "3. What do you build?"
+  dim "  This decides what gets set up ahead of time instead of when you need it. Anything"
+  dim "  you are not sure about goes in later on its own — first time you need it, Prime sets"
+  dim "  it up then. That is not a cop-out; installing a toolchain you never use is clutter."
+
+  local langs=""
+  command -v python3 >/dev/null 2>&1 && langs="python"
+  command -v node >/dev/null 2>&1 && langs="${langs:+$langs, }javascript"
+  [ -n "$langs" ] || langs="nothing detected yet"
+
+  ask projects_langs "Do you code? Which languages?" "${PROJ_LANGS:-$langs}" "these are the ones installed here"
+  PROJ_LANGS="$NEXT_ANSWER"
+  ask projects_creative "Anything creative — printing, video, music, art?" "${PROJ_CREATIVE:-3d-printing}" "a 3D printer on this machine would say why"
+  PROJ_CREATIVE="$NEXT_ANSWER"
+}
+
+beat_4() { # how do you like it
+  beat "4. How do you like your machine?"
+  dim "  These are the ones people actually care about. Every one of them can be changed"
+  dim "  later by asking me, in words, and the change takes effect immediately."
+
+  ask session "How should the desktop behave?" "${SESSION:-desktop}" \
+    "taskbar and a start menu — the thing you already know. Say 'prime' for a keyboard-driven one"
+  SESSION="$NEXT_ANSWER"
+  ask theme "Light or dark?" "${THEME:-dark}" "it is easier on the eyes at night and it is what most people keep"
+  THEME="$NEXT_ANSWER"
+  ask voice "Should I be able to talk to you out loud?" "${VOICE:-off}" \
+    "a machine that suddenly speaks is unsettling — you can switch it on any time"
+  VOICE="$NEXT_ANSWER"
+  ask autonomy "How much should I do without asking?" "${AUTONOMY:-ask-first}" \
+    "updates and safety checks happen on their own; anything destructive always asks"
+  AUTONOMY="$NEXT_ANSWER"
+  ask text_scale "Text size — normal, large or huge?" "${TEXT_SCALE:-normal}" "your screen resolution makes normal readable"
+  TEXT_SCALE="$NEXT_ANSWER"
+  ask quiet_hours "When should I stay quiet?" "${QUIET:-22:00-08:00}" "so nothing makes noise while you sleep"
+  QUIET="$NEXT_ANSWER"
+}
+
+beat_5() { # connect me
+  beat "5. Should I connect to a model that thinks?"
+  dim "  Everything so far works with no account and no internet: the update cycle, the"
+  dim "  health checks, your folders, the whole machine. What needs an account is me being"
+  dim "  able to reason about your coursework and look things up."
+  dim "  I will never ask for it here and never store it in these files — when you are ready,"
+  dim "  run: prime connect    (it is a separate, deliberate step, on your machine)"
+
+  ask agent_connect "Connect an account now or later?" "later" "you can do it in one command whenever you like"
+  AGENT_CONNECT="$NEXT_ANSWER"
+  if [ "${AGENT_CONNECT,,}" = "now" ]; then
+    dim "  when you are ready, run:  prime connect    (nothing happens until you do)"
+  fi
+  ask spend_cap "And what is the most I should ever spend in a month?" "${SPEND_CAP:-5}" "small enough to notice, enough to be useful"
+  SPEND_CAP="$NEXT_ANSWER"
+}
+
+beat_6() { # anything else
+  beat "6. Last one — anything else I should know?"
+  dim "  Say it however you like, in your own words: how you learn, what annoys you, what you"
+  dim "  are working on, what you want to get better at. This goes into my memory of you"
+  dim "  verbatim — I do not summarise it, because summaries lose the thing that mattered."
+  dim "  Finish with a line containing only: END"
+
+  FREEFORM=""
+  if [ -n "$ANSWERS_FILE" ]; then
+    while [ "$_answer_line" -lt "${#ANSWER_LINES[@]}" ]; do
+      local aline="${ANSWER_LINES[$_answer_line]}"
+      _answer_line=$(( _answer_line + 1 ))
+      [ "$aline" = "END" ] && break
+      FREEFORM="${FREEFORM}${aline}"$'\n'
+    done
+  else
+    while IFS= read -r line; do
+      [ "$line" = "END" ] && break
+      FREEFORM="${FREEFORM}${line}"$'\n'
+    done
+  fi
+  [ -n "$FREEFORM" ] && ok "kept ${#FREEFORM} characters of it, word for word" || dim "  (nothing — that is fine)"
+}
+
+# ---------------------------------------------------------------- writing
+write_identity() {
+  local now; now="$(date -u +%FT%TZ)"
+  local created="$now"
+  [ -e "$IDENTITY" ] && created="$(grep -m1 '^created:' "$IDENTITY" | cut -d' ' -f2- | tr -d '"')"
+
+  {
+    printf '# Prime Linux — who this machine belongs to.\n'
+    printf '# Written by prime-setup. Yours: edit it by hand if you prefer.\n'
+    printf '# Schema: docs/schemas/identity.schema.json\n\n'
+    printf 'version: 1\n'
+    printf 'created: %s\n' "$(yq "$created")"
+    printf 'updated: %s\n\n' "$(yq "$now")"
+
+    printf '# ---- Beat 1: who are you\n'
+    printf 'name: %s\n' "$(yq "${NAME:-$(whoami)}")"
+    printf 'pronouns: %s\n' "$(yq "${PRONOUNS:-they/them}")"
+    printf 'language: %s\n\n' "$(yq "${LANGUAGE:-en}")"
+
+    printf '# ---- Beat 2: what are you studying\n'
+    printf 'school: %s\n' "$(yq "${SCHOOL:-}")"
+    printf 'term: %s\n' "$(yq "${TERM:-}")"
+    printf 'courses:\n'
+    if [ -n "${COURSES:-}" ] && [ "${COURSES,,}" != "skip" ]; then
+      IFS=',' read -ra parts <<< "$COURSES"
+      for p in "${parts[@]}"; do
+        p="$(printf '%s' "$p" | sed 's/^ *//; s/ *$//')"
+        [ -n "$p" ] || continue
+        local code name
+        code="$(printf '%s' "$p" | grep -oE '^[A-Za-z]{2,6}-?[0-9]{3,4}' || true)"
+        name="$(printf '%s' "$p" | sed -E 's/^[A-Za-z]{2,6}-?[0-9]{3,4}[[:space:]]*//')"
+        printf '  - code: %s\n' "$(yq "${code:-$p}")"
+        printf '    name: %s\n' "$(yq "${name:-}")"
+        printf '    instructor: ""\n    schedule: ""\n    essays: false\n    platform: ""\n'
+      done
+    else
+      printf '  []\n'
+    fi
+
+    printf '\n# ---- Beat 3: what are you building\n'
+    printf 'projects:\n'
+    printf '  languages: [%s]\n' "${PROJ_LANGS:-}"
+    printf '  creative: [%s]\n' "${PROJ_CREATIVE:-}"
+    printf '  deferred: []\n'
+
+    printf '\n# ---- Beat 4: how you like your machine\n'
+    printf 'preferences:\n'
+    printf '  session: %s\n' "$(yq "${SESSION:-desktop}")"
+    printf '  theme: %s\n' "$(yq "${THEME:-dark}")"
+    printf '  voice: %s\n' "$([ "${VOICE:-off}" = "on" ] && echo true || echo false)"
+    printf '  quiet_hours: %s\n' "$(yq "${QUIET:-22:00-08:00}")"
+    printf '  autonomy: %s\n' "$(yq "$(case "${AUTONOMY:-ask-first}" in
+        ask-first|suggest) echo suggest ;; *auto*) echo auto-user ;; *) echo suggest ;; esac)")"
+    printf '  accessibility:\n'
+    printf '    text_scale: %s\n' "$(yq "${TEXT_SCALE:-normal}")"
+    printf '    reduce_motion: false\n    colorblind_safe: false\n    screen_reader: false\n'
+
+    printf '\n# ---- Beat 5: the thinking model (never a key — see prime connect)\n'
+    printf 'agent:\n'
+    printf '  connected: %s\n' "$(yq "$(case "${AGENT_CONNECT:-later}" in
+        now) echo pending ;; *) echo later ;; esac)")"
+    printf '  monthly_cap_usd: %s\n' "${SPEND_CAP:-5}"
+
+    printf '\n# ---- Beat 6: anything else, verbatim\n'
+    printf 'freeform: |\n'
+    if [ -n "${FREEFORM:-}" ]; then
+      printf '%s' "$FREEFORM" | sed 's/^/  /'
+    else
+      printf '  (nothing yet)\n'
+    fi
+  } > "$IDENTITY"
+
+  ok "wrote $IDENTITY"
+  ok "wrote $ANSWERS_LOG ${c_dim}(what was suggested vs what was chosen)${c_reset}"
+}
+
+cmd_print() {
+  if [ -e "$IDENTITY" ]; then
+    say "${c_b}$IDENTITY${c_reset}"
+    sed 's/^/  /' "$IDENTITY"
+  else
+    dim "nothing yet — run prime-setup"
+  fi
+}
+
+# ---------------------------------------------------------------------- main
+if [ "$PRINT_ONLY" = "1" ]; then cmd_print; exit 0; fi
+
+say "${c_b}Prime setup${c_reset} ${c_dim}— a few questions, then this machine is yours${c_reset}"
+dim "  Every question has a suggestion. Press Enter to take it, type 'skip' to move on,"
+dim "  or answer in your own words. Nothing here needs the internet."
+
+# read back anything already answered, so re-running one beat never blanks the rest
+load_existing
+
+want_beat 1 && beat_1
+want_beat 2 && beat_2
+want_beat 3 && beat_3
+want_beat 4 && beat_4
+want_beat 5 && beat_5
+want_beat 6 && beat_6
+
+beat "Done."
+write_identity
+say
+ok "next: 'prime status' to see the machine, 'prime connect' when you want me online"
+dim "  re-run any part of this later:  prime-setup --beats 2"

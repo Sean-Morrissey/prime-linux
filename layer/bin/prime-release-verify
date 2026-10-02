@@ -5,41 +5,45 @@
 #                                          exit 3: it must NOT be installed (said why)
 #
 # The trust model (docs/RELEASE.md → "Signing"):
-#   * Prime's release keys are listed in layer/system/release/allowed_signers,
-#     in ssh-keygen's allowed-signers format. The copy that decides is the one
-#     ALREADY INSTALLED on this computer — read before the update is applied —
-#     so a new key can only arrive inside an update the old key signed.
-#   * On the `stable` channel every update must be a commit carrying a
-#     v* tag signed by one of those keys. An unsigned, wrongly-signed or
-#     untagged commit is refused, whoever managed to push it.
-#   * Other channels (main, edge, a feature branch) are for testers and
-#     follow the branch unsigned — set PRIME_REQUIRE_SIGNED=1 to check those too.
-#   * Until the first key is published the list is empty and there is nothing
-#     to check against: updates are allowed, and this says so.
+#   * Prime's release keys are layer/system/release/release-keys.asc (GnuPG,
+#     armored). The copy that decides is the one ALREADY INSTALLED on this
+#     computer — read before the update is applied — so a new key can only
+#     arrive inside an update the old key signed.
+#   * On the `stable` channel every update must be a commit carrying a v* tag
+#     signed by one of those keys. Unsigned, wrongly-signed or untagged: refused,
+#     whoever managed to push it.
+#   * Other channels (main, edge, a feature branch) are for testers and follow the
+#     branch unsigned — PRIME_REQUIRE_SIGNED=1 checks those too.
+#   * Until the first key is published the file is empty and there is nothing to
+#     check against: updates are allowed, and this says so.
+# The check uses a throwaway keyring holding ONLY those keys, so no other key the
+# person may have imported can vouch for an update.
 set -u
 repo="${1:?repo}"; commit="${2:?commit}"
-keys="${PRIME_RELEASE_KEYS:-$repo/layer/system/release/allowed_signers}"
+keys="${PRIME_RELEASE_KEYS:-$repo/layer/system/release/release-keys.asc}"
 channel="$(git -C "$repo" symbolic-ref --short -q HEAD 2>/dev/null || echo detached)"
 
 if [ "$channel" != stable ] && [ "${PRIME_REQUIRE_SIGNED:-0}" != 1 ]; then
     echo "not checked: the $channel channel follows the branch (only stable must be signed)"
     exit 0
 fi
-if ! grep -qvE '^\s*(#|$)' "$keys" 2>/dev/null; then
-    echo "not checked: no release key is published yet (layer/system/release/allowed_signers is empty)"
+if ! grep -q 'BEGIN PGP PUBLIC KEY BLOCK' "$keys" 2>/dev/null; then
+    echo "not checked: no release key is published yet (layer/system/release/release-keys.asc is empty)"
     exit 0
 fi
+command -v gpg >/dev/null || { echo "refused: can't check signatures here (gpg is missing — it comes with pacman)" >&2; exit 3; }
 
-command -v ssh-keygen >/dev/null || { echo "refused: can't check signatures here (ssh-keygen is missing — it comes with the openssh package)" >&2; exit 3; }
 target="$(git -C "$repo" rev-parse --verify -q "$commit^{commit}")" || { echo "no such commit: $commit" >&2; exit 3; }
-# the keys file is copied aside: verify-tag must not read a file the update could swap
-pinned="$(mktemp)"; trap 'rm -f "$pinned"' EXIT
-cp -- "$keys" "$pinned"
+ring="$(mktemp -d)"; trap 'gpgconf --homedir "$ring" --kill all >/dev/null 2>&1; rm -rf "$ring"' EXIT
+chmod 700 "$ring"
+gpg --homedir "$ring" --batch --quiet --import < "$keys" 2>/dev/null \
+    || { echo "refused: the release key file on this computer is damaged" >&2; exit 3; }
 tags="$(git -C "$repo" tag --points-at "$target" --list 'v*')"
 [ -n "$tags" ] || { echo "refused: this update ($(git -C "$repo" rev-parse --short "$target")) isn't a tagged Prime release" >&2; exit 3; }
 while read -r t; do
     [ -n "$t" ] || continue
-    if git -C "$repo" -c gpg.format=ssh -c gpg.ssh.allowedSignersFile="$pinned" verify-tag "$t" >/dev/null 2>&1; then
+    # a tag object signed by a key in the throwaway ring (and nothing else is in it)
+    if GNUPGHOME="$ring" git -C "$repo" -c gpg.format=openpgp verify-tag "$t" >/dev/null 2>&1; then
         echo "verified: $t is signed by a Prime release key"
         exit 0
     fi

@@ -116,43 +116,47 @@ redirect to the tagged `stable` copy, never serve its own copy.
 
 ## Signing
 
-Release tags are signed with an SSH key (`git tag -s` with `gpg.format=ssh` —
-no GPG keyring to manage), and every installed computer checks them.
+Release tags are signed with GnuPG (`git tag -s`). GnuPG is already on every
+Arch/CachyOS machine — pacman itself uses it — so checking needs nothing extra
+(in particular, no SSH package: Prime never installs an SSH server).
 
 - **What is checked.** On the `stable` channel `prime-update` fetches, then runs
   `layer/bin/prime-release-verify` before moving: the new version must be a
   commit carrying a `v*` tag signed by a key in
-  `layer/system/release/allowed_signers` — **the copy already on that
-  computer**, read before the update is applied. An untagged commit pushed to
-  `stable`, a tag signed by any other key, or an update that ships its own key
-  list is refused, and the computer stays exactly as it was ("didn't install the
-  new Prime Linux: it isn't signed by Prime's release key").
-- **Where trust starts.** At install time (trust on first use): the key list a
+  `layer/system/release/release-keys.asc` — **the copy already on that
+  computer**, read before the update is applied, loaded into a throwaway keyring
+  that holds nothing else (a key in the person's own keyring can't vouch). An
+  untagged commit pushed to `stable`, a tag signed by any other key, an update
+  that ships its own key file, or a damaged key file are all refused, and the
+  computer stays exactly as it was ("didn't install the new Prime Linux: it
+  isn't signed by Prime's release key").
+- **Where trust starts.** At install time (trust on first use): the key file a
   computer is installed with decides every later update, and a new key can only
-  arrive inside an update the old key signed. Publish the key's fingerprint on
-  the README and the release page so a careful installer can compare.
+  arrive inside an update the old key signed. Publish the key's fingerprint in
+  the README and the release notes so a careful installer can compare.
 - **Other channels.** `main`, `edge` and feature branches are for testers and
   follow the branch unsigned (`PRIME_REQUIRE_SIGNED=1` checks them too).
-- **Before the first key.** `allowed_signers` ships with comments only; until a
-  key is added nothing can be checked, updates are allowed, and the verifier
-  says so. **Make the key before the repository goes public**, so the first
-  public installs already pin it.
+- **Before the first key.** `release-keys.asc` ships empty; until a key is added
+  nothing can be checked, updates are allowed, and the verifier says so. **Make
+  the key before the repository goes public**, so the first public installs
+  already pin it.
 
 Owner, once:
 
 ```bash
-tools/release-sign.sh --new-key          # ~/.ssh/prime-release (passphrase!) + adds it to allowed_signers
-git commit -am "release: Prime's release key" && git push
+tools/release-sign.sh --new-key          # ed25519 signing key (passphrase!) → release-keys.asc
+git add layer/system/release/release-keys.asc && git commit -m "release: Prime's release key" && git push
+gpg --export-secret-keys --armor > prime-release-secret.asc   # → offline backup, then delete this file
 ```
 
 Every release afterwards (replaces the plain `git tag` in "Cutting a release"):
 
 ```bash
-tools/release-sign.sh v2026.10.0         # signs, then verifies it the way computers will
+tools/release-sign.sh v2026.10.0         # signs with the CHANGELOG notes, then checks it like computers will
 git push origin v2026.10.0 && git switch stable && git merge --ff-only v2026.10.0 && git push origin stable
 ```
 
-Keep the private key off any machine that runs untrusted code, with an offline
-backup. Rotating it = add the new key to `allowed_signers` in a release signed
-by the old one; drop the old key one release later. `tests/check-release-signing.sh`
-holds all of this (forged, unsigned, untagged and self-keyed updates are refused).
+Rotating the key: add the new public key to `release-keys.asc` in a release
+signed by the old one; drop the old key one release later.
+`tests/check-release-signing.sh` holds all of this (forged, unsigned, untagged,
+self-keyed and damaged-key updates are refused).

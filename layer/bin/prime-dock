@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # prime-dock — the dock: your pinned apps and everything that's open, at the bottom of
-# the screen, out of the way until you move the pointer to the bottom edge (like a Mac).
+# the screen of the pointer, out of the way until the pointer touches the bottom edge of
+# any screen (like a Mac).
 # A click opens or switches to an app; the grid button opens Start; right-click an app
 # to pin or unpin it.
 #
@@ -15,7 +16,7 @@ BIN="$(dirname "$(readlink -f "$0")")"
 CONF="$HOME/.config/nwg-dock-hyprland"
 PINNED="$HOME/.cache/nwg-dock-pinned"
 
-args=(-d -p bottom -i 44 -mb 8 -hd 120 -s prime.css -c "$BIN/prime-start")
+args=(-d -p bottom -i 44 -mb 8 -hd 0 -s prime.css -c "$BIN/prime-start")
 if [ "${1:-}" = --args ]; then printf '%s\n' nwg-dock-hyprland "${args[@]}"; exit 0; fi
 
 # how far the pointer is from the left edge of the screen it is on (logical pixels)

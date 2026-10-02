@@ -208,3 +208,86 @@ From GitHub Actions on this branch (this sandbox can't reach the Arch mirrors):
 The VM runs without a GPU (GitHub's runners have none), so it renders in software and
 hyprpaper, which needs a GPU render node, can't start there; that one check is
 reported as not checked. Real PCs and VMs with virgl have a render node.
+
+---
+
+# Round 2 — `main` before handing it to a friend
+
+**Date:** 2026-10-01 · **Issue:** #13 · **Base:** `main` @ dbda3b4 (after #10 merged
+`integrate/prime-layer`, and #11/#12 changed the terminal greeting)
+
+Same panel and severity scale as round 1. This round reviews `main` as the friend
+gets it: README → install → first login → Start menu → Spotlight → Prime menu →
+greeting → update → uninstall. It also re-checks that round 1 survived the merge.
+
+## Summary
+
+| ID | Sev | Lens | Finding | Status |
+|---|---|---|---|---|
+| G7 | **P1** | Gates | `hardware.conf` gave an Intel + NVIDIA laptop NVIDIA's settings (NVIDIA was checked first), though the desktop runs on Intel. On nouveau those settings break video decode and OpenGL. | **Fixed** + `tests/check-gpu-detect.sh` (in CI) |
+| G8 | P2 | Gates | An install from before #11/#12 keeps the old fastfetch layout (16 columns, sized for the stacked logo), so the system details print over the new 38-column wordmark | **Fixed**: migration `1790899482` + `tests/check-greeting.sh` |
+| L7 | P2 | Linus | Without `XDG_RUNTIME_DIR`, `prime-start` wrote its pid file into `/tmp/prime-<uid>` without checking who owns it (symlink plant) | **Fixed** + `prime-start --selftest` |
+| G9 | P2 | Gates | `prime-uninstall` word-split its list of backup folders, so a home folder with a space in its name restored nothing | **Fixed** + container test |
+| J6 | P2 | Jobs | README/user guide: `pacman -S github-cli` on a fresh CachyOS with days-old package lists can fail to download | **Fixed**: `-Syu` |
+| J7 | P3 | Jobs | The installer's last words listed three shortcuts but not the Start menu, the first thing to click | **Fixed** |
+| T1 | P2 | Gates | `tests/check-update-private.sh` opened the updater window on the developer's real screen when run from a desktop session, and timed out | **Fixed** |
+| #8 | — | Gates | PR #8 (installer: keep a user's nm-applet autostart, no sudo on re-runs) targets the old installer; `main`'s manifest installer already backs up and restores that file | **Closed**. Its test idea (a user's own autostart entry, round-tripped) is ported to `tests/install-in-container.sh` |
+| G6 | P2 | Gates | Add-on packs pick drivers by GPU name | Still deferred: `pack.sh` lists every GPU and handles hybrids; no wrong case found |
+| L4 | P2 | Linus | `boot.sh` is `curl \| bash` from a moving branch | Still deferred: needs tagged releases (docs/RELEASE.md) |
+| L8 | P3 | Linus | shellcheck at warning level: 86 notes, none a bug (unused colour variables, `~` inside messages, `ls \| grep` on fixed names, variables set by sourced files) | Recorded, no change |
+| L9 | P3 | Linus | ruff: unused imports and loop variables in `prime-import`, `prime-media`, `prime-activity` and the bootc payload | Recorded, no change (cosmetic) |
+
+## "Linus Torvalds": round 1 re-checked after the merge
+
+- **SSH (L1–L3):** `tests/check-ssh.sh` passes 19/19 on `main`. Nothing in
+  `install.sh` enables sshd. `prime-security apply` (run by the installer) still
+  narrows port 22 to the home network and warns about passwords.
+- **Owner-only assumptions (G1):** `tests/check-portable.sh` passes. No author paths,
+  GPU model, `card`/`hwmon` numbers, screens or sound devices remain in what ships.
+- **Commands from menus:** `prime-menu` and `prime-context` run commands only from
+  menu files that are either shipped or the person's own (`~/.config/prime`, personal
+  add-ons). No web or AI text reaches a shell. Spotlight launches by desktop id
+  (`gtk-launch`) and opens absolute paths with `xdg-open`.
+- **New since round 1:**
+  - `prime-start`: pid file (L7, fixed), launches by desktop id, writes pins atomically.
+  - Greeting migration `1790890901`: replaces only Prime's own earlier hand-made
+    config, and backs it up first.
+  - `prime-terminal-shell`: runs only the person's own login shell.
+
+### G7 · P1 · NVIDIA settings on a laptop that runs on Intel
+- **Where:** `install.sh` step 3, `hardware.conf`.
+- **Scenario:** the friend has a typical gaming laptop (Intel + NVIDIA). NVIDIA was
+  tested first, so Hyprland got `LIBVA_DRIVER_NAME=nvidia` and
+  `__GLX_VENDOR_LIBRARY_NAME=nvidia` although the desktop is drawn by Intel:
+  - With NVIDIA's driver, video decode goes to the wrong chip.
+  - With nouveau (CachyOS without NVIDIA's driver), OpenGL apps fail to start.
+- **Fix:** `gpu_hw_env()` takes the GPU that drew the boot screen (`boot_vga`), and
+  falls back to the first display device. NVIDIA's block is written only when
+  `nvidia-utils` is installed. An NVIDIA desktop with the CPU's graphics switched on
+  still gets NVIDIA's settings.
+- **Test:** `tests/check-gpu-detect.sh` covers 8 cases (laptop, NVIDIA desktop,
+  nouveau, AMD, VM, Intel-not-AMD, no GPU). It runs in CI.
+
+### Checked, nothing to fix
+- **Small and HiDPI screens:** the Start menu's tallest page (All apps) is about
+  600 px, so it fits 1366×768 under the bar. Spotlight's 9 rows fit too. GTK
+  handles scaling.
+- **Merge damage from #10:**
+  - `install.sh` has main's GPU-by-vendor-id and `hardware.conf`-keeping fixes on the
+    newer manifest installer.
+  - `prime-menu` keeps the escaping from #5 and gains main's Papirus fallbacks.
+  - No duplicated or lost functions (scanned), no duplicate keybindings across the
+    defaults and add-ons, and Super+X is bound once.
+- **Re-runs:** a finished install re-run is a repair. `check-install.sh` re-runs it
+  and it stays complete. The first backup remains the one uninstall restores from.
+
+## Round 2 test results
+
+Run locally on this branch (Linux, docker):
+
+| Suite | Result |
+|---|---|
+| syntax, static (GTK self-tests), menus, greeting, import, personal add-ons, SSH, portability, private-repo update, GPU detection | all pass |
+| `backends/arch/test-system-update.sh` | 103 passed |
+| Clean install in a fresh Arch container (user with their own kitty.conf and nm-applet autostart) → checks → `prime-uninstall` | **all pass** (install checks and uninstall checks) |
+| Real-boot CachyOS VM (`tests/vm/run.sh all`) | runs in CI on the PR (needs KVM and the ISO download) |

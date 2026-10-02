@@ -15,7 +15,7 @@ REAL_GIT="$(command -v git)"
 cat > "$T/bin/git" <<FAKE
 #!/usr/bin/env bash
 for a in "\$@"; do
-  if [ "\$a" = pull ]; then
+  if [ "\$a" = pull ] || [ "\$a" = fetch ]; then
     # real git would prompt on the terminal here unless told not to
     [ "\${GIT_TERMINAL_PROMPT:-1}" = 0 ] || { sleep 90; exit 1; }
     echo "fatal: could not read Username for 'https://github.com': terminal prompts disabled" >&2; exit 128

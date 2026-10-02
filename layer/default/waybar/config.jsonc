@@ -40,7 +40,6 @@
   // workspaces: one dot per desktop in use (just one, until you use more) — the
   // running apps live in the dock at the bottom (prime-dock)
   "hyprland/workspaces": {
-    "on-click": "activate",
     "on-scroll-up": "hyprctl dispatch workspace e-1",
     "on-scroll-down": "hyprctl dispatch workspace e+1",
     "format": "{icon}",

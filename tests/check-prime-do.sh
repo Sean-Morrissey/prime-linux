@@ -36,6 +36,8 @@ keep awake|awake-on
 restart|power
 airplane mode|airplane-on
 connect headphones|bt-connect
+tidy windows|layout-tidy
+stop tiling windows|layout-free
 EOF
 ck "a real question is not an action"          "[ -z \"\$(top 'what is the capital of france')\" ]"
 ck "an unknown request says so (exit 3), does nothing" \

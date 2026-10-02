@@ -51,7 +51,7 @@ inputbar {
     border-color:                @hairline;
     border-radius:               10px;
     padding:                     10px 12px;
-    children:                    [ icon-search, prompt, entry ];
+    children:                    [ icon-search, prompt, textbox-prompt-colon, entry ];
     spacing:                     10px;
 }
 
@@ -59,6 +59,14 @@ icon-search {
     expand:                      false;
     filename:                    "system-search-symbolic";
     size:                        18px;
+    vertical-align:              0.5;
+}
+
+/* "Prime › Settings": the breadcrumb ends in a chevron, so it never reads as part of what you type */
+textbox-prompt-colon {
+    expand:                      false;
+    str:                         "›";
+    text-color:                  @fg-secondary;
     vertical-align:              0.5;
 }
 
@@ -116,7 +124,7 @@ element {
 
 element selected.normal, element selected.active {
     background-color:            @bg-selected;
-    border-color:                @border-focus;
+    border-color:                transparent;
     text-color:                  #ffffff;
 }
 

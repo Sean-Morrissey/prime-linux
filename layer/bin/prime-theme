@@ -29,7 +29,7 @@ STATE="$HOME/.config/prime/theme.conf"
 OUT="$HOME/.config/prime/theme"
 WALLDIRS=("$LAYER/wallpapers" "$HOME/Pictures/Wallpapers")
 
-WALL="$LAYER/wallpapers/prime-emblem.jpg"; ACCENT="f87171"; TEXT="default"
+WALL="$LAYER/wallpapers/prime-tide.jpg"; ACCENT="60a5fa"; TEXT="default"
 [ -f "$STATE" ] && . "$STATE"
 [ -f "$WALL" ] || WALL="$(ls "$LAYER"/wallpapers/*.jpg 2>/dev/null | head -1)"
 
@@ -62,7 +62,7 @@ EOF
 /* written by prime-theme */
 * {
     fg-accent:    #$a;
-    bg-selected:  rgba($r, $g, $b, 0.14);
+    bg-selected:  rgba($r, $g, $b, 0.22);
     border-focus: rgba($r, $g, $b, 0.50);
 }
 EOF
@@ -87,6 +87,15 @@ EOF
 \$accent_border = rgba(${a}66)
 \$prime_titlebar_text = $(isize 11)
 EOF
+  # window layout (Settings → Appearance → Window layout): free = new windows float and
+  # open centred, like a Mac or Windows (the default); tidy = Hyprland tiles them
+  if [ "$(jq -r '.settings.window_layout // "free"' "$HOME/.config/prime/settings.json" 2>/dev/null || echo free)" != tidy ]; then
+    cat >> "$OUT/hyprland.conf" <<EOF
+# window layout: free — Settings → Appearance → Window layout switches to tidy (tiled)
+windowrule = float on, match:class .*
+windowrule = center on, match:class .*
+EOF
+  fi
   cat > "$OUT/hyprlock.conf" <<EOF
 # written by prime-theme
 \$wallpaper = $WALL

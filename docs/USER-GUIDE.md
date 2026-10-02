@@ -147,7 +147,10 @@ Everything in this guide is also in the Prime menu, so you never *need* a termin
 - Mouse, keyboard, look and the other saved settings can be undone: About & Help → **Undo the last change made here**.
 
 ### Windows and workspaces
-- Windows arrange themselves side by side. **Super+F** makes one fill the screen.
+- New windows float and open in the middle of the screen, like on a Mac or Windows.
+  Drag one by its title bar; **Super+F** makes it fill the screen.
+- Prefer them side by side? Settings → Appearance → **Window layout → Tidy** (or type
+  "tidy windows" in Super+Space). **Super+Shift+V** flips one window either way.
 - **Super+1 … Super+9** switch between workspaces (separate desktops).
   **Super+Shift+1…9** moves the current window there.
 - **Alt+Tab** switches windows. On a touchpad, swipe sideways with three fingers

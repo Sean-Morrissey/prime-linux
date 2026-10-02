@@ -93,6 +93,12 @@ if pull_err="$(GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=/bin/false SSH_ASKPASS=/bin/fal
     elif ! verdict="$("$BIN/prime-release-verify" "$REPO" "$target" 2>&1)"; then
         warn "didn't install the new Prime Linux: it isn't signed by Prime's release key. Your computer is unchanged."
         warn "(${verdict}) If this keeps happening, use Get help in Settings → About & Help."
+    elif ! git -C "$REPO" merge-base HEAD "$target" >/dev/null 2>&1 \
+         && [ -z "$(git -C "$REPO" status --porcelain --untracked-files=no 2>/dev/null)" ]; then
+        # the published history was started afresh (nothing in common with this copy):
+        # follow it, as long as nothing here was edited — it passed the same check above
+        git -C "$REPO" reset --quiet --hard "$target"
+        ok "updated (Prime Linux's history was started afresh; this copy now follows the new one)"
     elif ! merge_err="$(git -C "$REPO" merge --ff-only --quiet "$target" 2>&1)"; then
         warn "couldn't update Prime Linux itself (files in $REPO were edited) — carrying on"
         printf '%s\n' "$merge_err" >&2

@@ -264,13 +264,13 @@ SB="$T/secbin"; mkdir -p "$SB"
 printf '#!/bin/sh\ncase "$*" in *is-enabled*ufw.service*) exit 0 ;; esac\nexit 1\n' > "$SB/systemctl"; chmod +x "$SB/systemctl"
 sec() { env HOME="$SH" PRIME_UFW_DIR="$U" PATH="$SB:$PATH" "$LAYER/bin/prime-security" "$@" 2>/dev/null; }
 sec status --tsv > "$T/sec.tsv"
-has "private files flagged" "Readable by other accounts" "$T/sec.tsv"
+has "private files flagged" "Other accounts on this computer can read" "$T/sec.tsv"
 has "port open to every network flagged" "Open to every network.*22/any" "$T/sec.tsv"
 has "LAN-only rule counted as home network" "1 rule(s) let devices on your home network" "$T/sec.tsv"
 sec fix-permissions >/dev/null
 check "ai.key now 600" 600 "$(stat -c %a "$SH/.config/prime/ai.key")"
 check "~/.config/prime now private" 700 "$(stat -c %a "$SH/.config/prime")"
-sec status --tsv > "$T/sec2.tsv"; hasnt "no longer flagged" "Readable by other accounts" "$T/sec2.tsv"
+sec status --tsv > "$T/sec2.tsv"; hasnt "no longer flagged" "Other accounts on this computer can read" "$T/sec2.tsv"
 env PRIME_SEC_ROOT="$T/secroot" PRIME_TEST_ALLOW_NONROOT=1 "$LAYER/bin/prime-security" apply >/dev/null 2>&1
 has "apply installs the network protections file" "send_redirects = 0" "$T/secroot/etc/sysctl.d/90-prime-security.conf"
 hasnt "hardening never disables user namespaces (Flatpak/Steam need them)" "^kernel.unprivileged_userns_clone" "$T/secroot/etc/sysctl.d/90-prime-security.conf"

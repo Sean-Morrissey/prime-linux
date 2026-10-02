@@ -50,8 +50,10 @@ fi
 echo "== all packs on together"
 ck "Hyprland accepts the config with every pack"  "Hyprland --verify-config -c ~/.config/hypr/hyprland.conf"
 ck "menu: every row resolves"                     "$L/bin/prime-menu --check | tail -1 | grep -q 'every row resolves'"
-ck "top bar builds with pack modules"             "$L/bin/prime-bar --print top | jq -e '(.\"modules-right\" | index(\"custom/perf\")) and (.\"modules-center\" | index(\"custom/focus\"))'"
-ck "no shortcut is bound twice"                   "! grep -hE '^bind' $L/default/hypr/*.conf $L/addons/*/hypr.conf | sed -E 's/^[a-z]+ *= *([^,]*),([^,]*),.*/\1,\2/;s/ +/ /g' | tr a-z A-Z | sort | uniq -d | grep ."
+# a pack item placed after an item that lives in a group (custom/audio is in group/status) joins that group
+ck "top bar builds with pack modules"             "$L/bin/prime-bar --print top | jq -e '[.\"modules-right\"[], (.\"group/status\".modules // [])[]] | index(\"custom/perf\")' && $L/bin/prime-bar --print top | jq -e '.\"modules-center\" | index(\"custom/focus\")'"
+# a key may be bound again inside a submap (the lock screen's one key): only the normal map counts
+ck "no shortcut is bound twice"                   "! awk '/^submap *=/ { sub_ = (\$3 != \"reset\") } /^bind/ && !sub_' $L/default/hypr/*.conf $L/addons/*/hypr.conf | sed -E 's/^[a-z]+ *= *([^,]*),([^,]*),.*/\1,\2/;s/ +/ /g' | tr a-z A-Z | sort | uniq -d | grep ."
 ck "pack .desktop entries installed, paths filled" "[ -f ~/.local/share/applications/prime-performance-mode.desktop ] && [ -f ~/.local/share/applications/prime-focus-mode.desktop ] && ! grep -q @LAYER@ ~/.local/share/applications/prime-*.desktop"
 
 echo "== what each pack set up"

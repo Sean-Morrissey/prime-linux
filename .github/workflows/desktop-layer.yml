@@ -62,6 +62,8 @@ jobs:
         run: bash tests/check-gpu-detect.sh
       - name: Get help report (no home path, no secrets)
         run: bash tests/check-help.sh
+      - name: Daily checkup (disk, failed services, version jumps, no repeated nagging)
+        run: bash tests/check-checkup.sh
       - name: shellcheck (warning level) on every shell script
         run: bash tests/check-shellcheck.sh
 

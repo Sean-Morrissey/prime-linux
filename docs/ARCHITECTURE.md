@@ -1,5 +1,15 @@
 # Prime Linux — architecture
 
+> **Status (2026-10-01): this document describes the original design — an atomic
+> Fedora/Universal-Blue image built with BlueBuild. That track is parked (never
+> booted to an install — see `docs/BUILD-STATE-2026-09-27.md`); on 2026-09-26 the
+> owner decided to ship the same product as a layer on top of CachyOS instead
+> (`install.sh` + `layer/`, documented in [`PRIME-LAYER.md`](PRIME-LAYER.md)).
+> The ideas below — the three layers, the capability ladder, the honest capability
+> table, base-agnostic supervision in §9 — still hold; only §5's "why Fedora" and
+> the BlueBuild build mechanics are superseded. Read `PRIME-LAYER.md` first for
+> what actually ships today; come back here for the long-term design reasoning.**
+
 > **Prime is not an app in this distro. Prime *is* the supervisor of this distro.**
 > You install Prime Linux, you talk to Prime, you tell it who you are, what you're
 > studying, what you're building, and how you like your machine — and Prime does

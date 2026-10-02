@@ -388,10 +388,13 @@ in plain language when a backup hasn't happened in a while. It should never be a
 hard sell, and never a paid cloud: a silent local copy plus one honest reminder
 beats a subscription.
 
-Cheaper than expected: the Aurora base already ships **restic**, **rclone** and
-**DejaDup**, so this is a configuration and wording task, not a packaging one. Prime
-should drive `restic` (snapshot + prune policy) with `rclone` as the optional
-off-machine target, and leave DejaDup alone for users who prefer a GUI.
+**Not cheap on the shipped product:** this was written when the base was Fedora's
+Aurora image, which ships `restic`, `rclone` and `DejaDup` already. The layer that
+actually ships (CachyOS + `install.sh`) does not install any of the three — none
+are in `os/arch/packages.txt` — so this beat needs a packaging step, not just
+configuration and wording. Once packaged, Prime should drive `restic` (snapshot +
+prune policy) with `rclone` as the optional off-machine target, and leave DejaDup
+alone for users who prefer a GUI.
 
 ---
 

@@ -1,0 +1,9 @@
+[Unit]
+Description=Prime daily checkup (repairs what it safely can; tells you only about new problems)
+PartOf=prime-session.target
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/share/prime-linux/layer/bin/prime-doctor --daily
+Nice=10
+IOSchedulingClass=idle

@@ -80,6 +80,8 @@ python
 nodejs
 npm
 git
+# checking that Prime updates are signed releases (ssh-keygen; the SSH server stays off)
+openssh
 wget
 curl
 uv

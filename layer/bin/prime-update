@@ -82,11 +82,25 @@ step "Prime Linux"
 before="$(git -C "$REPO" rev-parse --short HEAD 2>/dev/null)"
 # never stop to ask for a GitHub username in a window that can't answer (private repo, no login):
 # fail at once instead, and say how to sign in
+# Fetch, check, then move: on the stable channel the new version must be a release
+# signed by a key THIS computer already trusts (prime-release-verify), so nobody who
+# gets push access to the branch — or sits between here and GitHub — can ship code.
 if pull_err="$(GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=/bin/false SSH_ASKPASS=/bin/false timeout 120 \
-               git -C "$REPO" pull --ff-only --quiet 2>&1 </dev/null)"; then
-    after="$(git -C "$REPO" rev-parse --short HEAD)"
-    if [ "$before" = "$after" ]; then ok "already up to date"
-    else ok "updated"; git -C "$REPO" log --format='%s' "$before..$after" | head -8 | sed 's/^/      · /'; fi
+               git -C "$REPO" fetch --quiet --tags 2>&1 </dev/null)"; then
+    target="$(git -C "$REPO" rev-parse --verify -q '@{upstream}' 2>/dev/null || true)"
+    if [ -z "$target" ]; then
+        warn "couldn't update Prime Linux itself: this copy doesn't follow a release channel — carrying on"
+    elif ! verdict="$("$BIN/prime-release-verify" "$REPO" "$target" 2>&1)"; then
+        warn "didn't install the new Prime Linux: it isn't signed by Prime's release key. Your computer is unchanged."
+        warn "(${verdict}) If this keeps happening, use Get help in the Prime menu."
+    elif ! merge_err="$(git -C "$REPO" merge --ff-only --quiet "$target" 2>&1)"; then
+        warn "couldn't update Prime Linux itself (files in $REPO were edited) — carrying on"
+        printf '%s\n' "$merge_err" >&2
+    else
+        after="$(git -C "$REPO" rev-parse --short HEAD)"
+        if [ "$before" = "$after" ]; then ok "already up to date"
+        else ok "updated"; git -C "$REPO" log --format='%s' "$before..$after" | head -8 | sed 's/^/      · /'; fi
+    fi
 elif grep -qiE 'username|authentication|could not read|403|repository not found|permission denied' <<<"$pull_err"; then
     warn "couldn't update Prime Linux itself: GitHub didn't let this computer in (the repository is private)."
     warn "Sign in once in a terminal with:  gh auth login   — then run Update everything again. Carrying on."

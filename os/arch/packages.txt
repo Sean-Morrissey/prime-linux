@@ -109,6 +109,8 @@ breeze-cursors
 # building the title-bar plugin (hyprpm)
 base-devel
 git
+# checking that Prime updates are signed releases (ssh-keygen; the SSH server stays off)
+openssh
 cmake
 meson
 cpio

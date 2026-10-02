@@ -51,6 +51,12 @@ jobs:
 
   bluebuild:
     name: Build Prime Linux
+    # The shipped product is install.sh onto CachyOS (docs/PRIME-LAYER.md), not
+    # this Fedora/bootc image — no install from it has ever reached a disk
+    # (docs/BUILD-STATE-2026-09-27.md). Building and pushing it on every push,
+    # PR and night burns CI minutes and the signing secret for a track nobody
+    # ships; keep it reachable by hand (workflow_dispatch) without the noise.
+    if: github.event_name == 'workflow_dispatch'
     needs: supervisor-tests
     runs-on: ubuntu-latest
     permissions:

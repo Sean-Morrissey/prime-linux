@@ -164,4 +164,7 @@ fi
 run rm -f "$STATE_DIR/install.progress" "$STATE_DIR/install.manifest" "$STATE_DIR/nightlight"
 run rm -rf "$PRIME_HOME"
 echo "Prime Linux removed. Log out and back in, and choose your previous desktop on the login screen."
-[ -n "${PRIME_PANEL:-}" ] && echo "@summary Prime is removed — log out, then choose your previous desktop on the login screen."
+if [ -n "${PRIME_PANEL:-}" ]; then
+    echo "@summary Prime is removed — log out, then choose your previous desktop on the login screen."
+fi
+exit 0

@@ -107,7 +107,9 @@ window, .background { background: transparent; }
 #rows label.badge.ok   { background-color: rgba(52, 211, 153, 0.16); color: #6ee7b7; }
 #rows label.badge.fix  { background-color: rgba(96, 165, 250, 0.16); color: #93c5fd; }
 #rows label.badge.bad  { background-color: rgba(251, 191, 36, 0.18); color: #fcd34d; }
-#rows label.badge.step { background-color: alpha(@ACCENT@, 0.18); color: @ACCENT@; }
+#rows row.steprow { padding-top: 14px; }
+#rows row.steprow:first-child { padding-top: 6px; }
+#rows label.steptitle { font-size: 0.8rem; font-weight: 700; letter-spacing: 0.06em; color: rgba(255, 255, 255, 0.55); }
 #rows label, #details label, expander arrow { color: #f4f4f6; }
 .rowtext { font-size: 1rem; }
 .prose { font-size: 1.05rem; }
@@ -298,6 +300,14 @@ class Panel:
             box.pack_start(a, False, False, 0)
             box.pack_start(b, True, True, 0)
             labelled(row, f"{label}: {value}")
+        elif kind == "step":
+            # a stage is a heading over the rows it produces, not one more badge
+            row.get_style_context().add_class("steprow")
+            t = Gtk.Label(label=payload.upper(), xalign=0.0)   # GTK3 CSS has no text-transform
+            t.get_style_context().add_class("steptitle")
+            t.set_line_wrap(True)
+            box.pack_start(t, True, True, 0)
+            labelled(row, f"Step: {payload}")
         else:
             word, sym = BADGES[kind]
             badge = Gtk.Label(label=f"{sym}  {word}")

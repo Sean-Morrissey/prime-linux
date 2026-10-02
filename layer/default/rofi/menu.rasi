@@ -94,7 +94,7 @@ listview {
     columns:                     1;
     lines:                       12;
     spacing:                     2px;
-    fixed-height:                true;
+    fixed-height:                false;
     fixed-num-lines:             false;
     dynamic:                     true;
     cycle:                       true;

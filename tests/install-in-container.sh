@@ -48,6 +48,22 @@ docker cp "$REPO/tests/check-uninstall.sh" "$NAME":/tmp/check-uninstall.sh
 rc=0
 "${AS_ALEX[@]}" env PRIME_TEST_PLANTED_CONFIG=1 bash /tmp/check-install.sh || rc=$?
 
+echo "== a second account on the same computer"
+# sam installs too, from their own copy: alex stays the main account, alex's desktop is
+# untouched, and when sam leaves (even with --packages) everything alex uses stays
+docker exec "$NAME" bash -c 'useradd -m sam && echo "sam ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/sam &&
+    install -d -m 700 -o sam -g sam /run/user/$(id -u sam) && cp -a /home/alex/src /home/sam/src && chown -R sam: /home/sam/src'
+SAM_UID="$(docker exec "$NAME" id -u sam)"
+AS_SAM=(docker exec -u sam -e HOME=/home/sam -e XDG_RUNTIME_DIR="/run/user/$SAM_UID" -e GSETTINGS_BACKEND=keyfile "$NAME")
+docker cp "$REPO/tests/check-second-account.sh" "$NAME":/tmp/check-second-account.sh
+docker exec "$NAME" bash /tmp/check-second-account.sh before >/dev/null
+"${AS_SAM[@]}" bash /home/sam/src/install.sh --yes > /tmp/prime-sam-install.log 2>&1 || { tail -30 /tmp/prime-sam-install.log; rc=$((rc + 1)); }
+"${AS_SAM[@]}" bash /tmp/check-install.sh || rc=$((rc + $?))
+docker exec "$NAME" bash /tmp/check-second-account.sh installed || rc=$((rc + $?))
+"${AS_SAM[@]}" bash /home/sam/.local/share/prime-linux/layer/bin/prime-uninstall --yes --packages > /tmp/prime-sam-uninstall.log 2>&1 \
+    || { tail -30 /tmp/prime-sam-uninstall.log; rc=$((rc + 1)); }
+docker exec "$NAME" bash /tmp/check-second-account.sh left || rc=$((rc + $?))
+
 echo "== uninstall"
 "${AS_ALEX[@]}" bash /tmp/check-uninstall.sh || rc=$((rc + $?))
 exit $rc

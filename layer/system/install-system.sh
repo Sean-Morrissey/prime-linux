@@ -4,6 +4,7 @@
 #   install-system.sh install [--user NAME] [--policy auto|ask|security|off]
 #                             [--no-enable] [--no-security]
 #   install-system.sh uninstall      remove everything this installed
+#   install-system.sh main-user --user NAME   make NAME the computer's main account
 #   install-system.sh status         what is installed, and is it current
 #   install-system.sh needs-update   exit 1 if the installed copies are older than this
 #                                    checkout (no root needed; prime-update uses it)
@@ -83,7 +84,11 @@ install_all() {
   else say "settings: $conf (kept)"; fi
   local sets=()
   [ -n "$POLICY" ] && sets+=("POLICY=$POLICY")
-  [ -n "$USER_NAME" ] && [[ "$USER_NAME" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] && sets+=("MAIN_USER=$USER_NAME")
+  # the computer's main account is the first one that installed Prime: a second
+  # account installing later must not take over (whose AUR updates get checked)
+  if [ -n "$USER_NAME" ] && [[ "$USER_NAME" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] && ! grep -qE '^MAIN_USER=.' "$conf"; then
+    sets+=("MAIN_USER=$USER_NAME")
+  fi
   [ ${#sets[@]} -gt 0 ] && sed_set "$conf" "${sets[@]}"     # values validated above
   mkdir -p "$ROOT/var/lib/prime-linux/updates"; chmod 755 "$ROOT/var/lib/prime-linux" "$ROOT/var/lib/prime-linux/updates"
   [ -e "$ROOT/var/lib/prime-linux/updates/installed-at" ] || date +%s > "$ROOT/var/lib/prime-linux/updates/installed-at"
@@ -129,6 +134,11 @@ uninstall_all() {
 
 case "$cmd" in
   install)      install_all ;;
+  main-user)    # hand the "main account" role on (prime-uninstall, when its owner leaves)
+    need_root
+    [[ "$USER_NAME" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] || { echo "main-user needs --user NAME" >&2; exit 2; }
+    [ -f "$ROOT/etc/prime/updates.conf" ] && sed_set "$ROOT/etc/prime/updates.conf" "MAIN_USER=$USER_NAME"
+    exit 0 ;;
   uninstall)    uninstall_all ;;
   needs-update) s="$(stale_files)"; [ -z "$s" ] && exit 0; printf '%s\n' "$s"; exit 1 ;;
   status)
@@ -136,5 +146,5 @@ case "$cmd" in
     if [ -z "$s" ]; then echo "Prime system pieces: installed and current"
     else echo "Prime system pieces: missing or older than this copy:"; printf '  %s\n' $s; fi
     live && echo "nightly timer: $(systemctl is-enabled prime-system-update.timer 2>/dev/null)" ;;
-  *) sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
+  *) sed -n '2,25p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
 esac

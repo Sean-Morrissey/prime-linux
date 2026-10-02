@@ -96,11 +96,16 @@ fi
 
 # ── system: services Prime switched on, the update hook, packages ────────────
 need_sudo=0
-others="$(ls -d /home/*/.local/share/prime-linux 2>/dev/null | grep -v "^$PRIME_HOME\$" || true)"
+# other accounts that still use Prime — every account's real home, not only /home/*
+others="$(getent passwd | while IFS=: read -r _ _ uid _ _ home _; do
+            [ "$uid" -ge 1000 ] 2>/dev/null && [ "$uid" -lt 60000 ] && [ -d "$home/.local/share/prime-linux" ] \
+              && [ "$home/.local/share/prime-linux" != "$PRIME_HOME" ] && echo "$home"
+          done | sort -u || true)"
 if [ -f "$MANIFEST" ] && grep -q '^service ' "$MANIFEST"; then need_sudo=1; fi
+grep -qx "MAIN_USER=$(id -un)" /etc/prime/updates.conf 2>/dev/null && [ -n "$others" ] && need_sudo=1
 [ -z "$others" ] && { [ -f /etc/pacman.d/hooks/zz-prime-desktop-backup.hook ] || [ -d /usr/local/lib/prime-linux ] \
                       || [ -f /usr/share/wayland-sessions/prime.desktop ]; } && need_sudo=1
-[ $PKGS = 1 ] && need_sudo=1
+[ $PKGS = 1 ] && [ -z "$others" ] && need_sudo=1
 if [ $need_sudo = 1 ] && [ $DRY = 0 ]; then sudo -v || { echo "sudo is needed for the system parts — run again when you can."; exit 1; }; fi
 if [ -z "$others" ]; then
     # only when nobody else on this computer still uses Prime
@@ -120,8 +125,15 @@ if [ -z "$others" ]; then
     fi
 else
     say "Other accounts still use Prime — system settings left as they are"
+    # if this account was the computer's main one, the next account takes the role
+    if grep -qx "MAIN_USER=$(id -un)" /etc/prime/updates.conf 2>/dev/null && [ -f "$PRIME_HOME/layer/system/install-system.sh" ]; then
+        heir="$(stat -c %U "$(head -1 <<<"$others")")"
+        run sudo bash "$PRIME_HOME/layer/system/install-system.sh" main-user --user "$heir" && say "$heir is now this computer's main Prime account"
+    fi
 fi
-if [ $PKGS = 1 ] && [ -f "$MANIFEST" ]; then
+if [ $PKGS = 1 ] && [ -n "$others" ]; then
+    say "Other accounts still use Prime — its packages stay installed"
+elif [ $PKGS = 1 ] && [ -f "$MANIFEST" ]; then
     mapfile -t pk < <(sed -n 's/^pkg //p' "$MANIFEST" | sort -u | while read -r p; do pacman -Qq "$p" >/dev/null 2>&1 && echo "$p"; done)
     if [ ${#pk[@]} -gt 0 ]; then
         say "Removing ${#pk[@]} packages Prime installed…"

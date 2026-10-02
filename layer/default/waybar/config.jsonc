@@ -78,7 +78,6 @@
   "clock": {
     "format": "{:%a %b %e   %I:%M %p}",
     "tooltip": true,
-    "format-alt": "{:%A, %B %d, %Y  (%R)}",
     "interval": 1,
     "tooltip-format": "<tt><small>{calendar}</small></tt>",
     "calendar": {
@@ -89,9 +88,11 @@
         "today": "<span color='#ffffff'><b><u>{}</u></b></span>"
       }
     },
+    // click: the Calendar app; scrolling over the clock moves the hover calendar by a month
+    "on-click": "~/.local/share/prime-linux/layer/bin/prime-calendar",
     "actions": {
-      "on-click": "shift_down",
-      "on-click-right": "mode"
+      "on-scroll-up": "shift_up",
+      "on-scroll-down": "shift_down"
     },
     "on-click-right": "~/.local/share/prime-linux/layer/bin/prime-context bar.clock"
   },

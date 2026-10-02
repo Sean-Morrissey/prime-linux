@@ -68,4 +68,9 @@ else
     echo "  SKIP  no display and no xvfb-run — the GTK windows weren't built"
 fi
 
+# clicking the clock opens a calendar: the Calendar app once installed, a month view until then
+mkdir -p "$T/calbin"; printf '#!/bin/sh\nexit 0\n' > "$T/calbin/gnome-calendar"; chmod +x "$T/calbin/gnome-calendar"
+ck "clock click opens the Calendar app"            "grep -q '\"on-click\": \"~/.local/share/prime-linux/layer/bin/prime-calendar\"' $L/default/waybar/config.jsonc && [ \"\$(PATH=$T/calbin:\$PATH $L/bin/prime-calendar --which)\" = app ]"
+ck "… or a month view before it's installed"      "[ \"\$(PATH=/usr/bin:/bin env -u WAYLAND_DISPLAY $L/bin/prime-calendar --which)\" = \$([ -x /usr/bin/gnome-calendar ] && echo app || echo view) ]"
+ck "Calendar is in the package list"               "grep -qx gnome-calendar $REPO/os/arch/packages.txt"
 echo; [ $fail = 0 ] && echo "ALL PASSED" || echo "$fail FAILED"; exit $fail

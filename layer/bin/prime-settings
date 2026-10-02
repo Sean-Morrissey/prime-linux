@@ -411,9 +411,27 @@ def render_block(state):
     inp = []
     if "keyboard_layout" in s:
         inp.append(f"    kb_layout = {s['keyboard_layout']}")
+    tb = []                                           # the touchpad's own section
     if "natural_scroll" in s:
         v = "true" if s["natural_scroll"] == "on" else "false"
-        inp += [f"    natural_scroll = {v}", "    touchpad {", f"        natural_scroll = {v}", "    }"]
+        inp.append(f"    natural_scroll = {v}")
+        tb.append(f"        natural_scroll = {v}")
+    if "mouse_speed" in s:
+        inp.append(f"    sensitivity = {float(s['mouse_speed']):.2f}")
+    if "mouse_acceleration" in s:
+        inp.append(f"    accel_profile = {'adaptive' if s['mouse_acceleration'] == 'on' else 'flat'}")
+    if "left_handed" in s:
+        inp.append(f"    left_handed = {'true' if s['left_handed'] == 'on' else 'false'}")
+    if "key_repeat_rate" in s:
+        inp.append(f"    repeat_rate = {int(s['key_repeat_rate'])}")
+    if "key_repeat_delay" in s:
+        inp.append(f"    repeat_delay = {int(s['key_repeat_delay'])}")
+    if "tap_to_click" in s:
+        tb.append(f"        tap-to-click = {'true' if s['tap_to_click'] == 'on' else 'false'}")
+    if "touchpad_while_typing" in s:   # "off" = the touchpad pauses while you type
+        tb.append(f"        disable_while_typing = {'false' if s['touchpad_while_typing'] == 'on' else 'true'}")
+    if tb:
+        inp += ["    touchpad {"] + tb + ["    }"]
     if inp:
         out += ["input {"] + inp + ["}"]
     if "gaps" in s:
@@ -734,10 +752,28 @@ def _layout(v):
 
 def t_change_setting(a):
     name, raw = a.get("setting"), a.get("value", "")
-    if name in ("animations", "natural_scroll"):
+    ONOFF = {"animations": "animations", "natural_scroll": "natural (phone-style) scrolling",
+             "mouse_acceleration": "mouse acceleration", "left_handed": "left-handed mouse buttons",
+             "tap_to_click": "tap to click on the touchpad",
+             "touchpad_while_typing": "the touchpad while you type"}
+    if name in ONOFF:
         val = _onoff(raw)
-        text = {"animations": "animations", "natural_scroll": "natural (phone-style) scrolling"}[name]
-        summary = f"turn {text} {val}"
+        summary = f"turn {ONOFF[name]} {val}"
+    elif name == "mouse_speed":
+        try:
+            val = round(float(str(raw).strip()), 2)
+        except ValueError:
+            val = None
+        if val is None or not -1.0 <= val <= 1.0:
+            raise Refuse("mouse_speed is a number from -1 (slowest) to 1 (fastest); 0 is normal")
+        summary = f"set the mouse speed to {val:+.2f}"
+    elif name in ("key_repeat_rate", "key_repeat_delay"):
+        lo, hi = (10, 80) if name == "key_repeat_rate" else (150, 1000)
+        if not str(raw).strip().isdigit() or not lo <= int(raw) <= hi:
+            raise Refuse(f"{name} is a number from {lo} to {hi}")
+        val = int(raw)
+        summary = (f"repeat a held key {val} times a second" if name == "key_repeat_rate"
+                   else f"start repeating a held key after {val} ms")
     elif name == "keyboard_layout":
         val = _layout(raw)
         summary = f"switch the keyboard layout to {val}"
@@ -761,7 +797,9 @@ def t_change_setting(a):
         val = int(raw)
         summary = f"set the space between windows to {val}" if name == "gaps" else f"set window corner rounding to {val}"
     else:
-        raise Refuse("I can change: animations, natural_scroll, keyboard_layout, night_light, gaps, rounding")
+        raise Refuse("I can change: animations, natural_scroll, keyboard_layout, night_light, gaps, rounding, "
+                     "mouse_speed, mouse_acceleration, left_handed, tap_to_click, touchpad_while_typing, "
+                     "key_repeat_rate, key_repeat_delay")
 
     def mutate(st):
         st["settings"][name] = val

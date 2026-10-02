@@ -496,7 +496,7 @@ class Start:
         self.footer_buttons = []
         for icon, label, cmd in (
             ("prime-linux", "Prime menu", [os.path.join(BIN, "prime-menu")]),
-            ("preferences-system-symbolic", "Settings", [os.path.join(BIN, "prime-menu"), "--section", "settings"]),
+            ("preferences-system-symbolic", "Settings", [os.path.join(BIN, "prime-system-settings")]),
             ("system-lock-screen-symbolic", "Lock", ["loginctl", "lock-session"]),
             ("system-shutdown-symbolic", "Power", [os.path.join(BIN, "prime-power-menu")]),
         ):

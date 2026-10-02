@@ -47,6 +47,11 @@ Any CachyOS ISO built today has a non-launching installer, theirs included. A so
 was tried and **does not work** (`undefined symbol: …boost::python::detail::init_module`) —
 the ABI is gone, so the binary needs rebuilding upstream.
 
+**Watching for the fix:** `.github/workflows/installer-watch.yml` checks every Monday (and
+on demand: Actions → installer watch → Run) which Boost the current
+`cachyos-calamares-next` needs and which one Arch ships, and says **Still blocked** or
+**Unblocked** in its summary — so nobody has to remember to look.
+
 ## Options when we pick this up
 
 1. **Wait for CachyOS to rebuild the package, then rebuild the ISO** (about one command plus

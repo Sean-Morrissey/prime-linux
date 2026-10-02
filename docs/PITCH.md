@@ -14,7 +14,7 @@ root" is no longer the actual mechanism.
 
 ---
 
-## The idea (as Sean puts it)
+## The idea (as the author puts it)
 
 Prime Linux is a Linux distribution where an AI agent called Prime is not an app you
 launch but the supervisor of the operating system itself: when you first install it,

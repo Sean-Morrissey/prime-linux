@@ -1,6 +1,6 @@
 # Prime OS — target-side packages for the desktop layer
 #
-# Derived from `pacman -Qe` on the reference desktop (Sean's CachyOS rig), 2026-09-27,
+# Derived from `pacman -Qe` on the reference desktop (the author's CachyOS rig), 2026-09-27,
 # filtered to what the product actually needs. Grouped by job, not alphabetically, so a
 # change here is reviewable. Nothing is listed because it "looked useful".
 #
@@ -101,7 +101,7 @@ docker
 # whitesur-icon-theme            (AUR)  — icon theme
 # libastal-git / libastal-4-git  (AUR)  — the bar pills' GTK4 layer-shell bindings
 # python-pywal / wallust               — wallpaper-driven theming
-# google-chrome / discord / lmstudio-bin / orca-slicer-bin — Sean's own apps, not ours
+# google-chrome / discord / lmstudio-bin / orca-slicer-bin — the author's own apps, not ours
 
 # --- the Prime layer (layer/): what it needs beyond the above ------------------------
 # Mirrors os/arch/packages.txt (the install-script path), so an ISO install and a

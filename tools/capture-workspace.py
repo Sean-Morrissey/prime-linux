@@ -73,7 +73,7 @@ SKEL = [
 ]
 
 # Captured, templated, and written to a SEPARATE tree that does not ship.
-# Skills are Sean's own procedures: they name him, his printer, his courses. They are
+# Skills are the author's own procedures: they name him, his printer, his courses. They are
 # worth keeping as the starting point for a curated starter set, but nothing in here
 # is shippable until a human has read it.
 REVIEW = [
@@ -87,12 +87,22 @@ EXCLUDE_SUBSTR = (".bak", ".pre-", ".old")  # editor/backup noise, incl. timesta
 
 # ----------------------------------------------------------------- templating
 # Order matters: most specific pattern first, or a later rule eats its prefix.
+# The author's own name, email and handles are not written here (this file is public):
+# they come from ~/.config/prime/author-patterns.json on the author's machine —
+#   {"first": [[name, regex, replacement], ...],   applied before everything else
+#    "last":  [[name, regex, replacement], ...],   applied after everything else
+#    "leaks": [[name, regex], ...]}                 extra leak-scan rules
+# Without that file the login name and home folder are still templated and scanned.
+AUTHOR_FILE = Path(os.environ.get("PRIME_AUTHOR_PATTERNS", Path.home() / ".config/prime/author-patterns.json"))
+try:
+    _AUTHOR = json.loads(AUTHOR_FILE.read_text(encoding="utf-8"))
+except (OSError, ValueError):
+    _AUTHOR = {}
+_LOGIN = re.escape(Path.home().name)
+
 RULES: list[tuple[str, str, str]] = [
-    ("email", r"smorrissey1@student\.cscc\.edu", "@EMAIL@"),
-    ("github-handle", r"(?i)\bsean[-\s]?morrissey\b", "@GHOWNER@"),
-    ("ghcr-path", r"(?i)ghcr\.io/sean-morrissey", "ghcr.io/@GHOWNER@"),
-    ("home-path", r"/home/sean\b", "@HOME@"),
-    ("username-var", r"\bSEAN_HOME\b", "PRIME_USER_HOME"),
+    *[tuple(r) for r in _AUTHOR.get("first", [])],
+    ("home-path", re.escape(str(Path.home())) + r"\b", "@HOME@"),
     ("gpu-env", r"HSA_OVERRIDE_GFX_VERSION=\S+", "@GPU_ENV@"),
     ("audio-sink", r"alsa_output\.[A-Za-z0-9._]+", "@AUDIO_SINK@"),
     # whole modeline first, so no geometry from this machine survives
@@ -102,8 +112,8 @@ RULES: list[tuple[str, str, str]] = [
     ("study-dir", r"/College\b", "@STUDY_DIR@"),
     ("study-platform", r"(?i)\bALEKS\b", "@STUDY_PLATFORM@"),
     ("lan-ip", r"\b192\.168\.\d{1,3}\.\d{1,3}\b", "@LAN_IP@"),
-    ("first-name", r"\bSean\b", "@USER@"),
-    ("first-name-lower", r"\bsean\b", "@USER@"),
+    *[tuple(r) for r in _AUTHOR.get("last", [])],
+    ("login-name", rf"\b{_LOGIN}\b", "@USER@"),
 ]
 
 # Secret-ish keys whose VALUES are blanked in config-like files. A blanked value is only
@@ -117,11 +127,10 @@ PLACEHOLDER_VALUE = re.compile(r"^\s*(?:''|\"\"|\$\{|@[A-Z0-9_]+@|\[\]|\{\})\s*$
 
 # ----------------------------------------------------------------- leak scan
 # If any of these survive in the shipped payload, the capture is wrong. Read the file
-# first, then quote it to Sean only when it is his own file — matches are masked.
+# first, then quote it to the author only when it is his own file — matches are masked.
 LEAKS: list[tuple[str, str]] = [
-    ("user-name", r"(?i)\bsean\b"),
-    ("surname", r"(?i)morrissey"),
-    ("email", r"(?i)student\.cscc\.edu"),
+    *[tuple(r) for r in _AUTHOR.get("leaks", [])],
+    ("login-name", rf"(?i)\b{_LOGIN}\b"),
     ("home-path", r"/home/(?!@)\w"),
     ("real-monitor", r"\b(?:HDMI|DP|eDP|DVI|VGA)-[A-Z0-9]+-?\d*\b"),
     ("real-audio-sink", r"alsa_output\.pci-"),
@@ -130,7 +139,7 @@ LEAKS: list[tuple[str, str]] = [
     ("api-key-value", r"\bsk-[A-Za-z0-9]{16,}"),
     ("secret-value", r"""(?im)^\s*[\w.-]*(?:api[_-]?key|token|secret|password|passwd|credential)[\w.-]*\s*[:=]\s*("[^"\n]{8,}"|'[^'\n]{8,}'|[A-Za-z0-9_\-\./+]{16,})(?:\s*(?:#.*)?)$"""),
     ("private-key", r"-----BEGIN [A-Z ]*PRIVATE KEY-----"),
-    ("school-path", r"/College\b|cscc\.edu"),
+    ("school-path", r"/College\b"),
     ("printer", r"(?i)\b(?:elegoo|centauri|orca[- ]?slicer)\b"),
 ]
 
@@ -281,7 +290,7 @@ def token_namespace() -> set[str]:
     """The exact token namespace this tool creates. Anything else that looks like @X@ in a
     captured file belongs to the file's own tooling (wpctl's `@DEFAULT_AUDIO_SINK@`, a
     Makefile's `@VAR@`) and must survive untouched."""
-    return {rep for _, _, rep in RULES if re.fullmatch(r"@[A-Z0-9_]+@", rep)}
+    return {rep for _, _, rep in RULES if re.fullmatch(r"@[A-Z0-9_]+@", rep)} | {"@EMAIL@", "@GHOWNER@", "@USER@", "@HOME@"}
 
 
 def scan_tokens(root: Path) -> tuple[dict[str, int], dict[str, int]]:

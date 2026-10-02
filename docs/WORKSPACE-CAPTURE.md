@@ -6,7 +6,7 @@ prime os, remake hermes as prime etc, if its working here it should be repeatabl
 
 Yes — with one correction that decides the whole design: **a working machine is
 repeatable as a recipe plus a personalization step, never as a copy of the disk.** A
-clone of Sean's rig would carry his API keys, his schoolwork, his memory/ledger and his
+clone of the author's rig would carry his API keys, his schoolwork, his memory/ledger and his
 GPU/monitor/printer assumptions into someone else's house. Same reasoning already in
 `PROJECT-STATE.md` rules 2 and 3 ("never ship a secret", "never ship personal data").
 
@@ -35,7 +35,7 @@ Measured on the live machine 2026-09-27.
 | **Prime-named files total** | workspace-wide grep `prime*` | **52 files** |
 
 Roughly: **under 2 MB of text config and scripts, plus art — that is the entire Prime
-layer.** Everything else on the machine is either the base OS or Sean's data.
+layer.** Everything else on the machine is either the base OS or the author's data.
 
 ## Layer 2 — must be generated at first boot, never baked in
 
@@ -45,7 +45,7 @@ These are the exact things a naive copy gets wrong, with the count on this machi
 |---|---|---|
 | Monitor layout | **20** monitor refs in `hyprland.conf` (`HDMI-A-2` @0,0 primary, `HDMI-A-1` @1920,0) | `hw-probe.sh` already detects displays; the layout generator must emit the file |
 | GPU / compute flags | **7** files carry `HSA_OVERRIDE_GFX_VERSION` / ROCm vars (Navi 44 specific) | detect GPU, pick flags, or omit |
-| Absolute home path | **22** files hardcode `/home/sean` in the UI layer | rewrite to `$HOME` / template vars before shipping |
+| Absolute home path | **22** files hardcode the author's home folder in the UI layer | rewrite to `$HOME` / template vars before shipping |
 | Audio sink | **2** files name `alsa_output.pci-…analog-stereo` | discover the sink, write it |
 | Printer / slicer | printer IP + `elegoo-web` Docker container (not in the bar layer) | ask in the interview, skip if absent |
 | Courses, timezone, name, school portal | `~/College/**` | **the first-login interview already does this** — `backend-*` + `prime-setup` + the GTK wizard `prime-welcome` |
@@ -54,7 +54,7 @@ The good news: layer 2 is not new work. The interview/wizard mechanism exists
 (`interview.json` + `backends/arch/prime-setup` + `prime-welcome`, 9 steps, GUI audit
 passing) and is base-independent by design — it was written for exactly this.
 
-## Layer 3 — never ships (Sean's data and secrets)
+## Layer 3 — never ships (the author's data and secrets)
 
 | Thing | Size | Why |
 |---|---|---|
@@ -93,5 +93,5 @@ changes a gate.
 ## How these numbers were produced
 
 `pacman -Qe/-Qm/-Q`, `du -sh ~/.config ~/.hermes`, `find … -name 'prime*'`, `grep -rl` for
-`/home/sean`, `monitor=`, `HSA_OVERRIDE`, `alsa_output`, and a count-only scan of
+the author's home folder, `monitor=`, `HSA_OVERRIDE`, `alsa_output`, and a count-only scan of
 `config.yaml` for key lines (values never read into any log). Re-measure before quoting.

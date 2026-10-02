@@ -82,7 +82,7 @@ Five themes, eleven P0s. Details and evidence below.
 4. **The docs follow the code in the same commit** (project rule 1) — and `PROJECT-STATE.md`
    gets a "known blockers before sharing" section so no agent trusts a stale line again.
 
-## Decisions only Sean can make
+## Decisions only the owner can make
 
 - **D1 — How do people get it?** Public repo + public GHCR package (simplest, and the update
   path needs an unauthenticated pull anyway), **or** keep the source private and ship a

@@ -95,7 +95,7 @@ An agent with shell access on someone else's machine needs a spine, not vibes.
 - **Rollback is the undo button** — any system-level change is a new deployment.
   If the next boot is unhealthy, Prime detects it and offers the previous one.
 - **Audit log** — every command Prime runs is recorded (the activity-timeline hook
-  already does this on Sean's machine) and viewable in plain language: what, when,
+  already does this on the author's machine) and viewable in plain language: what, when,
   why, what changed.
 - **Spend cap** — a hard monthly ceiling on model calls, surfaced in the UI.
 - **Two profiles** — `owner` (full) and `student` (stricter defaults, safer
@@ -105,7 +105,7 @@ An agent with shell access on someone else's machine needs a spine, not vibes.
 
 ## 5. Why the shipped base is Fedora Atomic and not CachyOS/Arch
 
-CachyOS is the right machine *for Sean*: rolling, fast, hand-tuned, and he can fix
+CachyOS is the right machine *for the author*: rolling, fast, hand-tuned, and he can fix
 it when it breaks. CachyOS is the wrong machine to hand to someone who has never
 opened a terminal, for exactly one reason:
 
@@ -117,7 +117,7 @@ opened a terminal, for exactly one reason:
 - **Atomic + root agent = bounded failure.** The worst case is a bad image, and the
   boot menu already contains the fix. Non-negotiable when the user can't help.
 
-Sean's own machine stays CachyOS. Prime Linux is what gets *shipped*.
+The author's own machine stays CachyOS. Prime Linux is what gets *shipped*.
 
 **Why Aurora specifically, of the Universal Blue images:** it is the quiet
 productivity workstation of the set — KDE Plasma, drivers, codecs, flathub and
@@ -197,7 +197,7 @@ The contract instead:
 
 ### 8.2 Memory architecture decides whether Prime is still useful in week two
 
-The shape is right and **most of it already exists in shipping form on Sean's
+The shape is right and **most of it already exists in shipping form on the author's
 machine** — this is the strongest evidence the design is buildable:
 
 | Piece | Existing implementation |
@@ -254,7 +254,7 @@ to survive one person.*
 
 ## 9. Base-agnostic supervision (and the honest Arch story)
 
-The question that keeps coming back: can this work on Arch, like Sean's own CachyOS?
+The question that keeps coming back: can this work on Arch, like the author's own CachyOS?
 The answer splits cleanly, and the split is the useful part.
 
 **The agent layer does not care what distro it runs on.** hw-probe, the interview,

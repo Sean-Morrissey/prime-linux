@@ -541,7 +541,7 @@ This is what makes it feel like the same assistant in month six:
 
 ## The asking policy
 
-Sean's framing: *ask every customizable option Prime feels the user would want to
+The author's framing: *ask every customizable option Prime feels the user would want to
 know about, but make suggestions and learn off the answer patterns.* Made concrete:
 
 1. **Ask about anything a person could reasonably have an opinion about.** Opinion

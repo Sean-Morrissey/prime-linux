@@ -31,7 +31,7 @@ Updates owner.)
 `stable` fast-forwarding to a tag is instant and total: every machine on that
 channel gets the new tag the next time `prime-update` runs, with no gradient
 between "nobody has it" and "everybody has it." That's fine for a handful of
-people the owner knows personally; it stops being fine once "ask Sean on
+people the owner knows personally; it stops being fine once "ask the owner on
 Discord" isn't how most users would find out something's wrong. Before that
 point, a cheap staged rollout — no new infrastructure, just discipline:
 

@@ -83,6 +83,6 @@ ck "coding: shell hook removed"             "! grep -q '# prime:coding\$' ~/.bas
 ck "pack .desktop entries removed"          "[ ! -f ~/.local/share/applications/prime-performance-mode.desktop ] && [ ! -f ~/.local/share/applications/prime-focus-mode.desktop ]"
 ck "Hyprland config still valid"            "Hyprland --verify-config -c ~/.config/hypr/hyprland.conf"
 [ "$PRIME_ADDON_PACKAGES" = install ] && ck "disable lists the apps that stay" "grep -q 'still on your computer' $LOGS/disable-gaming.log"
-ck "no trace of the author's machine"       "! grep -rIl -e /home/sean -e '\\bsean\\b' $L/addons $L/bin/prime-addon"
+ck "no trace of the author's machine"       "! grep -rIhoE '/home/[a-z_][a-z0-9_-]*' $L/addons $L/bin/prime-addon | grep -vxF \"\$HOME\" | grep -q ."
 
 echo; [ $fail = 0 ] && echo "ALL PACK CHECKS PASSED" || echo "$fail PACK CHECKS FAILED (logs: $LOGS)"; exit $fail

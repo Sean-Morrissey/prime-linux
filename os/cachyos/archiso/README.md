@@ -89,7 +89,7 @@ default still in it. Verify by inspecting the built image, not by trusting that 
 The installer's own default is `limine`, and CachyOS packages the whole story:
 `limine-snapper-sync` (snapshots as boot entries, with a "restore now" prompt at login),
 `limine-mkinitcpio-hook` (kernels as entries), `limine-entry-tool` (finds the Windows Boot
-Manager). Sean chose it over matching his own systemd-boot rig, which does **not** do
+Manager). The author chose it over matching his own systemd-boot rig, which does **not** do
 snapshots — there the single rollback entry is produced by `prime-pc` instead.
 
 ## Not done yet

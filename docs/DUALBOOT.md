@@ -4,7 +4,7 @@ Owner requirement, 2026-09-27: *"hes gonna be dual booting like me too so he nee
 menu for snapshots and windows and linux options like i do."*
 
 That makes the boot layout a **product requirement, not an install detail**. This is the
-reference implementation, taken from Sean's own CachyOS box (`prime-pc`) — and the rollback
+reference implementation, taken from the author's own CachyOS box (`prime-pc`) — and the rollback
 capping that machine needed (see `PROJECT-STATE.md` / `prime-pc-machine-supervisor`) ships
 in the template from day one, so a fresh install never grows one menu line per update.
 
@@ -41,7 +41,7 @@ entries plus the firmware entry, and a single capped `Prime rollback` line.
    of the box and GRUB reaches the same place through `grub-btrfs`; systemd-boot does neither
    and needs `prime-pc` to generate the single rollback entry itself — which is what the
    reference machine does, and which is already written and tested. Building the rollback
-   story on `grub-btrfs` on *Sean's* box would be wrong (it has no GRUB); on a CachyOS
+   story on `grub-btrfs` on *the author's* box would be wrong (it has no GRUB); on a CachyOS
    install it is a supported path. Do not carry the constraint across bases.
 4. **Nothing reboots into a bad state.** Boot-time verification (failed units, session,
    network, audio) with automatic rollback to the previous entry, and a hard stop after two
@@ -99,7 +99,7 @@ their own documentation warns that 95 %+ can leave too little room for a restore
 **And it answers the very complaint that started all this** (a boot menu filling up with one
 rollback line per update): the cap exists upstream in `limine-snapper-sync.conf`, so on this
 base the menu length is a setting rather than an accident of disk usage — which is what we
-had to hand-fix on Sean's systemd-boot machine.
+had to hand-fix on the author's systemd-boot machine.
 
 
 
@@ -142,4 +142,4 @@ installer. Two gates belong in `SHIP-GATES.md` once the owner agrees the numberi
 - **C7 (dual-boot recovery):** from a deliberately broken Prime install, the user can boot
   the rollback entry, and from a broken Prime install the Windows entry still boots.
 
-Neither is passable by reading this file; both need a boot on a machine that is not Sean's.
+Neither is passable by reading this file; both need a boot on a machine that is not the author's.

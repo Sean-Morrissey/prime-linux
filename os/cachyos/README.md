@@ -1,7 +1,7 @@
 # os/cachyos — the Prime OS payload for the CachyOS base
 
 This is the working end of the 2026-09-26 owner decision: **Prime OS = CachyOS + the Prime
-layer**, where "the Prime layer" is whatever is actually running on Sean's desktop. Design
+layer**, where "the Prime layer" is whatever is actually running on the author's desktop. Design
 and inventory: [`docs/WORKSPACE-CAPTURE.md`](../../docs/WORKSPACE-CAPTURE.md). Boot layout
 requirement (dual-boot with Windows + a snapshot menu): [`docs/DUALBOOT.md`](../../docs/DUALBOOT.md).
 
@@ -45,7 +45,7 @@ Both exit non-zero rather than shipping something wrong:
 
 | Token | Filled from | Notes |
 |---|---|---|
-| `@HOME@`, `@USER@` | the target account | replaces `/home/sean` and his name |
+| `@HOME@`, `@USER@` | the target account | replaces the author's home folder and name |
 | `@MONITORS@`, `@MONITOR_<n>@` | `hyprctl monitors -j` (or `wlr-randr`) | one `monitor=` line per display, primary at 0x0 |
 | `@AUDIO_SINK@` | `pactl list short sinks` | first real sink, not a monitor |
 | `@GPU_ENV@` | `lspci` (AMD only) | ROCm gfx override; blank on non-AMD |

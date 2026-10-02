@@ -56,6 +56,8 @@ jobs:
       - name: Nightly updater, system installer, security report
         run: bash backends/arch/test-system-update.sh
       - name: Owner's machine leaks
+        env:
+          PRIME_AUTHOR_RE: ${{ secrets.PRIME_AUTHOR_RE }}   # the owner's name/handles, kept out of the public repo
         run: bash tests/check-portable.sh
       - name: Update everything on a private-repo install without a GitHub login
         run: bash tests/check-update-private.sh

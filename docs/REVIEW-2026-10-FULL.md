@@ -297,7 +297,7 @@ a breaking upstream Hyprland/waybar/rofi release reaches every Prime machine on
 the same day it reaches Arch's repos, with no staging. The mitigation that
 exists (snapshot rollback) is real; the mitigation that doesn't (a canary ring,
 or at minimum `prime-doctor` flagging "this package just changed major version")
-is worth planning before the user base is large enough that "ask Sean on
+is worth planning before the user base is large enough that "ask the owner on
 Discord" stops scaling.
 
 **12 months.** Two independent, verified "what will rot" findings converge

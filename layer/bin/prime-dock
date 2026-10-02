@@ -16,7 +16,17 @@ BIN="$(dirname "$(readlink -f "$0")")"
 CONF="$HOME/.config/nwg-dock-hyprland"
 PINNED="$HOME/.cache/nwg-dock-pinned"
 
-args=(-d -p bottom -i 44 -mb 8 -hd 0 -s prime.css -c "$BIN/prime-start")
+# Settings → Dock: size, hidden-until-the-edge or always shown, which edge
+setting() { jq -r --arg k "$1" '.settings[$k] // empty' "$HOME/.config/prime/settings.json" 2>/dev/null; }
+case "$(setting dock_size)" in small) size=34 ;; large) size=56 ;; *) size=44 ;; esac
+pos="$(setting dock_position)"; case "$pos" in left|right) ;; *) pos=bottom ;; esac
+margin="-m${pos:0:1}"                                   # -mb, -ml or -mr: a little air from the edge
+if [ "$(setting dock_mode)" = always ]; then
+    mode=(-x)                                           # always shown, windows make room for it
+else
+    mode=(-d -hd 0)                                     # appears when the pointer touches the edge
+fi
+args=("${mode[@]}" -p "$pos" -i "$size" "$margin" 8 -s prime.css -c "$BIN/prime-start")
 if [ "${1:-}" = --args ]; then printf '%s\n' nwg-dock-hyprland "${args[@]}"; exit 0; fi
 
 # how far the pointer is from the left edge of the screen it is on (logical pixels)

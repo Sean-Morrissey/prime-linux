@@ -145,9 +145,13 @@ Everything in this guide is also in Settings or Prime Search, so you never *need
   switch to it; right-click to pin or unpin it; the grid button opens Start.
 
 ### Settings
-- **Super+I** (or Start → **Settings**) opens one window for everything about the computer, like Settings on Windows or a Mac: Wi-Fi, Bluetooth, sound, displays, appearance, notifications, power and battery, mouse and touchpad, keyboard, processor, graphics, storage, gaming, the AI assistant, apps, updates, privacy and security, date and time, language, your account and password, accessibility, and About & Help. Type in the search box to find a setting.
+- **Super+I** (or Start → **Settings**) opens one window for everything about the computer, like Settings on Windows or a Mac: Wi-Fi, Bluetooth, sound, displays, appearance, notifications, power and battery, mouse and touchpad, keyboard, processor, graphics, storage, gaming, the AI assistant, apps, updates, privacy and security, date and time, language, your account and password, accessibility, and About & Help — plus **Dock** (hide or always show, size, which edge), **Top Bar**
+  (12/24-hour clock, seconds, date, which items show), **Windows & Workspaces**,
+  **Lock & Sleep** (when the screen locks, turns off and the computer sleeps),
+  **Startup Apps** and **Troubleshooting** (one-click fixes for sound, Wi-Fi, the bar,
+  the dock, notifications and title bars). Type in the search box to find a setting.
 - **Just say it**: Super+Space, then type what you want — "wifi off", "louder", "mute", "do not disturb", "bigger text", "accent blue", "mouse settings", "take a screenshot", "something's wrong", "get a file back" — and press Enter. Prime does it straight away; no AI needed.
-- Mouse, keyboard, look and the other saved settings can be undone: About & Help → **Undo the last change made here**.
+- Mouse, keyboard, look, dock, bar and the other saved settings can be undone: Troubleshooting → **Undo the last change made in Settings**.
 
 ### Windows and workspaces
 - Windows snap into place and never cover the bar or the dock. One window fills the
@@ -161,8 +165,13 @@ Everything in this guide is also in Settings or Prime Search, so you never *need
 - Prefer windows that float freely? Settings → Appearance → **Window layout →
   Free** (or type "floating windows" in Super+Space): they open at a sensible size in the
   middle and snap to edges when you drag them. **Super+Shift+V** flips one window either way.
-- **Super+1 … Super+9** switch between workspaces (separate desktops).
-  **Super+Shift+1…9** moves the current window there.
+- **Workspaces** are separate desktops: five of them, numbered on the top bar. Click a
+  number (or press **Super+1 … Super+9**) to go there, on the screen you're using.
+  Apps stay on the workspace they were opened on — even if you switch away while one
+  is still loading — and nothing moves you to another workspace except you. An app
+  that wants attention lights up its number instead. **Super+Shift+1…9** sends the
+  current window to another workspace. Settings → **Windows & Workspaces** changes
+  how many there are and what Super+arrows do.
 - **Alt+Tab** switches windows. On a touchpad, swipe sideways with three fingers
   to change workspace.
 
@@ -223,7 +232,7 @@ choose *File transfer* on the phone.
   It updates everything — system, apps and Prime — and takes a snapshot first.
 - **If an update breaks something**: restart and, in the boot menu, choose the
   snapshot entry from before the update. Your desktop settings can also be put
-  back separately: Settings → About & Help → **Restore desktop settings**.
+  back separately: Settings → Troubleshooting → **Restore desktop settings**.
 - **Lost or overwrote a file?** Settings → Storage → **Get a file back**: pick a moment (an hour, a day, a week ago) and your home folder opens as it was then — copy the file back. Prime keeps these automatically on CachyOS's standard disk layout.
 - **If the desktop misbehaves**: **Super+H** checks it and fixes what it can. Prime also checks by itself — at every login and once a day while you stay logged in — repairs what it safely can, and only tells you about something new: a disk getting full, a background service that stopped, or a desktop part that was updated (Undo an update goes back if it looks wrong).
   **Super+W** restarts the bar.

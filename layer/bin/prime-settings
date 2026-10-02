@@ -446,6 +446,23 @@ def render_block(state):
         out += ["misc {", f"    vrr = {int(s['vrr'])}", "}"]
     if "game_tearing" in s:
         out += ["general {", f"    allow_tearing = {'true' if s['game_tearing'] == 'on' else 'false'}", "}"]
+    gen = []
+    if s.get("new_windows") == "main":
+        out += ["master {", "    new_status = master", "}"]
+    if "focus_follows_mouse" in s:
+        inp_extra = "1" if s["focus_follows_mouse"] == "on" else "0"
+        out += ["input {", f"    follow_mouse = {inp_extra}", "}"]
+    if s.get("workspace_guard") == "off":
+        out += ["misc {", "    focus_on_activate = true", "    initial_workspace_tracking = 1", "}"]
+    if "workspaces" in s:
+        n = int(s["workspaces"])
+        gen += [f"workspace = {i}, persistent:{'true' if i <= n else 'false'}" for i in range(1, 11)]
+    if s.get("snap_keys") == "focus":
+        for key, d in (("left", "l"), ("right", "r"), ("up", "u"), ("down", "d")):
+            gen += [f"unbind = SUPER, {key}", f"unbind = SUPER SHIFT, {key}",
+                    f"bindd = SUPER, {key}, Focus the window {dict(l='to the left', r='to the right', u='above', d='below')[d]}, movefocus, {d}",
+                    f"bindd = SUPER SHIFT, {key}, Snap window {dict(l='to the left half', r='to the right half', u='up', d='down')[d]}, exec, $bin/prime-snap {d}"]
+    out += gen
     if s.get("night_light", "off") != "off":
         out.append(f"exec-once = hyprsunset -t {int(s['night_light'])}")
     for sc in state["shortcuts"]:
@@ -535,11 +552,41 @@ def sync_layout(state):
             run(["hyprctl", "reload"])
 
 
-def apply_state(state):
+DOCK_KEYS = ("dock_size", "dock_mode", "dock_position")
+BAR_KEYS = ("clock_format", "clock_seconds", "clock_date", "bar_hidden", "workspaces")
+IDLE_KEYS = ("lock_after", "screen_off_after", "sleep_after")   # = MINUTES (below)
+
+
+def sync_services(before, state):
+    """The dock, the bar and the idle timer read settings.json when they start:
+    restart the ones whose settings changed (only in the real session)."""
+    old, new = before.get("settings", {}), state["settings"]
+    changed = {k for k in set(old) | set(new) if old.get(k) != new.get(k)}
+    if changed & set(IDLE_KEYS):
+        run([os.path.join(BIN, "prime-idle"), "--write"])
+    if not live():
+        return
+    if changed & set(DOCK_KEYS):
+        run(["systemctl", "--user", "restart", "prime-dock"])
+    if changed & set(BAR_KEYS):
+        run(["systemctl", "--user", "restart", "prime-bar@top"])
+    if changed & set(IDLE_KEYS):
+        run([os.path.join(BIN, "prime-idle"), "--restart"])
+    if "titlebars" in changed:
+        if new.get("titlebars") == "off":
+            run(["hyprpm", "disable", "hyprbars"])
+            run(["hyprpm", "reload", "-n"])
+        else:
+            subprocess.Popen([os.path.join(BIN, "prime-titlebars")], stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL, start_new_session=True)
+
+
+def apply_state(state, before=None):
     write_hypr(state)
     save_state(state)
     apply_night_light(state["settings"].get("night_light", "off"))
     sync_layout(state)
+    sync_services(before or {}, state)
 
 
 # ── keys and apps ────────────────────────────────────────────────────────────
@@ -724,7 +771,7 @@ def _state_change(summary, mutate, message):
         st = load_state()
         before = json.loads(json.dumps(st))
         mutate(st)
-        apply_state(st)
+        apply_state(st, before)
         return message, {"op": "state", "value": before}
     return Plan(summary, do)
 
@@ -769,6 +816,32 @@ def _layout(v):
     if bad:
         raise Refuse(f"unknown keyboard layout: {', '.join(bad)}")
     return v
+
+
+# settings with a fixed set of answers: name → ({answer: words}, what it is)
+CHOICES = {
+    "dock_size": ({"small": "small", "medium": "medium", "large": "large"}, "the dock size"),
+    "dock_mode": ({"autohide": "hidden until the pointer reaches the edge", "always": "always shown"},
+                  "the dock"),
+    "dock_position": ({"bottom": "the bottom", "left": "the left", "right": "the right"}, "the dock's place"),
+    "clock_format": ({"12h": "12-hour (3:45 PM)", "24h": "24-hour (15:45)"}, "the clock"),
+    "clock_seconds": ({"on": "on", "off": "off"}, "seconds on the clock"),
+    "clock_date": ({"on": "on", "off": "off"}, "the date next to the clock"),
+    "new_windows": ({"right": "the right half (the main window stays)", "main": "the main (left) half"},
+                    "where new windows open"),
+    "snap_keys": ({"move": "move the window", "focus": "move between windows"}, "what Super+arrows do"),
+    "focus_follows_mouse": ({"on": "on", "off": "off"}, "focus follows the pointer"),
+    "workspace_guard": ({"on": "on", "off": "off"}, "keeping apps on the workspace they opened on"),
+    "titlebars": ({"on": "on", "off": "off"}, "window title bars"),
+}
+# minutes, 0 = never: name → (what happens, most minutes)
+MINUTES = {"lock_after": ("lock the screen", 240), "screen_off_after": ("turn the screens off", 240),
+           "sleep_after": ("put the computer to sleep", 480)}
+# what can be hidden on the top bar: name → words (prime-bar knows which bar items each is)
+BAR_ITEMS = {"media": "the music controls", "toggles": "the quick toggles", "keyboard": "the keyboard layout",
+             "tray": "the app icons (tray)", "network": "Wi-Fi", "bluetooth": "Bluetooth", "sound": "the volume",
+             "battery": "the battery", "updates": "updates", "notifications": "notifications",
+             "stats": "processor, memory and graphics use"}
 
 
 def t_change_setting(a):
@@ -847,10 +920,39 @@ def t_change_setting(a):
             raise Refuse(f"{name} is a number from 0 to {hi}")
         val = int(raw)
         summary = f"set the space between windows to {val}" if name == "gaps" else f"set window corner rounding to {val}"
+    elif name in CHOICES:
+        opts, what = CHOICES[name]
+        v = str(raw).strip().lower()
+        if v not in opts:
+            raise Refuse(f"{name} is one of: " + ", ".join(opts))
+        val = v
+        summary = f"set {what} to {opts[v]}"
+    elif name in MINUTES:
+        what, hi = MINUTES[name]
+        v = str(raw).strip().lower()
+        v = "0" if v in ("never", "off", "no") else v
+        if not v.isdigit() or not 0 <= int(v) <= hi:
+            raise Refuse(f"{name} is a number of minutes from 1 to {hi}, or never")
+        val = int(v)
+        summary = f"{what} after {val} minutes" if val else f"never {what}"
+    elif name == "workspaces":
+        if not str(raw).strip().isdigit() or not 1 <= int(raw) <= 10:
+            raise Refuse("workspaces is a number from 1 to 10")
+        val = int(raw)
+        summary = f"show {val} workspaces on the bar"
+    elif name == "bar_hidden":
+        items = [x.strip() for x in str(raw).lower().replace(" ", ",").split(",") if x.strip()]
+        bad = [x for x in items if x not in BAR_ITEMS]
+        if bad:
+            raise Refuse("bar items are: " + ", ".join(BAR_ITEMS))
+        val = ",".join(sorted(set(items)))
+        summary = ("hide " + ", ".join(BAR_ITEMS[x] for x in sorted(set(items))) + " on the bar") if items \
+            else "show every item on the bar"
     else:
         raise Refuse("I can change: animations, natural_scroll, keyboard_layout, night_light, gaps, rounding, "
                      "mouse_speed, mouse_acceleration, left_handed, tap_to_click, touchpad_while_typing, "
-                     "key_repeat_rate, key_repeat_delay, after_screenshot, window_layout, vrr, game_tearing")
+                     "key_repeat_rate, key_repeat_delay, after_screenshot, window_layout, vrr, game_tearing, "
+                     + ", ".join(list(CHOICES) + list(MINUTES)) + ", workspaces, bar_hidden")
 
     def mutate(st):
         st["settings"][name] = val
@@ -1109,7 +1211,7 @@ def do_undo(e):
         st = u["value"]
         st.setdefault("settings", {})
         st.setdefault("shortcuts", [])
-        apply_state(st)
+        apply_state(st, load_state())
     elif op == "pack":
         if _addon(u["verb"], u["name"]) != 0:
             raise Refuse(f"couldn't {u['verb']} the {u['name']} pack")

@@ -170,6 +170,7 @@ cmd_prime() {
         ck 'Hyprland running'            'for i in \$(seq 15); do hyprctl -j version && exit 0; sleep 2; done; exit 1'
         ck 'config loaded with no errors' '[ \"\$(hyprctl -j configerrors | jq -r \".[]\" | grep -c .)\" = 0 ]'
         ck 'main window left, new ones share the right half' 'hyprctl -j getoption general:layout | jq -e \".str == \\\"master\\\"\"'
+        ck 'five workspaces ready; apps never pull you to another' '[ \$(hyprctl -j workspaces | jq \"[.[] | select(.id >= 1 and .id <= 5)] | length\") = 5 ] && hyprctl -j getoption misc:focus_on_activate | jq -e \".int == 0\"'
         ck 'top bar + dock running'      '[ \$(pgrep -cx waybar) -ge 1 ] && for i in \$(seq 10); do pgrep -f nwg-dock-hyprland && exit 0; sleep 1; done; exit 1'
         ck 'prime-session.target active' 'systemctl --user is-active prime-session.target'
         ck 'volume popups (swayosd)'     'pgrep -x swayosd-server'

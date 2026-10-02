@@ -61,6 +61,45 @@ def addons():
     return [d for d in map(addon_dir, names) if d]
 
 
+# Settings → Top Bar: which items can be hidden (the names Settings uses) → bar items
+BAR_ITEMS = {"media": ["custom/mediaPrev", "custom/mediaPlay", "custom/mediaNext", "custom/media"],
+             "toggles": ["custom/toggles"], "keyboard": ["custom/keyboard"], "tray": ["tray"],
+             "network": ["network"], "bluetooth": ["bluetooth"], "sound": ["custom/audio"],
+             "battery": ["battery"], "updates": ["custom/updates"], "notifications": ["custom/notification"],
+             "stats": ["group/stats", "cpu", "memory", "custom/gpu"]}
+
+
+def settings():
+    try:
+        return json.load(open(os.path.join(HOME, ".config/prime/settings.json"))).get("settings", {})
+    except (OSError, ValueError, AttributeError):
+        return {}
+
+
+def apply_settings(cfg, s):
+    """The choices made in Settings → Top Bar and Windows & Workspaces."""
+    hidden = {m for k in str(s.get("bar_hidden", "")).split(",") for m in BAR_ITEMS.get(k.strip(), [])}
+    if hidden:
+        for side in ("modules-left", "modules-center", "modules-right"):
+            cfg[side] = [m for m in cfg.get(side, []) if m not in hidden]
+        for g in [k for k in cfg if k.startswith("group/")]:
+            if isinstance(cfg[g], dict):
+                cfg[g]["modules"] = [m for m in cfg[g].get("modules", []) if m not in hidden]
+    clock = cfg.get("clock")
+    if isinstance(clock, dict) and any(k in s for k in ("clock_format", "clock_seconds", "clock_date")):
+        t = "%H:%M" if s.get("clock_format") == "24h" else "%I:%M"
+        if s.get("clock_seconds") == "on":
+            t += ":%S"
+        if s.get("clock_format") != "24h":
+            t += " %p"
+        date = "%a %b %e   " if s.get("clock_date", "on") != "off" else ""
+        clock["format"] = "{:" + date + t + "}"
+    ws = cfg.get("hyprland/workspaces")
+    if isinstance(ws, dict) and str(s.get("workspaces", "")).isdigit():
+        ws["persistent-workspaces"] = {"*": int(s["workspaces"])}
+    return cfg
+
+
 def build(which):
     cfg_name, css_name = FILES[which]
     user_cfg = os.path.join(HOME, ".config/waybar", cfg_name)
@@ -87,6 +126,8 @@ def build(which):
             cfg.update(f.get("modules", {}))
         if os.path.exists(os.path.join(a, "waybar.css")):
             css.append(os.path.join(a, "waybar.css"))
+    if which == "top":
+        apply_settings(cfg, settings())
     # waybar doesn't expand ~ in image paths
     for k, v in cfg.items():
         if isinstance(v, dict) and isinstance(v.get("path"), str):

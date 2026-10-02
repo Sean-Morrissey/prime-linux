@@ -37,13 +37,14 @@
     "custom/notification",
     "custom/power"
   ],
-  // workspaces: one dot per desktop in use (just one, until you use more) — the
-  // running apps live in the dock at the bottom (prime-dock)
+  // workspaces: five numbered desktops, always there; a click opens that one on the
+  // screen you're on. Only a click (or Super+number) changes workspace — scrolling
+  // over the bar doesn't. The running apps live in the dock at the bottom.
   "hyprland/workspaces": {
-    "on-scroll-up": "hyprctl dispatch workspace e-1",
-    "on-scroll-down": "hyprctl dispatch workspace e+1",
-    "format": "{icon}",
-    "format-icons": {"default": "●"},
+    "format": "{name}",
+    "all-outputs": true,
+    "move-to-monitor": true,
+    "persistent-workspaces": {"*": 5},
     "on-click-right": "~/.local/share/prime-linux/layer/bin/prime-context bar.workspaces"
   },
   "tray": {

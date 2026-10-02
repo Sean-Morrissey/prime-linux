@@ -24,9 +24,10 @@ wl-clipboard
 wl-clip-persist
 jq
 
-# Spotlight (GTK layer-shell window) + file search
+# Spotlight, the screen saver and other GTK layer-shell windows + file search
 python
 python-gobject
+python-cairo
 gtk3
 gtk-layer-shell
 fd

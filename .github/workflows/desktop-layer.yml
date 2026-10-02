@@ -58,6 +58,8 @@ jobs:
         run: bash tests/check-portable.sh
       - name: Update everything on a private-repo install without a GitHub login
         run: bash tests/check-update-private.sh
+      - name: hardware.conf picks the GPU that runs the desktop
+        run: bash tests/check-gpu-detect.sh
 
   container:
     name: Clean install (fresh Arch container)

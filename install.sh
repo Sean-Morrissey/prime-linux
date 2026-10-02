@@ -216,6 +216,27 @@ create() {   # create <path> <content> — only if it isn't there yet
     if [ $DRY = 1 ]; then printf '    %s[dry-run]%s create %s\n' "$D" "$R" "${1/#$HOME/\~}"
     else mkdir -p "$(dirname "$1")"; printf '%s' "$2" > "$1"; fi
 }
+gpu_hw_env() {   # gpu_hw_env "<lspci -nn display lines>" → the Hyprland env lines this GPU needs
+    # By PCI vendor id: a name match finds "ati" in "Intel Corporation". With two
+    # GPUs (a laptop's built-in graphics plus NVIDIA, or a desktop whose CPU graphics
+    # is switched on) the one that drew the boot screen runs the desktop, so it
+    # decides. NVIDIA's settings need NVIDIA's own driver: with nouveau they break
+    # video and OpenGL. PRIME_PCI_ROOT / PRIME_NVIDIA_DRIVER: for tests.
+    local d vendor=""
+    for d in "${PRIME_PCI_ROOT:-/sys/bus/pci/devices}"/*; do
+        [ "$(cat "$d/boot_vga" 2>/dev/null)" = 1 ] && vendor="$(cut -c3- "$d/vendor")" && break
+    done
+    [ -n "$vendor" ] || vendor="$(grep -oiE '\[(10de|1002|8086):' <<<"$1" | head -1 | tr -d '[:' || true)"
+    case "${vendor,,}" in
+        10de) if [ "${PRIME_NVIDIA_DRIVER:-$(pacman -Qq nvidia-utils >/dev/null 2>&1 && echo 1 || echo 0)}" = 1 ]; then
+                  printf '%s\n' 'env = LIBVA_DRIVER_NAME,nvidia' 'env = __GLX_VENDOR_LIBRARY_NAME,nvidia' \
+                      'env = NVD_BACKEND,direct' 'cursor {' '    no_hardware_cursors = true' '}'
+              fi ;;
+        1002) echo 'env = LIBVA_DRIVER_NAME,radeonsi' ;;
+        8086) echo 'env = LIBVA_DRIVER_NAME,iHD' ;;
+    esac
+    return 0
+}
 if skip_step 3; then info "done earlier"
 else
     seed hypr/hyprland.conf
@@ -235,12 +256,7 @@ else
     # hardware.conf: what this machine's GPU needs for video decode
     gpu="$(lspci -nn 2>/dev/null | grep -iE 'vga|3d|display' || true)"
     hw="# Written by the Prime Linux installer for this machine ($(date +%F)). Safe to delete."$'\n'
-    # by PCI vendor id: a name match finds "ati" in "Intel Corporation"
-    if   grep -qi '\[10de:' <<<"$gpu"; then
-        hw+=$'env = LIBVA_DRIVER_NAME,nvidia\nenv = __GLX_VENDOR_LIBRARY_NAME,nvidia\nenv = NVD_BACKEND,direct\ncursor {\n    no_hardware_cursors = true\n}\n'
-    elif grep -qi '\[1002:' <<<"$gpu"; then hw+=$'env = LIBVA_DRIVER_NAME,radeonsi\n'
-    elif grep -qi '\[8086:' <<<"$gpu"; then hw+=$'env = LIBVA_DRIVER_NAME,iHD\n'
-    fi
+    env_lines="$(gpu_hw_env "$gpu")"; [ -z "$env_lines" ] || hw+="$env_lines"$'\n'
     info "GPU: $(sed -E 's/^[^:]*: //' <<<"$gpu" | head -1 | cut -c1-70)"
     hwf="$HOME/.config/hypr/hardware.conf"
     if [ ! -e "$hwf" ]; then

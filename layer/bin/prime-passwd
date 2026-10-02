@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# prime-passwd — change this account's password without a terminal.
+#
+#   prime-passwd       reads three lines on stdin: the current password, the new one,
+#                      the new one again. Settings → Users & Accounts sends them from
+#                      its own window; nothing is ever put on a command line.
+#
+# Prints one plain sentence. Exit 0 changed, 1 not changed (the reason is printed),
+# 2 the two new ones differ / too short. PRIME_PASSWD_CMD swaps passwd(1) (tests).
+set -u
+IFS= read -r old || old=""
+IFS= read -r new || new=""
+IFS= read -r again || again=""
+if [ "$new" != "$again" ]; then echo "The two new passwords aren't the same — type them again."; exit 2; fi
+if [ "${#new}" -lt 6 ]; then echo "The new password needs at least 6 characters."; exit 2; fi
+if [ "$new" = "$old" ]; then echo "That's the password you have now — choose a different one."; exit 2; fi
+cmd="${PRIME_PASSWD_CMD:-passwd}"
+# passwd asks through PAM, which reads the answers from standard input when it is
+# not a terminal: current, new, new again.
+if out="$(printf '%s\n%s\n%s\n' "$old" "$new" "$new" | LC_ALL=C "$cmd" 2>&1)"; then
+    echo "Password changed. Use the new one next time you log in or unlock."
+    exit 0
+fi
+case "$out" in
+    *"uthentication token manipulation"*|*"uthentication failure"*|*"ermission denied"*)
+        echo "The current password wasn't right — nothing changed." ;;
+    *"BAD PASSWORD"*|*"too simple"*|*"too short"*|*"dictionary"*|*"palindrome"*)
+        echo "That new password is too easy to guess — try a longer one, maybe a few words together." ;;
+    *) echo "The password wasn't changed. Get help (Settings → About & Help) makes a report." ;;
+esac
+exit 1

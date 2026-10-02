@@ -141,6 +141,10 @@ Everything in this guide is also in the Prime menu, so you never *need* a termin
   → **Make a website into an app**. It gets its own window and icon.
 - **Close a window**: Super+Q, or the red dot on the window's title bar.
 
+### Settings
+- **Super+I** (or Start → **Settings**) opens one window for everything about the computer, like Settings on Windows or a Mac: Wi-Fi, Bluetooth, sound, displays, appearance, notifications, power and battery, mouse and touchpad, keyboard, processor, graphics, storage, gaming, the AI assistant, apps, updates, privacy and security, date and time, language, your account and password, accessibility, and About & Help. Type in the search box to find a setting.
+- Mouse, keyboard, look and the other saved settings can be undone: About & Help → **Undo the last change made here**.
+
 ### Windows and workspaces
 - Windows arrange themselves side by side. **Super+F** makes one fill the screen.
 - **Super+1 … Super+9** switch between workspaces (separate desktops).

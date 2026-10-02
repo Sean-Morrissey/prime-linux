@@ -29,6 +29,7 @@ jobs:
         run: |
           sudo apt-get update -q
           sudo apt-get install -y -q shellcheck jq xvfb fd-find python3-gi python3-cairo gir1.2-gtk-3.0 gir1.2-gtklayershell-0.1 \
+            gir1.2-gtk-4.0 gir1.2-adw-1 \
             papirus-icon-theme
           mkdir -p "$HOME/.local/bin" && ln -sf "$(command -v fdfind)" "$HOME/.local/bin/fd"
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
@@ -68,6 +69,8 @@ jobs:
         run: bash tests/check-file-history.sh
       - name: Daily checkup (disk, failed services, version jumps, no repeated nagging)
         run: bash tests/check-checkup.sh
+      - name: Settings app (every page, mouse/keyboard toolbox, password change)
+        run: bash tests/check-settings-app.sh
       - name: shellcheck (warning level) on every shell script
         run: bash tests/check-shellcheck.sh
 

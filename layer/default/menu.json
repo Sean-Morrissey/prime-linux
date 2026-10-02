@@ -56,6 +56,13 @@
       "icon": "󰒓",
       "items": [
         {
+          "id": "set.all",
+          "label": "All settings — Wi-Fi, sound, display, mouse, gaming, storage…",
+          "hint": "Super+I",
+          "kind": "run",
+          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-system-settings"
+        },
+        {
           "id": "set.shortcuts",
           "label": "Keyboard shortcuts",
           "hint": "Super+/",

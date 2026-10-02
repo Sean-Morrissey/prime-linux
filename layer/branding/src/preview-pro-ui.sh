@@ -63,7 +63,7 @@ for f in "Documents/History essay.docx" "Documents/Budget 2026.ods" "Pictures/Mo
 stage() {  # stage <card.png> <out.png> — the card on a blurred wallpaper
     local cw ch; [ -s "$1" ] || { echo "  not rendered: $(basename "$2")" >&2; return 1; }
     read -r cw ch < <(identify -format '%w %h' "$1")
-    $IM "$L/wallpapers/prime-emblem.jpg" -resize "$((cw + 160))x$((ch + 140))^" -gravity center \
+    $IM "$L/wallpapers/prime-tide.jpg" -resize "$((cw + 160))x$((ch + 140))^" -gravity center \
         -extent "$((cw + 160))x$((ch + 140))" -blur 0x18 -brightness-contrast -20x0 \
         "$1" -gravity center -composite "$2" && echo "$2"
 }

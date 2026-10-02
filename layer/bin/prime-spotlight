@@ -96,7 +96,7 @@ def theme_accent() -> str:
                     return "#" + v.lower()
     except OSError:
         pass
-    return "#f87171"
+    return "#60a5fa"
 
 
 XDG_DATA_DIRS = os.environ.get("XDG_DATA_DIRS", "/usr/local/share:/usr/share").split(":")
@@ -145,8 +145,7 @@ row.hit {
 }
 row.hit:hover { background-color: rgba(255, 255, 255, 0.05); }
 row.hit:selected, row.hit:selected:hover {
-    background-color: alpha(@ACCENT@, 0.20);
-    border-color: alpha(@ACCENT@, 0.45);
+    background-color: alpha(@ACCENT@, 0.22);
 }
 .title { font-size: 1.02rem; font-weight: 500; color: #f4f4f6; }
 .subtitle { font-size: 0.85rem; color: rgba(255, 255, 255, 0.46); }

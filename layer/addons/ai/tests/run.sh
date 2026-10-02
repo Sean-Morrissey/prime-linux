@@ -39,11 +39,11 @@ in_home "$L/bin/prime-theme" --apply >/dev/null 2>&1
 echo "== toolbox"
 ck "every tool in prime-tools.json has a handler"   "in_home $S check"
 ck "permission file seeded from the template"       "in_home $S autonomy | grep -q '^suggest' && grep -q 'destructive' $H/.config/prime/capabilities.yaml"
-ck "AI change with no one to ask is declined"       "in_home $S run set_accent '{\"color\":\"green\"}' --actor ai --confirm tty | grep -q declined && [ \"\$(accent)\" = f87171 ]"
+ck "AI change with no one to ask is declined"       "in_home $S run set_accent '{\"color\":\"green\"}' --actor ai --confirm tty | grep -q declined && [ \"\$(accent)\" = 60a5fa ]"
 ck "declines are in the audit log"                  "grep -q '\"status\": \"declined\"' $H/.config/prime/audit.jsonl"
 ck "confirmed AI change happens"                    "in_home PRIME_CONFIRM_ANSWER=yes $S run set_accent '{\"color\":\"green\"}' --actor ai | grep -q '\"ok\": true' && [ \"\$(accent)\" = 34d399 ]"
 ck "a desktop backup was saved first"               "ls $H/.config-backups/desktop/*_prime-set-accent.tar.gz && tail -1 $H/.config/prime/audit.jsonl | grep -q '\"backup\": \"/'"
-ck "undo puts the accent back"                      "in_home $S undo && [ \"\$(accent)\" = f87171 ]"
+ck "undo puts the accent back"                      "in_home $S undo && [ \"\$(accent)\" = 60a5fa ]"
 ck "bad arguments refused (no shell through args)"  "in_home PRIME_CONFIRM_ANSWER=yes $S run set_accent '{\"color\":\"; rm -rf ~\"}' --actor ai | grep -q invalid"
 ck "wallpaper can't point outside the wallpaper folders" "in_home PRIME_CONFIRM_ANSWER=yes $S run set_wallpaper '{\"name\":\"../../../etc/passwd\"}' --actor ai | grep -q invalid"
 ck "unknown tool refused"                           "in_home $S run run_shell '{\"cmd\":\"id\"}' --actor ai | grep -q 'no tool'"
@@ -85,6 +85,7 @@ python3 "$HERE/mock-openai.py" "$PORT" "$MOCKLOG" & MOCK=$!
 for _ in $(seq 50); do curl -fs "http://127.0.0.1:$PORT/v1/models" >/dev/null 2>&1 && break; sleep 0.1; done
 ck "non-interactive setup writes config, key 0600"  "echo sk-test-not-real | in_home $L/addons/ai/bin/prime-ai-setup --url http://127.0.0.1:$PORT/v1 --model mock-tools --key-stdin && [ \"\$(stat -c %a $H/.config/prime/ai.key)\" = 600 ] && ! grep -q sk-test $H/.config/prime/ai.conf"
 ck "key sent only as the Authorization header"      "grep -q '\"auth\": \"Bearer sk-test-not-real\"' $MOCKLOG"
+in_home "$L/bin/prime-theme" --set-accent d4d4d8 >/dev/null 2>&1   # start from a non-blue accent
 ck "native tool call: streamed, confirmed, applied" "in_home PRIME_CONFIRM_ANSWER=yes python3 $ASK --answer 'make my accent blue' --new | grep -q 'All set: done' && [ \"\$(accent)\" = 60a5fa ]"
 ck "tool schema sent; tool result returned to model" "grep '\"tools\"' $MOCKLOG | tail -1 | grep -q '\"role\": \"tool\"'"
 ck "declined change is reported, not applied"       "in_home PRIME_CONFIRM_ANSWER=no python3 $ASK --answer 'change the accent' --new | grep -q 'All set: declined' && [ \"\$(accent)\" = 60a5fa ]"

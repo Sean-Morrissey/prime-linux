@@ -77,7 +77,7 @@ case "$MODE" in
     # Accent-coloured border + dimmed surround. Use slurp's DEFAULT output
     # ("X,Y WxH"); grim rejects the '%wx%h+%x+%y' form with "invalid geometry".
     accent="$(sed -n 's/^ACCENT=//p' "$HOME/.config/prime/theme.conf" 2>/dev/null)"
-    geom="$(slurp -b '#00000099' -c "#${accent:-f87171}ff" -w 2 2>/dev/null)" || exit 0
+    geom="$(slurp -b '#00000099' -c "#${accent:-60a5fa}ff" -w 2 2>/dev/null)" || exit 0
     [ -n "$geom" ] || exit 0
     log "area geom: $geom"
     grim -g "$geom" "$TMP" || {

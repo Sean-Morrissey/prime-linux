@@ -72,7 +72,7 @@ def theme_accent() -> str:
                     return "#" + v.lower()
     except OSError:
         pass
-    return "#f87171"
+    return "#60a5fa"
 
 
 def mark_path() -> str:

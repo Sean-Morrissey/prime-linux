@@ -204,7 +204,7 @@ PAGES = [
     ("bluetooth", "Bluetooth", "bluetooth-symbolic", "headphones mouse speaker pair devices"),
     ("sound", "Sound", "audio-volume-high-symbolic", "volume speakers headphones microphone mute output input"),
     ("display", "Displays", "video-display-symbolic", "screen monitor resolution scale brightness night light refresh hz screenshot snip print capture"),
-    ("appearance", "Appearance", "preferences-desktop-appearance-symbolic", "theme wallpaper background accent colour color dark text size corners animations"),
+    ("appearance", "Appearance", "preferences-desktop-appearance-symbolic", "theme wallpaper background accent colour color dark text size corners animations window layout tiling tile float floating tidy"),
     ("notifications", "Notifications", "preferences-system-notifications-symbolic", "do not disturb alerts banners"),
     ("power", "Power & Battery", "battery-full-symbolic", "battery sleep performance power saver keep awake laptop"),
     ("mouse", "Mouse & Touchpad", "input-mouse-symbolic", "pointer speed acceleration scrolling natural tap click left handed trackpad"),
@@ -569,6 +569,10 @@ def gui(page: str = "", screenshots: str = "", selftest: bool = False) -> int:
                lambda h: done(ok("prime-theme", "--set-accent", h), "Accent colour changed"))
         choice(win, g, "Text size", "One size for the whole desktop", TEXT_SIZES, th.get("TEXT", "default"),
                lambda t: done(ok("prime-theme", "--set-text", t), "Text size changed"))
+        choice(win, g, "Window layout", "Free: windows float and open in the middle, like a Mac or Windows. "
+               "Tidy: they sit side by side. Super+Shift+V flips one window either way.",
+               [("Free (like a Mac or Windows)", "free"), ("Tidy (side by side)", "tidy")],
+               st.get("window_layout", "free"), lambda v: tb("window_layout", v))
         choice(win, g, "Window style", "Corners and the space between windows", LOOKS, st.get("look", ""),
                lambda p: toolbox("set_look", {"preset": p}))
         g2 = group(page, "Motion")

@@ -156,7 +156,7 @@ def load_tools():
 
 
 def read_theme():
-    t = {"WALL": os.path.join(LAYER, "wallpapers/prime-emblem.jpg"), "ACCENT": "f87171"}
+    t = {"WALL": os.path.join(LAYER, "wallpapers/prime-tide.jpg"), "ACCENT": "60a5fa"}
     try:
         for line in open(THEME):
             if "=" in line:
@@ -515,10 +515,26 @@ def apply_night_light(value):
                          start_new_session=True)
 
 
+def sync_layout(state):
+    """Free (windows float, like a Mac or Windows) or Tidy (tiled). The rules live in the
+    theme file Hyprland reads first, which prime-theme writes from settings.json — so a
+    change (or its undo) regenerates it, and Hyprland reloads."""
+    want_free = state["settings"].get("window_layout", "free") != "tidy"
+    try:
+        has_free = "windowrule = float on, match:class .*" in open(os.path.join(CFG, "theme/hyprland.conf")).read()
+    except OSError:
+        return                                  # no theme yet: prime-theme --apply writes it at install
+    if has_free != want_free:
+        run([os.path.join(BIN, "prime-theme"), "--apply"])
+        if live():
+            run(["hyprctl", "reload"])
+
+
 def apply_state(state):
     write_hypr(state)
     save_state(state)
     apply_night_light(state["settings"].get("night_light", "off"))
+    sync_layout(state)
 
 
 # ── keys and apps ────────────────────────────────────────────────────────────
@@ -663,7 +679,7 @@ def t_set_accent(a):
     label = f"{c} (#{hexv})" if c in COLORS else f"#{hexv}"
 
     def do():
-        old = read_theme().get("ACCENT", "f87171")
+        old = read_theme().get("ACCENT", "60a5fa")
         r = run([os.path.join(BIN, "prime-theme"), "--set-accent", hexv])
         if r.returncode != 0:
             raise Refuse(r.stderr.strip() or "the theme switcher failed")
@@ -774,6 +790,15 @@ def t_change_setting(a):
         val = int(raw)
         summary = (f"repeat a held key {val} times a second" if name == "key_repeat_rate"
                    else f"start repeating a held key after {val} ms")
+    elif name == "window_layout":
+        v = str(raw).strip().lower()
+        v = {"free": "free", "float": "free", "floating": "free", "mac": "free", "windows": "free",
+             "tidy": "tidy", "tile": "tidy", "tiled": "tidy", "tiling": "tidy"}.get(v)
+        if v is None:
+            raise Refuse("window_layout is free (windows float, like a Mac or Windows) or tidy (side by side)")
+        val = v
+        summary = ("let new windows float, like a Mac or Windows" if v == "free"
+                   else "arrange new windows side by side (tidy)")
     elif name == "after_screenshot":
         v = str(raw).strip().lower()
         v = {"buttons": "buttons", "options": "buttons", "save": "save", "just save": "save", "nothing": "save",
@@ -808,7 +833,7 @@ def t_change_setting(a):
     else:
         raise Refuse("I can change: animations, natural_scroll, keyboard_layout, night_light, gaps, rounding, "
                      "mouse_speed, mouse_acceleration, left_handed, tap_to_click, touchpad_while_typing, "
-                     "key_repeat_rate, key_repeat_delay, after_screenshot")
+                     "key_repeat_rate, key_repeat_delay, after_screenshot, window_layout")
 
     def mutate(st):
         st["settings"][name] = val

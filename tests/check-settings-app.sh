@@ -40,6 +40,18 @@ ck "key repeat rate and delay land"           "grep -q 'repeat_rate = 40' '$C' &
 ck "a pointer speed outside -1…1 is refused"  "run mouse_speed '\"5\"' | grep -q '\"ok\": *false'"
 ck "a repeat rate of 500 is refused"          "run key_repeat_rate 500 | grep -q '\"ok\": *false'"
 
+# ── window layout: Free (float, the default) or Tidy (tiled), switched and undone ─
+TH="$H/.config/prime/theme/hyprland.conf"
+HOME="$H" PRIME_NO_LIVE=1 PRIME_NO_GSETTINGS=1 bash "$REPO/layer/bin/prime-theme" --apply >/dev/null 2>&1
+ck "new windows float by default (like a Mac or Windows)" "grep -q '^windowrule = float on, match:class \.\*' '$TH'"
+run window_layout '"tidy"' >/dev/null
+ck "Tidy: the float rule is gone, so Hyprland tiles"      "! grep -q 'float on, match:class \.\*' '$TH'"
+HOME="$H" "$REPO/layer/bin/prime-settings" undo >/dev/null
+ck "undo brings Free back"                               "grep -q 'float on, match:class \.\*' '$TH'"
+ck "a layout that isn't free or tidy is refused"         "run window_layout '\"sideways\"' | grep -q '\"ok\": *false'"
+ck "windows are solid (no see-through unfocused windows)" "grep -q 'inactive_opacity = 1.0' '$REPO/layer/default/hypr/looknfeel.conf'"
+ck "games: tearing allowed and adaptive sync on"         "grep -q 'allow_tearing = true' '$REPO/layer/default/hypr/looknfeel.conf' && grep -q 'vrr = 2' '$REPO/layer/default/hypr/looknfeel.conf'"
+
 # ── password change: never on a command line, plain answers ───────────────
 cat > "$T/fakepasswd" <<'EOF'
 #!/usr/bin/env bash

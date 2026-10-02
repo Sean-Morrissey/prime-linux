@@ -32,7 +32,7 @@ IM=magick; command -v magick >/dev/null || IM=convert
 # outright instead of falling back, even with nothing but Xvfb's X11 to talk to.
 XV=(xvfb-run -a -s "-screen 0 1600x1000x24" env GDK_BACKEND=x11)
 bash "$L/bin/prime-theme" --apply >/dev/null 2>&1
-WALL="$L/wallpapers/prime-emblem.jpg"
+WALL="$L/wallpapers/prime-tide.jpg"
 
 # a window card, centred on a blurred wallpaper (what it looks like on the desktop)
 stage() {  # stage <card.png> <out.png> [min-width min-height]
@@ -154,7 +154,7 @@ $IM "$WALL" -resize "${W}x${H}^" -gravity center -extent "${W}x${H}" -blur 0x10 
     -fill 'rgba(255,255,255,0.90)' -font Inter-SemiBold -pointsize "$(pt $prime_font_name)" -annotate +0-240 "Prime" \
     -fill 'rgba(255,255,255,0.95)' -font Inter-Bold -pointsize "$(pt $prime_font_clock)" -annotate +0-130 "9:41" \
     -fill 'rgba(200,200,205,0.85)' -font Inter-Regular -pointsize "$(pt $prime_font_date)" -annotate +0-45 "Thursday, October 1" \
-    -fill 'rgb(15,15,15)' -stroke '#f87171' -strokewidth 2 -draw "roundrectangle $((cx-150)),$((cy+34)) $((cx+150)),$((cy+86)) 26,26" -stroke none \
+    -fill 'rgb(15,15,15)' -stroke "#$(sed -n 's/^ACCENT=//p' "$HOME/.config/prime/theme.conf" 2>/dev/null || echo 60a5fa)" -strokewidth 2 -draw "roundrectangle $((cx-150)),$((cy+34)) $((cx+150)),$((cy+86)) 26,26" -stroke none \
     -fill 'rgb(240,240,240)' -font Inter-Regular -pointsize 26 -annotate +0+60 "•  •  •  •  •  •" \
     -fill 'rgba(251,191,36,0.95)' -font Inter-Medium -pointsize "$(pt $prime_font_hint)" -annotate +0+115 "Caps Lock is on" \
     -fill 'rgba(200,200,205,0.70)' -font Inter-Regular -pointsize "$(pt $prime_font_hint)" -gravity south -annotate +0+40 "Type your password and press Enter to unlock" \

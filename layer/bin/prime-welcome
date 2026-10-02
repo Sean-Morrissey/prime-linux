@@ -272,7 +272,7 @@ def wallpapers():
 
 
 def current_theme():
-    t = {"ACCENT": "f87171", "WALL": os.path.join(LAYER, "wallpapers/prime-emblem.jpg")}
+    t = {"ACCENT": "60a5fa", "WALL": os.path.join(LAYER, "wallpapers/prime-tide.jpg")}
     try:
         for line in open(os.path.join(CFG, "theme.conf")):
             if "=" in line:

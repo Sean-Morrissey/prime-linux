@@ -46,7 +46,7 @@ ck "the P logo opens the start menu"        "python3 $L/bin/prime-bar --print to
 
 echo "-- the new tools (headless)"
 ck "bar widgets are silent when idle"       "[ \"\$($L/bin/prime-record status)\" = '{\"text\":\"\"}' ] && $L/bin/prime-keyboard status | jq -e '.text == \"\"'"
-ck "keyboard: two layouts show on the bar"  "cp ~/.config/hypr/keyboard.conf /tmp/kb && sed -i 's/kb_layout = .*/kb_layout = us,de/' ~/.config/hypr/keyboard.conf && $L/bin/prime-keyboard status | jq -e '.text | test(\"us\")' ; r=\$?; cp /tmp/kb ~/.config/hypr/keyboard.conf; exit \$r"
+ck "keyboard: two layouts show on the bar"  "kb=\$(mktemp) && cp ~/.config/hypr/keyboard.conf \$kb && sed -i 's/kb_layout = .*/kb_layout = us,de/' ~/.config/hypr/keyboard.conf && $L/bin/prime-keyboard status | jq -e '.text | test(\"us\")' ; r=\$?; cp \$kb ~/.config/hypr/keyboard.conf; exit \$r"
 ck "switch status answers"                  "$L/bin/prime-toggle status | jq -e 'has(\"text\")' && $L/bin/prime-toggle status nightlight | grep -qE '^(on|off)$'"
 ck "web app: install, list, remove"         "$L/bin/prime-webapp install 'Test Site' example.com && grep -q 'prime-webapp open https://example.com' ~/.local/share/applications/prime-webapp-test-site.desktop && $L/bin/prime-webapp list | grep -q '^Test Site' && $L/bin/prime-webapp remove 'Test Site' && [ ! -e ~/.local/share/applications/prime-webapp-test-site.desktop ]"
 ck "web app: refuses non-web addresses"     "! $L/bin/prime-webapp install Bad 'javascript:alert(1)' && ! $L/bin/prime-webapp install 'a/b' example.com"
@@ -56,7 +56,7 @@ ck "new services linked"                    "[ -L ~/.config/systemd/user/prime-o
 
 echo "-- migrations"
 ck "fresh install has no pending migrations" "$L/bin/prime-migrate --pending"
-ck "old install: keyboard migration runs once" "cp ~/.config/hypr/hyprland.conf /tmp/h && sed -i '/keyboard.conf/d' ~/.config/hypr/hyprland.conf && sed -i '/^1790862549.sh$/d' ~/.config/prime/migrations && ! $L/bin/prime-migrate --pending && $L/bin/prime-migrate && [ \$(grep -c 'hypr/keyboard.conf' ~/.config/hypr/hyprland.conf) = 1 ] && $L/bin/prime-migrate && [ \$(grep -c 'hypr/keyboard.conf' ~/.config/hypr/hyprland.conf) = 1 ] && $L/bin/prime-migrate --pending"
+ck "old install: keyboard migration runs once" "h=\$(mktemp) && cp ~/.config/hypr/hyprland.conf \$h && sed -i '/keyboard.conf/d' ~/.config/hypr/hyprland.conf && sed -i '/^1790862549.sh$/d' ~/.config/prime/migrations && ! $L/bin/prime-migrate --pending && $L/bin/prime-migrate && [ \$(grep -c 'hypr/keyboard.conf' ~/.config/hypr/hyprland.conf) = 1 ] && $L/bin/prime-migrate && [ \$(grep -c 'hypr/keyboard.conf' ~/.config/hypr/hyprland.conf) = 1 ] && $L/bin/prime-migrate --pending"
 ck "config still valid after migration"     "Hyprland --verify-config -c ~/.config/hypr/hyprland.conf"
 ck "a failing migration stops the run"      "d=\$(mktemp -d) && printf '#!/bin/bash\n# fails\nexit 3\n' > \$d/100.sh && printf '#!/bin/bash\n# after\ntrue\n' > \$d/200.sh && ! PRIME_MIGRATIONS_DIR=\$d $L/bin/prime-migrate && PRIME_MIGRATIONS_DIR=\$d $L/bin/prime-migrate --pending | grep -q 200.sh"
 

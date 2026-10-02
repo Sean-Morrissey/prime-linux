@@ -1,8 +1,21 @@
 #!/usr/bin/env bash
 # Super+V — clipboard history. Pick an entry and it goes back on the
 # clipboard; paste with Ctrl+V. (rofi can't type into other windows on Wayland.)
+#
+# cliphist's own list ("284<TAB>[[ binary data 18 KiB png 292x157 ]]") is shown
+# readably: no id numbers, pictures as "Picture · PNG 292×157", runs of spaces and
+# line breaks folded. The choice comes back as a row number, so the text shown
+# never has to match cliphist's.
 set -u
 BIN="$(dirname "$(readlink -f "$0")")"
-sel=$(cliphist list | ROFI_HINT="Enter → copy · Esc → cancel · type to filter" \
-      "$BIN/prime-rofi" -dmenu -p "󰅌 Clipboard" -theme spotlight) || exit 0
-[[ -n "$sel" ]] && printf '%s' "$sel" | cliphist decode | wl-copy
+mapfile -t entries < <(cliphist list 2>/dev/null)
+[ ${#entries[@]} -gt 0 ] || { notify-send -a Prime "Clipboard history is empty" "Copy something and it shows up here (Super+V)."; exit 0; }
+i="$(printf '%s\n' "${entries[@]}" | sed -E \
+        -e 's/^[0-9]+\t//' \
+        -e 's/^\[\[ binary data ([0-9.]+ [KMG]?i?B) ([a-z]+) ([0-9]+)x([0-9]+) \]\]$/󰋩  Picture · \U\2\E \3×\4 · \1/' \
+        -e 's/^\[\[ binary data ([0-9.]+ [KMG]?i?B)( [a-z]+)? \]\]$/󰈔  File · \1/' \
+        -e 's/[[:space:]]+/ /g; s/^ //' \
+        -e 's/^[─━—-]{3,}.*$/(a line of dashes)/' |
+     ROFI_HINT="Enter copies it — then paste with Ctrl+V  ·  Esc cancels  ·  type to filter" \
+     "$BIN/prime-rofi" -dmenu -i -no-custom -format i -p "Clipboard" -theme spotlight)" || exit 0
+[[ "$i" =~ ^[0-9]+$ ]] && [ -n "${entries[$i]:-}" ] && printf '%s' "${entries[$i]}" | cliphist decode | wl-copy

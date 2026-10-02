@@ -264,9 +264,8 @@ lock_status() {
 perm_status() {
   local bad_=() f m
   m="$(stat -c %a "$HOME" 2>/dev/null)"; [ -n "$m" ] && [ "${m: -1}" != 0 ] && bad_+=("your home folder ($m)")
-  for f in "$HOME/.config/prime/ai.key"; do
-    [ -e "$f" ] || continue; m="$(stat -c %a "$f")"; [ "$m" = 600 ] || [ "$m" = 400 ] || bad_+=("$(basename "$f") ($m)")
-  done
+  f="$HOME/.config/prime/ai.key"
+  if [ -e "$f" ]; then m="$(stat -c %a "$f")"; [ "$m" = 600 ] || [ "$m" = 400 ] || bad_+=("$(basename "$f") ($m)"); fi
   for f in "$HOME/.config/prime" "$HOME/.config-backups"; do
     [ -d "$f" ] && [ ! -L "$f" ] || continue; m="$(stat -c %a "$f")"; [ "${m: -1}" = 0 ] || bad_+=("${f/#$HOME/\~} ($m)")
   done

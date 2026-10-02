@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # Shared helpers for Prime packs (sourced, not run). Not an add-on itself:
 # prime-addon only lists folders that have an addon.conf.
 #

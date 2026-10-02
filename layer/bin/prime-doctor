@@ -206,6 +206,8 @@ else bad "The login screen doesn't offer Prime yet — Update everything adds it
 [ $need_restore = 1 ] && action "Restore desktop settings" "$BIN/prime-desktop-backup restore"
 [ $need_undo = 1 ]    && action "Undo an update" "$BIN/prime-update --undo"
 [ $need_addons = 1 ]  && action "Check the add-ons" "$BIN/prime-panel --title 'Packs & add-ons' -- $BIN/prime-addon check"
+# something left that it couldn't fix: one click makes a report to send someone
+[ ${#left[@]} -gt 0 ]   && action "Get help" "$BIN/prime-help"
 
 if [ $QUIET = 1 ]; then
     [ ${#left[@]} -gt 0 ] && notify-send -a Prime -u normal -t 15000 "Desktop check — something needs you" \

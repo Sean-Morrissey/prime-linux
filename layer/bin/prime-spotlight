@@ -91,7 +91,7 @@ SKIP_DIRS = {".git", "node_modules", ".cache", ".venv", "venv", "__pycache__",
 MAX_ROWS = 9
 APP_ICONS: dict = {}          # desktop id -> Icon= value (filled by load_apps)
 
-SECTION = {"app": "Applications", "path": "Files", "recent": "Recent",
+SECTION = {"app": "Applications", "setting": "Settings", "path": "Files", "recent": "Recent",
            "math": "Calculator", "ask": "Ask Prime" if ASKER else "Web", "hint": ""}
 
 CSS = """
@@ -319,6 +319,62 @@ def looks_like_sum(q: str) -> bool:
 
 # ── ranking + routing (pure, so the self-test can assert them) ─────────────────
 
+SETTING_HINTS: dict = {}      # menu row id -> its hint (filled by load_settings)
+
+
+def load_settings() -> list:
+    """[(label, id)] for every row of the Prime menu except the app list: Wi-Fi,
+    Bluetooth, wallpaper, updates, power… so typing "wifi" finds the setting, not
+    only apps and files. Reads the menu prime-menu last built (with add-ons and
+    your own rows), else Prime's own."""
+    import json
+    rt = os.environ.get("XDG_RUNTIME_DIR", "")
+    for path in (os.path.join(rt, "prime-menu.json") if rt else "",
+                 os.path.join(LAYER, "default", "menu.json")):
+        try:
+            data = json.load(open(path))
+        except (OSError, ValueError):
+            continue
+        out = []
+        for sec in data.get("sections", []):
+            for it in sec.get("items", []):
+                if it.get("kind") in ("run", "panel", "term") and it.get("id") and it.get("label"):
+                    SETTING_HINTS[it["id"]] = it.get("hint") or sec.get("label", "")
+                    out.append((it["label"], it["id"]))
+        return out
+    return []
+
+
+def _norm(t: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", t.lower())
+
+
+def rank_settings(query: str, settings: list, limit: int = 3) -> list:
+    """Menu rows whose name starts with, or contains, what was typed (punctuation
+    ignored: "wifi" finds "Wi-Fi & network"); the hint counts too."""
+    q = _norm(query)
+    if len(q) < 3:
+        return []
+    scored, seen = [], set()
+    for label, sid in settings:
+        n, h = _norm(label), _norm(SETTING_HINTS.get(sid, ""))
+        words = [_norm(w) for w in re.split(r"[\s/·—,&()-]+", label)]
+        if n.startswith(q) or any(w.startswith(q) for w in words if w):
+            score = 0
+        elif q in n:
+            score = 1
+        elif q in h:
+            score = 2
+        else:
+            continue
+        if n in seen:
+            continue
+        seen.add(n)
+        scored.append((score, len(label), label, sid))
+    scored.sort()
+    return [("setting", s[2], s[3], "") for s in scored[:limit]]
+
+
 def rank_apps(query: str, apps: list, limit: int = 6) -> list:
     q = query.lower().strip()
     scored = []
@@ -367,6 +423,8 @@ def route(kind: str, main: str, sub: str, query: str) -> tuple:
         return ("launch_app", sub)                     # gtk-launch <desktop id>
     if kind == "path":
         return ("open_path", sub)
+    if kind == "setting":
+        return ("run_setting", sub)                    # prime-menu --run <row id>
     if kind == "math":
         return ("copy", main.lstrip("= ").strip())
     if query.startswith("/") or not ASKER:
@@ -374,7 +432,7 @@ def route(kind: str, main: str, sub: str, query: str) -> tuple:
     return ("ask", query)
 
 
-def results_for(query: str, apps: list, recents: list, timeout: int = 4) -> list:
+def results_for(query: str, apps: list, recents: list, timeout: int = 4, settings: list = ()) -> list:
     """The whole list for a query: [(kind, main, sub, right)] + the always-ask row."""
     q = query.strip()
     rows = []
@@ -397,6 +455,7 @@ def results_for(query: str, apps: list, recents: list, timeout: int = 4) -> list
     if not asked_only_web and not q.startswith("="):
         rows += rank_apps(body, apps, 5 if not asked_only_apps else MAX_ROWS)
     if not asked_only_apps and not asked_only_web and not is_sum:
+        rows += rank_settings(body, settings)
         hits = find_paths(body, timeout=timeout)
         rows += rank_paths(body, hits, set(recents), 5)
     if ASKER and not asked_only_web:
@@ -413,7 +472,9 @@ def top_hit(rows: list, query: str):
     def named(r):
         return bool(q) and any(w.startswith(q) for w in [r[1].lower()] + re.split(r"[\s\-_.]+", r[1].lower()))
     tests = [lambda r: r[0] == "math",
+             lambda r: r[0] == "setting" and _norm(r[1]) == _norm(q),   # "bluetooth" → Bluetooth
              lambda r: r[0] == "app" and named(r),
+             lambda r: r[0] == "setting" and named(r),
              lambda r: r[0] == "path" and named(r),
              lambda r: r[0] == "app",
              lambda r: r[0] == "path"]
@@ -432,7 +493,7 @@ def grouped(rows: list, query: str = "") -> list:
         return [("", rows[0])]
     if rows[0][3] == "recent":
         return [("Recent", r) for r in rows]
-    order = ["math", "app", "path", "ask"]
+    order = ["math", "app", "setting", "path", "ask"]
     top = top_hit(rows, query)
     out = [("Top Hit", top)]
     for k in order:
@@ -468,6 +529,8 @@ def icon_for(kind: str, sub: str):
         return Gio.content_type_get_icon(ctype) if ctype else themed("text-x-generic")
     if kind == "math":
         return themed("accessories-calculator", "accessories-calculator-symbolic")
+    if kind == "setting":
+        return themed("preferences-system", "emblem-system", "preferences-system-symbolic")
     if kind == "ask":
         return themed("prime-linux", "dialog-question") if ASKER else \
             themed("web-browser", "applications-internet", "system-search")
@@ -508,6 +571,7 @@ class Spotlight(Gtk.Window):
     def __init__(self, show: bool = True, offscreen: bool = False):
         super().__init__(type=Gtk.WindowType.TOPLEVEL)
         self.apps = load_apps()
+        self.settings = load_settings()
         self.recents = load_recent()
         self.rows: list = []
         self.seq = 0                       # guards against out-of-order searches
@@ -612,7 +676,7 @@ class Spotlight(Gtk.Window):
 
     def _search_worker(self, seq: int, query: str):
         try:
-            rows = results_for(query, self.apps, self.recents)
+            rows = results_for(query, self.apps, self.recents, settings=self.settings)
         except Exception:                       # noqa: BLE001 - a launcher never crashes
             rows = []
         GLib.idle_add(self._apply, seq, rows)
@@ -675,7 +739,7 @@ class Spotlight(Gtk.Window):
         title.set_ellipsize(Pango.EllipsizeMode.MIDDLE if kind == "path" else Pango.EllipsizeMode.END)
         title.get_style_context().add_class("answer" if kind == "math" else "title")
         text.pack_start(title, False, False, 0)
-        detail = {"app": sub and "", "path": pretty_path(sub)}.get(kind, sub)
+        detail = {"app": sub and "", "path": pretty_path(sub), "setting": SETTING_HINTS.get(sub, "")}.get(kind, sub)
         if kind == "app":
             detail = sub_comment = next((c for (_n, _e, d, c) in self.apps if d == sub), "")
             detail = sub_comment or "Application"
@@ -688,7 +752,7 @@ class Spotlight(Gtk.Window):
             text.pack_start(st, False, False, 0)
         box.pack_start(text, True, True, 0)
 
-        verb = {"app": "Open", "path": "Open", "math": "Copy", "ask": "Ask" if ASKER else "Search"}.get(kind)
+        verb = {"app": "Open", "path": "Open", "setting": "Open", "math": "Copy", "ask": "Ask" if ASKER else "Search"}.get(kind)
         if verb:
             cap = Gtk.Label(label=f"{verb}  ↵")
             cap.get_style_context().add_class("keycap")
@@ -765,6 +829,8 @@ class Spotlight(Gtk.Window):
             detached(["gtk-launch", payload])
         elif action == "open_path":
             detached(["xdg-open", payload])
+        elif action == "run_setting":
+            detached([os.path.join(LAYER, "bin", "prime-menu"), "--run", payload])
         elif action == "copy":
             copy_to_clipboard(payload)
         elif action == "ask":
@@ -830,7 +896,7 @@ def run_query(query: str) -> int:
     apps = load_apps()
     recents = load_recent()
     last = None
-    for section, (kind, main, sub, right) in grouped(results_for(query, apps, recents), query):
+    for section, (kind, main, sub, right) in grouped(results_for(query, apps, recents, settings=load_settings()), query):
         if section != last:
             print(f"{section or '·'}")
             last = section
@@ -847,7 +913,7 @@ def screenshot(path: str, query: str) -> int:
     win = Spotlight(show=False, offscreen=True)
     win.entry.set_text(query)
     win.entry.set_position(-1)
-    win.render(results_for(query, win.apps, win.recents))
+    win.render(results_for(query, win.apps, win.recents, settings=win.settings))
     off = Gtk.OffscreenWindow()
     screen = off.get_screen()
     if screen.get_rgba_visual() is not None:
@@ -904,6 +970,12 @@ def selftest() -> int:
     check("router opens a file hit",
           any(r[0] == "path" for r in rows) and route("path", "", "/tmp/x", "")[0] == "open_path")
     check("router launches an app hit", route("app", "", "firefox", "") == ("launch_app", "firefox"))
+    st = load_settings()
+    hits = rank_settings("wifi", st)
+    check("settings: 'wifi' finds Wi-Fi & network", any(h[1].startswith("Wi-Fi") for h in hits), str(hits))
+    check("settings: 'wallpaper' finds the theme", bool(rank_settings("wallpaper", st)))
+    check("settings: two letters find nothing (no noise)", rank_settings("wi", st) == [])
+    check("router opens a setting through the menu", route("setting", "", "set.network", "") == ("run_setting", "set.network"))
     check("router copies a sum", route("math", "= 28", "", "=16*7/4") == ("copy", "28"))
     check("no match falls through", rows[-1][0] == "ask"
           and route("ask", "", "", "weather")[0] == ("ask" if ASKER else "web"), rows[-1][1][:60])

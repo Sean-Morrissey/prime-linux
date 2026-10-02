@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+# prime-help — "Get help": one report to send to whoever helps you.
+#
+#   prime-help            make the report, save it in your home folder, copy it
+#   prime-help --print    the report on stdout only (tests, or to read it first)
+#
+# It holds what a helper asks first: which Prime and system this is, the graphics
+# card and screens, the health check, the safety summary, and the end of the last
+# install and update logs. It never holds passwords, keys, browser data or your
+# files; your home folder's path is shortened to "~". Nothing is sent anywhere —
+# you choose where to paste it.
+set -u
+BIN="$(dirname "$(readlink -f "$0")")"
+LAYER="$(readlink -f "$BIN/..")"
+PRINT=0; [ "${1:-}" = "--print" ] && PRINT=1
+
+# opened from the menu: show the progress in a Prime window
+if [ $PRINT = 0 ] && [ -z "${PRIME_PANEL:-}${PRIME_NO_PANEL:-}" ] && [ ! -t 1 ] && [ -n "${WAYLAND_DISPLAY:-}${DISPLAY:-}" ]; then
+    exec "$BIN/prime-panel" --title "Get help" \
+        --subtitle "Makes one report to send to whoever helps you. Nothing is sent anywhere by itself." -- "$0"
+fi
+say() { [ -n "${PRIME_PANEL:-}" ] && echo "@$1 $2" || printf '  %s\n' "$2"; }
+
+section() { printf '\n== %s\n' "$1"; }
+plain() { sed -e 's/\x1b\[[0-9;]*m//g' -e "s|$HOME|~|g"; }
+
+report() {
+    printf 'Prime Linux help report — %s\n' "$(date '+%Y-%m-%d %H:%M')"
+    section "Prime"
+    echo "version: $(git -C "$LAYER/.." describe --tags --always 2>/dev/null || echo unknown) ($(git -C "$LAYER/.." rev-parse --abbrev-ref HEAD 2>/dev/null))"
+    echo "add-ons: $(grep -vE '^\s*(#|$)' "$HOME/.config/prime/addons" 2>/dev/null | paste -sd' ' || true)"
+    section "System"
+    . /etc/os-release 2>/dev/null; echo "base: ${PRETTY_NAME:-unknown}"
+    echo "kernel: $(uname -r)"
+    echo "session: ${XDG_SESSION_DESKTOP:-?} on ${XDG_SESSION_TYPE:-?}"
+    command -v Hyprland >/dev/null && echo "hyprland: $(Hyprland --version 2>/dev/null | head -1)"
+    section "Graphics and screens"
+    lspci -nn 2>/dev/null | grep -iE 'vga|3d|display' | sed 's/^[^ ]* //'
+    hyprctl monitors 2>/dev/null | grep -E '^Monitor|^\s+[0-9]+x[0-9]+@' | sed 's/^\s*/  /'
+    section "Health check"
+    PRIME_NO_PANEL=1 "$BIN/prime-doctor" 2>&1 | plain
+    section "Safety summary"
+    PRIME_NO_PANEL=1 "$BIN/prime-security" status 2>&1 | plain
+    section "Last install (end of log)"
+    tail -n 25 "$(ls -t "${XDG_STATE_HOME:-$HOME/.local/state}"/prime/logs/install-*.log 2>/dev/null | head -1)" 2>/dev/null | plain
+    section "Recent problems from Prime's background services (this boot)"
+    journalctl --user -b -p warning --no-pager -o short-monotonic -n 40 -t prime-bar -t waybar -t prime-health -t prime-osd 2>/dev/null | plain || true
+}
+
+if [ $PRINT = 1 ]; then report; exit 0; fi
+
+say step "Collecting"
+out="$HOME/prime-help-$(date +%Y%m%d-%H%M).txt"
+( umask 077; report > "$out" )
+say ok "Report saved: ${out/#$HOME/\~}"
+if command -v wl-copy >/dev/null && wl-copy < "$out" 2>/dev/null; then
+    say ok "Copied — paste it (Ctrl+V) into a message to whoever is helping you"
+else
+    say note "Open the file and copy it from there"
+fi
+say note "It has no passwords, keys or files of yours — read it first if you like: it's plain text"
+[ -n "${PRIME_PANEL:-}" ] && echo "@action Open the report	xdg-open '$out'"
+exit 0

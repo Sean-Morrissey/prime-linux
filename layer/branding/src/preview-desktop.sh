@@ -118,6 +118,7 @@ bash "$L/bin/prime-theme" --set-text default >/dev/null 2>&1
 picker "$OUT/picker-wifi.png" "󰖩 Wi-Fi" "Enter joins  ·  Esc closes  ·  type to filter" \
     "󰄬  Home  —  connected · strong signal · secured" "󰤨  Café Lumen  —  good signal · open" \
     "󰤨  Library-Guest  —  weak signal · secured" "󰑓  Look for networks again" "󰖪  Turn Wi-Fi off"
+# shellcheck disable=SC2046  # one row per word on purpose (spaces are swapped for no-break spaces first)
 picker "$OUT/picker-bar-keys.png" "Bar" "↑↓ move  ·  Enter opens that item's menu  ·  Esc closes  ·  type to filter" \
     $(python3 "$L/bin/prime-bar" --keys --list | cut -f2 | head -9 | tr ' ' '\240')
 

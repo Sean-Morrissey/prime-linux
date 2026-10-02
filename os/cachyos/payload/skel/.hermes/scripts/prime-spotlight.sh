@@ -14,7 +14,7 @@ export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 if [ -z "${WAYLAND_DISPLAY:-}" ]; then
     for sock in "$XDG_RUNTIME_DIR"/wayland-*; do
         [ -S "$sock" ] || continue
-        export WAYLAND_DISPLAY="$(basename "$sock")"
+        WAYLAND_DISPLAY="$(basename "$sock")"; export WAYLAND_DISPLAY
         break
     done
 fi

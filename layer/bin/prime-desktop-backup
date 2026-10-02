@@ -19,7 +19,8 @@ PATHS=(.config/hypr .config/waybar .config/prime .config/rofi .config/swaync .co
 
 save() {
   umask 077; mkdir -p -m 700 "$DIR"; chmod 700 "$DIR"   # backups are private
-  local out="$DIR/$(date +%Y%m%d_%H%M%S)_${1:-manual}.tar.gz" have=()
+  local out have=()
+  out="$DIR/$(date +%Y%m%d_%H%M%S)_${1:-manual}.tar.gz"
   for p in "${PATHS[@]}"; do [ -e "$USER_HOME/$p" ] && have+=("$p"); done
   tar -C "$USER_HOME" --exclude='.config/hypr/wallpapers' --exclude='.config/prime/ai.key' -czf "$out" "${have[@]}" 2>/dev/null
   # rotate: only this tool's own copies, newest $KEEP kept

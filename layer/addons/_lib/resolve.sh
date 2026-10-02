@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # Where add-ons live (sourced, not run). Two places, same format:
 #
 #   $LAYER/addons/<name>/            shipped with Prime; prime-update replaces them

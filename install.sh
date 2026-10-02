@@ -86,7 +86,8 @@ case "${ID:-}" in
 esac
 
 # which desktop(s) this CachyOS edition came with — they stay on the login screen
-sessions="$(ls /usr/share/wayland-sessions/*.desktop /usr/share/xsessions/*.desktop 2>/dev/null | xargs -rn1 basename 2>/dev/null | sed 's/\.desktop$//' | sort -u || true)"
+sessions="$(for f in /usr/share/wayland-sessions/*.desktop /usr/share/xsessions/*.desktop; do
+                [ -e "$f" ] && basename "$f" .desktop; done | sort -u || true)"
 have_desktops=()
 grep -qE '^plasma' <<<"$sessions" && have_desktops+=("KDE Plasma")
 grep -qE '^gnome' <<<"$sessions" && have_desktops+=("GNOME")
@@ -310,7 +311,7 @@ else
     run mkdir -p "$HOME/.config/systemd/user" "$HOME/.local/bin"
     for u in "$LAYER"/systemd/*; do run ln -sfn "$u" "$HOME/.config/systemd/user/$(basename "$u")"; done
     run systemctl --user daemon-reload 2>/dev/null || info "(user services load at next login)"
-    for c in prime-update prime-uninstall prime-addon prime-theme prime-doctor prime-about prime-migrate prime-webapp \
+    for c in prime-update prime-uninstall prime-addon prime-theme prime-doctor prime-about prime-migrate prime-webapp prime-help \
              prime-security prime-update-policy prime-updates-settings prime-settings prime-welcome; do
         run ln -sfn "$LAYER/bin/$c" "$HOME/.local/bin/$c"
     done

@@ -13,29 +13,29 @@ created: "2026-09-21T17:55:00Z"
 updated: "2026-09-21T17:55:00Z"
 
 # ---- Beat 1: who are you
-name: Sean
-pronouns: he/him
+name: Alex
+pronouns: they/them
 language: en
 
 # ---- Beat 2: what are you studying
-school: Columbus State Community College
+school: Example Community College
 term: Autumn-2026
 courses:
-  - code: ENGL-0155
-    name: Basic Composition
-    instructor: Prof. Rebecca Baker
+  - code: ENGL-1100
+    name: Composition I
+    instructor: Prof. Dana Reyes
     schedule: async
     essays: true
     platform: online
-  - code: MATH-1099
-    name: Bridge to College Math
-    instructor: Prof. John Wallace
+  - code: MATH-1010
+    name: College Algebra
+    instructor: Prof. Sam Patel
     schedule: "MWF 10:00"
     essays: false
     platform: ALEKS
-  - code: COLS-1100
-    name: First Year Experience
-    instructor: Prof. James Evans
+  - code: COLL-1000
+    name: First Year Seminar
+    instructor: Prof. Jordan Lee
     schedule: async
     essays: true
     platform: online
@@ -63,6 +63,6 @@ preferences:
 # ---- Beat 6: anything else (verbatim, unstructured)
 freeform: |
   I learn better with worked examples than with explanations. Don't talk at me in
-  long command lists — give me the read and let me steer. I run a gutter
-  installation business and I'm building a CRM for it. I play Dark and Darker on
-  Steam. I want to learn the terminal properly instead of copy-pasting.
+  long command lists — give me the read and let me steer. I'm building a small
+  website for a side business. I play games on Steam. I want to learn the
+  terminal properly instead of copy-pasting.

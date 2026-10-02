@@ -77,6 +77,13 @@
           "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-theme --text"
         },
         {
+          "id": "set.saver",
+          "label": "Screen saver — preview",
+          "hint": "shows when the screen locks; any key asks for the password",
+          "kind": "run",
+          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-screensaver"
+        },
+        {
           "id": "set.displays",
           "label": "Displays",
           "hint": "arrange screens, resolution, refresh rate",

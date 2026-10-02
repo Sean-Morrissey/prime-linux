@@ -84,7 +84,7 @@
         },
         {
           "label": "",
-          "command": "hyprlock",
+          "command": "loginctl lock-session",
           "tooltip": "Lock the screen"
         }
       ]

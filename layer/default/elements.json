@@ -266,7 +266,7 @@
         },
         {
           "label": "󰌾  Lock the screen",
-          "cmd": "hyprlock"
+          "cmd": "loginctl lock-session"
         }
       ],
       "no_copy": true

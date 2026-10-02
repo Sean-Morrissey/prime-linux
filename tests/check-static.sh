@@ -37,10 +37,25 @@ ck "every bar item is in the keyboard list"   "[ \$(python3 $L/bin/prime-bar --k
 ck "old terminal rows open Prime windows"     "grep -q prime-activity $L/bin/prime-float && grep -q prime-wifi $L/bin/prime-float && ! grep -q kitty $L/bin/prime-float"
 ck "lock-screen status line is quiet without Caps Lock" "out=\$(bash $L/bin/prime-lock-status); [ -z \"\$out\" ] || [ \"\$out\" = 'Caps Lock is on' ]"
 
+echo; echo "== the lock (prime-lock, with stand-ins for Hyprland, hyprlock and the screen saver)"
+LK="$(mktemp -d)"
+printf '#!/bin/sh\necho "hyprctl $*" >> %s/log\n' "$LK" > "$LK/hyprctl"
+printf '#!/bin/sh\necho "hyprlock" >> %s/log\nsleep 2\n' "$LK" > "$LK/hyprlock"
+printf '#!/bin/sh\necho "saver $*" >> %s/log\nexit 1\n' "$LK" > "$LK/saver"
+chmod +x "$LK"/*
+PATH="$LK:$PATH" PRIME_SAVER="$LK/saver" bash $L/bin/prime-lock >/dev/null 2>&1
+ck "shortcuts off, saver, then the password screen, then shortcuts back — even if the saver fails" \
+   "[ \"\$(grep -v pidof $LK/log | paste -sd'|')\" = 'hyprctl dispatch submap prime-locked|saver --lock|hyprlock|hyprctl dispatch submap reset' ]"
+: > "$LK/log"; PATH="$LK:$PATH" PRIME_SAVER="$LK/saver" bash $L/bin/prime-lock --now >/dev/null 2>&1
+ck "going to sleep: straight to the password screen"  "[ \"\$(cat $LK/log)\" = hyprlock ]"
+ck "the submap prime-lock uses exists (has a bind)"   "awk '/^submap = prime-locked/{f=1;next} /^submap = reset/{f=0} f && /^bind/' $L/default/hypr/bindings.conf | grep -q ."
+rm -rf "$LK"
+
 echo; echo "== windows (GTK)"
 if [ -n "$GUI" ]; then
     ck "Prime window: protocol, rows, words, accessible names" "$GUI $PY $L/bin/prime-panel --selftest"
     ck "Spotlight: sources, router, window, accessible names" "PATH=\"\$(dirname \$(command -v $PY)):\$PATH\" $GUI $PY $L/bin/prime-spotlight --selftest"
+    ck "Screen saver: frames, drift, wake rules"               "$PY $L/bin/prime-screensaver --selftest"
     ck "Activity lists apps with words for how busy"          "$PY $L/bin/prime-activity --list | grep -qE '(idle|light|busy|very busy)'"
 else
     echo "  SKIP  no display and no xvfb-run — the GTK windows weren't built"

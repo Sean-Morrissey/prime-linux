@@ -1,0 +1,10 @@
+[Unit]
+Description=Prime daily checkup — the login check, repeated for computers that stay logged in for days
+PartOf=prime-session.target
+
+[Timer]
+# the login check already ran (prime-doctor --login); look again every day after it
+OnActiveSec=1d
+OnUnitActiveSec=1d
+RandomizedDelaySec=30min
+AccuracySec=10min

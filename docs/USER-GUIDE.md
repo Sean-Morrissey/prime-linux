@@ -203,7 +203,7 @@ choose *File transfer* on the phone.
 - **If an update breaks something**: restart and, in the boot menu, choose the
   snapshot entry from before the update. Your desktop settings can also be put
   back separately: Prime menu → Style & repair → **Restore desktop settings**.
-- **If the desktop misbehaves**: **Super+H** checks it and fixes what it can.
+- **If the desktop misbehaves**: **Super+H** checks it and fixes what it can. Prime also checks by itself — at every login and once a day while you stay logged in — repairs what it safely can, and only tells you about something new: a disk getting full, a background service that stopped, or a desktop part that was updated (Undo an update goes back if it looks wrong).
   **Super+W** restarts the bar.
 - **Lock** with Super+L. **Power off / restart** with the ⏻ icon on the bar.
 

@@ -5,12 +5,16 @@
 #                         shown in a Prime window, never a terminal
 #   prime-doctor --login  quiet: runs at every login, notifies only about
 #                         problems it couldn't fix itself
+#   prime-doctor --daily  the same, once a day while you stay logged in
+#                         (prime-checkup.timer) — and only tells you about
+#                         problems that are NEW since it last told you
 #
 # It never edits your own config files and never needs your password. Anything
 # it can't fix comes with a button (or menu item) that does — never a command.
 set -u
 BIN="$(dirname "$(readlink -f "$0")")"
-QUIET=0; [ "${1:-}" = "--login" ] && QUIET=1
+QUIET=0; DAILY=0
+case "${1:-}" in --login) QUIET=1 ;; --daily) QUIET=1; DAILY=1 ;; esac
 # opened from the menu, a key or the app list: show the report in a Prime window
 if [ $QUIET = 0 ] && [ -z "${PRIME_PANEL:-}${PRIME_NO_PANEL:-}" ] && [ ! -t 1 ] && [ -n "${WAYLAND_DISPLAY:-}${DISPLAY:-}" ]; then
     exec "$BIN/prime-panel" --title "Desktop health check" \
@@ -67,7 +71,8 @@ if [ $INSTALLED = 0 ]; then
     say note "Prime Linux isn't installed for this account from here — checking only, changing nothing"
     in_session=0
 fi
-[ $QUIET = 1 ] && sleep 3      # let the session settle before judging it
+[ $QUIET = 1 ] && [ $DAILY = 0 ] && sleep 3      # let the session settle before judging it
+STATE="${XDG_STATE_HOME:-$HOME/.local/state}/prime"; mkdir -p "$STATE"
 need_update=0 need_restore=0 need_undo=0 need_addons=0
 
 # 1 — theme files (everything else reads its colours and text sizes from them)
@@ -202,6 +207,58 @@ fi
 if [ -f /usr/share/wayland-sessions/prime.desktop ]; then ok "The login screen offers Prime"
 else bad "The login screen doesn't offer Prime yet — Update everything adds it"; need_update=1; fi
 
+# 13 — room on the disk: a full disk breaks updates, saving, even logging in
+for mp in / "$HOME"; do
+    read -r size avail < <(df -Pk "$mp" 2>/dev/null | awk 'NR==2 {print $2, $4}')
+    [ -n "${size:-}" ] && [ "${size:-0}" -gt 0 ] || continue
+    gb=$(( avail / 1048576 )); pct=$(( avail * 100 / size ))
+    where="the system disk"; [ "$mp" = "$HOME" ] && where="your home folder's disk"
+    if [ "$gb" -lt 2 ] || [ "$pct" -lt 3 ]; then
+        bad "$where is almost full (${gb} GB free) — empty the Trash, and remove big files you don't need"
+    elif [ "$gb" -lt 10 ] && [ "$pct" -lt 10 ]; then
+        tip "$where is getting full (${gb} GB free) — updates need a few GB of room"
+    fi
+    [ "$(df -P / | awk 'NR==2 {print $1}')" = "$(df -P "$HOME" | awk 'NR==2 {print $1}')" ] && break   # one disk: say it once
+done
+
+# 14 — background services that failed (in words, at most three of each kind)
+for scope in system user; do
+    flag=(); [ $scope = user ] && flag=(--user)
+    n=0
+    while read -r unit _; do
+        [ -n "$unit" ] || continue
+        n=$((n+1)); [ $n -le 3 ] || continue
+        what="$(systemctl "${flag[@]}" show -p Description --value "$unit" 2>/dev/null)"
+        echo "failed $scope unit: $unit" >>"$LOG"
+        if [ $scope = user ] && [[ "$unit" == prime-* ]]; then
+            bad "A part of the desktop stopped: ${what:-$unit} — Restore desktop settings usually fixes this"; need_restore=1
+        else
+            tip "A background service stopped: ${what:-$unit}${what:+ ($unit)} — Get help makes a report you can send"
+        fi
+    done < <(systemctl "${flag[@]}" --failed --no-legend --plain 2>/dev/null)
+done
+
+# 15 — the desktop's own building blocks jumped a version since the last check:
+# worth knowing once (if something looks different since, Undo an update goes back)
+VERS="$STATE/versions"; jumped=()
+for pk in hyprland waybar rofi gtk3 python; do
+    v="$(pacman -Q "$pk" 2>/dev/null | awk '{print $2}' | sed -E 's/^[0-9]+://; s/^([0-9]+\.[0-9]+).*/\1/')"
+    [ -n "$v" ] || continue
+    old="$(sed -n "s/^$pk //p" "$VERS" 2>/dev/null)"
+    [ -n "$old" ] && [ "$old" != "$v" ] && jumped+=("$pk $old → $v")
+done
+if [ ${#jumped[@]} -gt 0 ]; then
+    tip "Updated since the last check: ${jumped[*]} — if anything looks different since, Undo an update goes back"
+    [ $QUIET = 1 ] && notify-send -a Prime -u low -t 12000 "Prime: part of the desktop was updated" \
+        "$(printf '%s\n' "${jumped[@]}")
+If anything looks different, Prime menu → Update → Undo an update goes back." 2>/dev/null
+fi
+for pk in hyprland waybar rofi gtk3 python; do
+    v="$(pacman -Q "$pk" 2>/dev/null | awk '{print $2}' | sed -E 's/^[0-9]+://; s/^([0-9]+\.[0-9]+).*/\1/')"
+    [ -z "$v" ] || echo "$pk $v"
+done > "$VERS.tmp" 2>/dev/null
+if [ -s "$VERS.tmp" ]; then mv -f "$VERS.tmp" "$VERS"; else rm -f "$VERS.tmp"; fi
+
 [ $need_update = 1 ]  && action "Update everything" "$BIN/prime-update"
 [ $need_restore = 1 ] && action "Restore desktop settings" "$BIN/prime-desktop-backup restore"
 [ $need_undo = 1 ]    && action "Undo an update" "$BIN/prime-update --undo"
@@ -209,6 +266,14 @@ else bad "The login screen doesn't offer Prime yet — Update everything adds it
 # something left that it couldn't fix: one click makes a report to send someone
 [ ${#left[@]} -gt 0 ]   && action "Get help" "$BIN/prime-help"
 
+# the daily check repeats only what's NEW: the same problems as last time stay quiet
+if [ $DAILY = 1 ]; then
+    seen="$STATE/doctor-told"
+    now="$(printf '%s\n' "${left[@]}" | sort)"
+    if [ ${#left[@]} -gt 0 ] && [ "$now" = "$(cat "$seen" 2>/dev/null)" ]; then left=(); fi
+    [ ${#left[@]} -gt 0 ] && printf '%s\n' "$now" > "$seen"
+    [ -z "$now" ] && rm -f "$seen"
+fi
 if [ $QUIET = 1 ]; then
     [ ${#left[@]} -gt 0 ] && notify-send -a Prime -u normal -t 15000 "Desktop check — something needs you" \
         "$(printf '%s\n' "${left[@]}")

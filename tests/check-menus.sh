@@ -76,7 +76,7 @@ GUI=""; [ -z "${WAYLAND_DISPLAY:-}${DISPLAY:-}" ] && command -v xvfb-run >/dev/n
 ck "prime-start self-test (pins, search, recents, window)" "$GUI $PY $L/bin/prime-start --selftest"
 ck "the logo opens it, the right-click menu stays"  "grep -A8 '\"image#logo\"' $L/default/waybar/config.jsonc | grep -q 'on-click\": \"[^\"]*prime-start\"' && grep -A8 '\"image#logo\"' $L/default/waybar/config.jsonc | grep -q 'prime-context bar.logo'"
 ck "it has a described shortcut (listed by Super+/)" "grep -qE '^bindd = SUPER, X, Start menu.*prime-start' $L/default/hypr/bindings.conf"
-ck "Spotlight and Start are blurred like rofi"      "grep -qx 'layerrule = blur prime-spotlight' $L/default/hypr/looknfeel.conf && grep -qx 'layerrule = blur prime-start' $L/default/hypr/looknfeel.conf"
+ck "Prime Search and Start are blurred like rofi"      "grep -qx 'layerrule = blur prime-spotlight' $L/default/hypr/looknfeel.conf && grep -qx 'layerrule = blur prime-start' $L/default/hypr/looknfeel.conf"
 
 echo "== a personal menu.json that repeats Prime's rows"
 cat > "$HOME/.config/prime/menu.json" <<'EOF2'

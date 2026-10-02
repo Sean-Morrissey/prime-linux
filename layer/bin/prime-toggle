@@ -15,7 +15,6 @@ BIN="$(dirname "$(readlink -f "$0")")"
 STATE="${XDG_STATE_HOME:-$HOME/.local/state}/prime"
 NL_FILE="$STATE/nightlight"
 NL_TEMP="${PRIME_NIGHTLIGHT_TEMP:-4000}"
-IDLE_CONF="$BIN/../default/hypr/hypridle.conf"
 
 note()   { notify-send -a Prime -t 2500 -h string:x-canonical-private-synchronous:prime-toggle "$1" "${2:-}" >/dev/null 2>&1 || true; }
 bar()    { pkill -RTMIN+10 -x waybar 2>/dev/null || true; }
@@ -39,7 +38,7 @@ set_state() {   # set_state <name> on|off
         dnd:on)         swaync-client -dn >/dev/null 2>&1; note "Do not disturb on" "Notifications wait quietly in the notification centre" ;;
         dnd:off)        swaync-client -df >/dev/null 2>&1; note "Do not disturb off" ;;
         idle:on)        pkill -x hypridle; note "Keep awake on" "The screen won't dim, lock or turn off until you switch this off" ;;
-        idle:off)       is_on idle && detach hypridle -c "$IDLE_CONF"; note "Keep awake off" "The screen locks after 10 idle minutes again" ;;
+        idle:off)       is_on idle && detach "$BIN/prime-idle"; note "Keep awake off" "The screen locks by itself again (Settings → Lock & Sleep sets when)" ;;
     esac
     bar
 }

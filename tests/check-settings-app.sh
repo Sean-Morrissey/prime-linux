@@ -124,6 +124,47 @@ ck "FreeSync and game tearing are undoable settings" \
    "run vrr '\"always\"' | grep -q '\"ok\": true' && grep -q 'vrr = 1' '$H/.config/hypr/hyprland.conf' && run game_tearing '\"off\"' | grep -q '\"ok\": true' && grep -q 'allow_tearing = false' '$H/.config/hypr/hyprland.conf'"
 ck "a FreeSync value that isn't off/fullscreen/always is refused" "run vrr '\"sometimes\"' | grep -q '\"ok\": *false'"
 
+# ── dock, top bar, windows & workspaces, lock & sleep ─────────────────────
+ck "workspaces: five on the bar, a click opens it on this screen, no scroll-switching" \
+   "grep -q '\"persistent-workspaces\": {\"\\*\": 5}' '$REPO/layer/default/waybar/config.jsonc' && grep -q '\"move-to-monitor\": true' '$REPO/layer/default/waybar/config.jsonc' && ! grep -q 'workspace e[-+]1' '$REPO/layer/default/waybar/config.jsonc' && [ \$(grep -c 'persistent:true' '$REPO/layer/default/hypr/windows.conf') = 5 ]"
+ck "apps stay on the workspace they opened on and never pull you away" \
+   "grep -q 'focus_on_activate = false' '$REPO/layer/default/hypr/looknfeel.conf' && grep -q 'initial_workspace_tracking = 2' '$REPO/layer/default/hypr/looknfeel.conf'"
+ck "Super+number opens the workspace on the screen you're on" "grep -q 'SUPER, 3, Go to workspace 3, focusworkspaceoncurrentmonitor, 3' '$REPO/layer/default/hypr/bindings.conf'"
+run workspaces 7 >/dev/null; run workspace_guard '"off"' >/dev/null; run new_windows '"main"' >/dev/null; run snap_keys '"focus"' >/dev/null
+ck "how many workspaces, and the guard, land in the Prime block" \
+   "grep -q 'workspace = 7, persistent:true' '$C' && grep -q 'workspace = 8, persistent:false' '$C' && grep -q 'focus_on_activate = true' '$C'"
+ck "new windows as the main one; Super+arrows can move focus instead" \
+   "grep -q 'new_status = master' '$C' && grep -q 'bindd = SUPER, left, Focus the window to the left, movefocus, l' '$C' && grep -q 'bindd = SUPER SHIFT, left, Snap window to the left half, exec, \$bin/prime-snap l' '$C'"
+ck "a wrong answer is refused (dock position, workspaces, minutes)" \
+   "run dock_position '\"top\"' | grep -q '\"ok\": *false' && run workspaces 0 | grep -q '\"ok\": *false' && run lock_after '\"soon\"' | grep -q '\"ok\": *false'"
+run dock_size '"large"' >/dev/null; run dock_mode '"always"' >/dev/null; run dock_position '"left"' >/dev/null
+ck "the dock follows its settings (size, always shown, left edge)" \
+   "HOME='$H' bash '$REPO/layer/bin/prime-dock' --args | tr '\\n' ' ' | grep -q -- '-x -p left -i 56 -ml 8'"
+run clock_format '"24h"' >/dev/null; run clock_seconds '"on"' >/dev/null; run bar_hidden '"tray,media"' >/dev/null
+ck "the top bar follows its settings (24-hour clock with seconds, items hidden, 7 workspaces)" "HOME='$H' python3 - '$REPO/layer/bin/prime-bar' <<'PY'
+import importlib.machinery as M, importlib.util as U, sys
+l = M.SourceFileLoader('pb', sys.argv[1]); m = U.module_from_spec(U.spec_from_loader('pb', l)); l.exec_module(m)
+cfg, _, _ = m.build('top')
+assert cfg['clock']['format'] == '{:%a %b %e   %H:%M:%S}', cfg['clock']['format']
+mods = cfg['modules-left'] + cfg['modules-right']
+assert 'tray' not in mods and 'custom/media' not in mods and 'custom/updates' in mods, mods
+assert cfg['hyprland/workspaces']['persistent-workspaces'] == {'*': 7}
+PY"
+run bar_hidden '"nope"' > "$T/bh"
+ck "an unknown bar item is refused"           "grep -q '\"ok\": *false' '$T/bh'"
+run lock_after 5 >/dev/null; run sleep_after 30 >/dev/null; run screen_off_after '"never"' >/dev/null
+ck "lock & sleep timers become the idle timer (lock 5, sleep 30, screens never off)" \
+   "grep -q 'timeout = 300\$' '$H/.config/prime/hypridle.conf' && grep -q 'lock-session' '$H/.config/prime/hypridle.conf' && grep -q 'timeout = 1800' '$H/.config/prime/hypridle.conf' && grep -q 'systemctl suspend' '$H/.config/prime/hypridle.conf' && ! grep -q 'dpms off' '$H/.config/prime/hypridle.conf'"
+ck "login starts the idle timer from those settings" "grep -qx 'exec-once = \$bin/prime-idle' '$REPO/layer/default/hypr/autostart.conf'"
+ck "undo brings the last timer back"          "HOME='$H' '$REPO/layer/bin/prime-settings' run undo_last '{}' | grep -q '\"ok\": true' && grep -q 'dpms off' '$H/.config/prime/hypridle.conf'"
+ck "Settings' window styles are the ones the toolbox knows" "python3 - '$APP' '$REPO/layer/bin/prime-settings' <<'PY'
+import importlib.machinery as M, importlib.util as U, sys
+def load(n, p):
+    l = M.SourceFileLoader(n, p); m = U.module_from_spec(U.spec_from_loader(n, l)); l.exec_module(m); return m
+a, b = load('a', sys.argv[1]), load('b', sys.argv[2])
+assert a.LOOK_VALUES == b.LOOKS and [v for _, v in a.LOOKS] == list(b.LOOKS), (a.LOOK_VALUES, b.LOOKS)
+PY"
+
 # ── password change: never on a command line, plain answers ───────────────
 cat > "$T/fakepasswd" <<'EOF'
 #!/usr/bin/env bash
@@ -152,7 +193,7 @@ ck "it's in the app list as Settings"        "grep -q '^Name=Settings$' '$REPO/l
 PY="${PRIME_TEST_PY:-python3}"
 if "$PY" -c "import gi; gi.require_version('Gtk','4.0'); gi.require_version('Adw','1')" 2>/dev/null && command -v xvfb-run >/dev/null; then
     HOME="$H" PRIME_SETTINGS_DRY=1 timeout 120 xvfb-run -a "$PY" "$APP" --selftest > "$T/st" 2>&1
-    ck "all 22 pages build, search finds Mouse & Touchpad" "grep -q '^0 failure' '$T/st' && [ \$(grep -c '  PASS  ' '$T/st') -ge 23 ]"
+    ck "all 29 pages build, search finds Mouse & Touchpad" "grep -q '^0 failure' '$T/st' && [ \$(grep -c '  PASS  ' '$T/st') -ge 30 ]"
     grep -q '^0 failure' "$T/st" || grep -E 'FAIL|Error|Traceback' "$T/st" | head -20
 else
     echo "  SKIP  page build (no GTK 4 / libadwaita / Xvfb here)"

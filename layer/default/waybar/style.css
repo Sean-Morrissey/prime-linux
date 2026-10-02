@@ -162,10 +162,10 @@ tooltip label {
     font-size: 0.75rem;
 }
 
-/* workspaces: a dot per desktop in use; the one you're on is a longer accent pill */
+/* workspaces: numbered desktops; the one you're on is an accent pill, empty ones are dimmer */
 #workspaces { margin: 0 4px; }
 #workspaces button {
-    padding: 0 5px;
+    padding: 0 9px;
     margin: 6px 1px;
     border-radius: 8px;
     color: rgba(236, 236, 239, 0.45);
@@ -175,3 +175,4 @@ tooltip label {
 #workspaces button:hover { background: rgba(255, 255, 255, 0.10); color: #ececef; }
 #workspaces button.active { color: @accent; background: alpha(@accent, 0.16); padding: 0 12px; }
 #workspaces button.urgent { color: #fbbf24; }
+#workspaces button.empty:not(.active) { color: rgba(236, 236, 239, 0.28); }

@@ -10,7 +10,7 @@ and plumbing has no name on screen.
 ## The four parts
 
 ```
- you ──▶  PRIME, the face          Spotlight (Super+Space) · Ask box (Super+Shift+Space)
+ you ──▶  PRIME, the face          Prime Search (Super+Space) · Ask box (Super+Shift+Space)
           one name, one voice      Snip · notifications · Settings (Super+I) · Prime menu
               │
               ├─▶ 1. PRIME'S HANDS   no AI: prime-do (everyday requests in plain words)
@@ -45,7 +45,7 @@ is named, because that is where you choose it).
 
 `prime-do` holds the everyday requests — "wifi off", "louder", "mute", "do not
 disturb", "bigger text", "accent blue", "mouse settings", "take a screenshot",
-"something's wrong", "get a file back", "empty the trash", "update". Spotlight
+"something's wrong", "get a file back", "empty the trash", "update". Prime Search
 shows them first, under **Do it**, and when every word was understood it is the
 Top Hit: Enter does it. The Ask box tries them before the model, so these work
 the same with or without the AI pack, offline, instantly, and the same way every
@@ -75,9 +75,9 @@ the AI pack, and none of it runs anything from a home folder as root.
 
 ## How a request travels
 
-1. **Spotlight / the Ask box** gets the words.
+1. **Prime Search / the Ask box** gets the words.
 2. **prime-do** — a known request, every word understood? Do it, say one line. Done.
-3. **Apps, settings, files** — Spotlight shows them; Enter opens.
+3. **Apps, settings, files** — Prime Search shows them; Enter opens.
 4. **The brain** (with the AI pack) — the question goes to the model, which answers
    in Prime's window and may propose a change through the toolbox.
 5. **No brain** — the last row searches the web.

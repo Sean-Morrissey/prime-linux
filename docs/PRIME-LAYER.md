@@ -70,9 +70,9 @@ needed); `tests/install-in-container.sh` repeats it on a real install.
 | Rule | How it is met |
 |---|---|
 | No terminal | Prime's own tasks (health check, updates, About, add-ons, update list, undo an update, the AI answer) run in a **Prime window** (`prime-panel`): progress and results as rows that say *OK*, *Fixed*, *Needs you*, with buttons for the fix. A password is asked for in a Prime box (`prime-askpass`, used by `sudo -A`). Wi-Fi is a picker (`prime-wifi`), the processor/memory/graphics readouts open **Activity** (`prime-activity`). Menu rows use `kind: "panel"` (the old `"term"` means the same and never opens a terminal); `prime-float` remains only as a shim for old custom rows. |
-| One text size | Theme → **Text size** (Small / Default / Large / Larger, `prime-theme --set-text`) is the only font size. It sets the system font; the bar, notifications, Spotlight and Prime windows size text in `rem` from it, and `prime-theme` writes `fonts.rasi` (menus), the lock-screen, title-bar and terminal sizes from the same base. |
+| One text size | Theme → **Text size** (Small / Default / Large / Larger, `prime-theme --set-text`) is the only font size. It sets the system font; the bar, notifications, Prime Search and Prime windows size text in `rem` from it, and `prime-theme` writes `fonts.rasi` (menus), the lock-screen, title-bar and terminal sizes from the same base. |
 | Keyboard | `Super+Alt+B` lists every bar item and opens its menu (the same as right-clicking it); `Ctrl+Shift+Esc` opens Activity; every bind has a description (`Super+/`). |
-| Names | Every bar item has a worded tooltip; Prime windows and Spotlight give every row and control an accessible name. (rofi pickers have no screen-reader support — a known gap.) |
+| Names | Every bar item has a worded tooltip; Prime windows and Prime Search give every row and control an accessible name. (rofi pickers have no screen-reader support — a known gap.) |
 | Not colour alone | Muted sound says *Muted*; the lock screen says *Caps Lock is on* and *Wrong password*; title-bar buttons carry ✕ − +; Activity says *idle / light / busy*; update and notification tooltips say the state. |
 
 Previews of each surface: `layer/branding/previews/` (re-render with

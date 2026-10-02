@@ -4,18 +4,18 @@
 "wifi off", "louder", "mute", "do not disturb", "bigger text", "accent blue",
 "mouse settings", "take a screenshot", "something's wrong", "get a file back"…
 A fixed list of things Prime knows how to do, matched by their words, run at
-once. It is what Spotlight's "Do it" rows and the Ask box use first, so the
+once. It is what Prime Search's "Do it" rows and the Ask box use first, so the
 everyday requests work the same with or without the AI pack, offline, instantly,
 and always the same way. Anything it doesn't know goes to the assistant (if you
 have it) or the web.
 
   prime-do "wifi off"              do it (prints the one-line result)
   prime-do --match "wifi off"      what it would do, best first: id<TAB>title<TAB>score
-  prime-do --id wifi-off           do one by its id (what Spotlight runs)
+  prime-do --id wifi-off           do one by its id (what Prime Search runs)
   prime-do --list                  everything it knows, one per line
   PRIME_DO_DRY=1                   print the command instead of running it (tests)
 
-A score of 1.0 means every word you typed was understood; Spotlight makes that
+A score of 1.0 means every word you typed was understood; Prime Search makes that
 the Top Hit and the Ask box runs it without asking the model. Things that can't
 be undone with one click (restart, shut down) only ever open the power menu.
 """

@@ -453,7 +453,7 @@ identity.
 - **Fonts and text size** — previewed live in a sample paragraph, not described.
 - **Density** — compact vs comfortable rows, spacing of the interface.
 - **Logo/motd** — which Prime mark shows in the terminal (`logo-block.txt`, the
-  ASCII Optimus, or none). Themed so it is not a sticker on top of a wardrobe.
+  P.R.I.M.E lettering, or none). Themed so it is not a sticker on top of a wardrobe.
 
 ### Beat 9 — Keyboard and hotkeys
 

@@ -30,7 +30,7 @@ commit on this branch **and** a test that fails without it.
 | G2 | **P1** | Gates | "Update everything" on a private-repo install without a GitHub login waited for a username inside a window that can't take one | **Fixed** + `tests/check-update-private.sh` |
 | G3 | **P1** | Gates | None of the installer tests ran in CI: `tests/check-*.sh`, the container install and the VM test were run by hand only | **Fixed**: `.github/workflows/desktop-layer.yml` |
 | G4 | **P1** | Gates | `tests/vm/run.sh all` stopped after a first ISO download (pipefail on an empty `grep -v`); OVMF and ImageMagick paths only matched Arch | **Fixed** |
-| J2 | **P1** | Jobs | The VM test installed with its own commands, not the README's; it never opened the Start menu, Spotlight, Prime menu or greeting | **Fixed**: `tests/vm/desktop-checks.sh` |
+| J2 | **P1** | Jobs | The VM test installed with its own commands, not the README's; it never opened the Start menu, Prime Search, Prime menu or greeting | **Fixed**: `tests/vm/desktop-checks.sh` |
 | J4 | **P1** | Jobs | No "Prime" entry on the login screen until the first update, so the first-login health check flagged a problem on every fresh install | **Fixed** + container install/uninstall checks |
 | J5 | P2 | Jobs | `prime-uninstall`, `prime-update`… gave "command not found" in a Prime terminal on bash (`~/.local/bin` not on PATH) | **Fixed** + `tests/check-greeting.sh` |
 | G5 | P2 | Gates | `integrate/prime-layer`'s `install.sh` lacks main's three installer fixes (GPU by vendor id, `hardware.conf` kept, backup pointer) | Fixed in the main merge (step 4), not here |
@@ -159,7 +159,7 @@ its manifest (uninstall restores from the oldest backup that holds each file).
 - **Fix:** the VM test clones to `~/prime-linux` and runs `bash prime-linux/install.sh`,
   the README's private-repo steps (only `gh repo clone` is swapped for a bundle; the VM
   has no GitHub login). In the live session `tests/vm/desktop-checks.sh` opens the Start
-  menu from the P logo's command, Spotlight, the Prime menu, the greeting and a kitty
+  menu from the P logo's command, Prime Search, the Prime menu, the greeting and a kitty
   window, checks each is on screen, and screenshots them.
 
 ### J4 · P1 · The first login opened with a "something needs you" notification
@@ -202,7 +202,7 @@ From GitHub Actions on this branch (this sandbox can't reach the Arch mirrors):
 |---|---|
 | Desktop layer tests (syntax, static suite with GTK self-tests, menus, greeting, import, add-ons, SSH, updater/security, portability, private-repo update) | pass |
 | Clean install in a fresh Arch container, then `prime-uninstall` | pass, every check |
-| Real boot: newest CachyOS ISO → minimal install → README commands → reboot into the Prime session → bar, Start menu, Spotlight, Prime menu, greeting, kitty, title bars, health check → `prime-uninstall` | pass |
+| Real boot: newest CachyOS ISO → minimal install → README commands → reboot into the Prime session → bar, Start menu, Prime Search, Prime menu, greeting, kitty, title bars, health check → `prime-uninstall` | pass |
 | Supervisor policy tests and the image build (`bluebuild`) | pass |
 
 The VM runs without a GPU (GitHub's runners have none), so it renders in software and
@@ -217,7 +217,7 @@ reported as not checked. Real PCs and VMs with virgl have a render node.
 `integrate/prime-layer`, and #11/#12 changed the terminal greeting)
 
 Same panel and severity scale as round 1. This round reviews `main` as the friend
-gets it: README → install → first login → Start menu → Spotlight → Prime menu →
+gets it: README → install → first login → Start menu → Prime Search → Prime menu →
 greeting → update → uninstall. It also re-checks that round 1 survived the merge.
 
 ## Summary
@@ -246,7 +246,7 @@ greeting → update → uninstall. It also re-checks that round 1 survived the m
   GPU model, `card`/`hwmon` numbers, screens or sound devices remain in what ships.
 - **Commands from menus:** `prime-menu` and `prime-context` run commands only from
   menu files that are either shipped or the person's own (`~/.config/prime`, personal
-  add-ons). No web or AI text reaches a shell. Spotlight launches by desktop id
+  add-ons). No web or AI text reaches a shell. Prime Search launches by desktop id
   (`gtk-launch`) and opens absolute paths with `xdg-open`.
 - **New since round 1:**
   - `prime-start`: pid file (L7, fixed), launches by desktop id, writes pins atomically.
@@ -270,7 +270,7 @@ greeting → update → uninstall. It also re-checks that round 1 survived the m
 
 ### Checked, nothing to fix
 - **Small and HiDPI screens:** the Start menu's tallest page (All apps) is about
-  600 px, so it fits 1366×768 under the bar. Spotlight's 9 rows fit too. GTK
+  600 px, so it fits 1366×768 under the bar. Prime Search's 9 rows fit too. GTK
   handles scaling.
 - **Merge damage from #10:**
   - `install.sh` has main's GPU-by-vendor-id and `hardware.conf`-keeping fixes on the

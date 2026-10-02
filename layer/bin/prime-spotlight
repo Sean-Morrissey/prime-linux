@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-"""Prime Spotlight — the one box that finds anything (Super+Space).
+"""Prime Search — the one box that finds anything (Super+Space).
 
 Type and results appear as you go, grouped: the Top Hit, Applications, Files,
 Calculator, and a last row that searches the web — or, with the AI add-on
@@ -598,7 +598,7 @@ def listed(desktop_id: str) -> bool:
 
 # ── window ─────────────────────────────────────────────────────────────────────
 
-class Spotlight(Gtk.Window):
+class SearchWindow(Gtk.Window):
     WIDTH = 720
 
     def __init__(self, show: bool = True, offscreen: bool = False):
@@ -611,7 +611,7 @@ class Spotlight(Gtk.Window):
         self.mapped_at = 0.0
 
         self.set_name("prime-spotlight")
-        self.set_title("Spotlight")
+        self.set_title("Prime Search")
         self.set_decorated(False)
         self.set_skip_taskbar_hint(True)
         self.set_resizable(False)
@@ -636,7 +636,7 @@ class Spotlight(Gtk.Window):
         self.entry.set_name("search")
         self.entry.set_has_frame(False)
         self.entry.set_placeholder_text("Search apps, files, or ask…")
-        named(self.entry, "Spotlight search")
+        named(self.entry, "Prime Search")
         self.entry.connect("changed", self.on_changed)
         self.entry.connect("activate", lambda *_: self.run_selected())
         self.entry.connect("key-press-event", self.on_key)
@@ -946,7 +946,7 @@ def screenshot(path: str, query: str) -> int:
         print("no display", file=sys.stderr)
         return 1
     install_css()
-    win = Spotlight(show=False, offscreen=True)
+    win = SearchWindow(show=False, offscreen=True)
     win.entry.set_text(query)
     win.entry.set_position(-1)
     win.render(results_for(query, win.apps, win.recents, settings=win.settings))
@@ -1033,7 +1033,7 @@ def selftest() -> int:
 
     if Gtk.init_check(sys.argv)[0]:
         install_css()
-        win = Spotlight(show=False, offscreen=True)
+        win = SearchWindow(show=False, offscreen=True)
         win.entry.set_text(first[:4])
         win.render(results_for(first[:4], win.apps, win.recents))
         check("window builds: search field, grouped rows, top hit selected",
@@ -1043,7 +1043,7 @@ def selftest() -> int:
               and win.listbox.get_selected_row().section == "Top Hit")
         names = [r.get_accessible().get_name() for r in win.listbox.get_children()]
         check("search field and every result have an accessible name",
-              win.entry.get_accessible().get_name() == "Spotlight search" and all(names), str(names[:3]))
+              win.entry.get_accessible().get_name() == "Prime Search" and all(names), str(names[:3]))
         check("nothing was mapped (no window on screen)",
               not win.get_mapped() and not win.get_visible(), "built but never shown, then destroyed")
         win.destroy()
@@ -1087,7 +1087,7 @@ def main() -> int:
 
     install_css()
     started = time.monotonic()
-    win = Spotlight()
+    win = SearchWindow()
     if a.prefill:
         win.entry.set_text(a.prefill)
         win.entry.set_position(-1)

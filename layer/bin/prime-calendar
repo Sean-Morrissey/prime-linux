@@ -1,0 +1,86 @@
+#!/usr/bin/python3
+"""Prime Calendar — what clicking the clock on the bar opens.
+
+The Calendar app (month, week and day views; events; online accounts such as
+Google) — brought to the front if it's already open. Until Update everything has
+installed it, a small month view stands in, so the click always shows a calendar.
+
+  prime-calendar            open it
+  prime-calendar --which    print what a click would open (tests)
+"""
+from __future__ import annotations
+
+import datetime
+import json
+import os
+import shutil
+import subprocess
+import sys
+
+APP, APP_CLASS = "gnome-calendar", "org.gnome.Calendar"
+
+
+def which() -> str:
+    return "app" if shutil.which(APP) else "view"
+
+
+def open_app() -> int:
+    """Focus the open Calendar window, or start one (detached, so the bar never waits)."""
+    try:
+        clients = json.loads(subprocess.run(["hyprctl", "clients", "-j"], capture_output=True,
+                                            text=True, timeout=3).stdout or "[]")
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        clients = []
+    if any(c.get("class") == APP_CLASS for c in clients):
+        subprocess.run(["hyprctl", "dispatch", "focuswindow", f"class:^({APP_CLASS})$"],
+                       capture_output=True, timeout=3)
+        return 0
+    subprocess.Popen([APP], start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    return 0
+
+
+def open_view() -> int:
+    """A month at a glance, in Prime's own window style."""
+    import importlib.machinery
+    import importlib.util
+    import gi
+    gi.require_version("Gtk", "4.0")
+    gi.require_version("Gdk", "4.0")
+    from gi.repository import Gdk, GLib, Gtk
+    sys.dont_write_bytecode = True          # never leave a cache file inside the layer
+    here = os.path.dirname(os.path.realpath(__file__))
+    loader = importlib.machinery.SourceFileLoader("prime_panel", os.path.join(here, "prime-panel"))
+    panel = importlib.util.module_from_spec(importlib.util.spec_from_loader("prime_panel", loader))
+    loader.exec_module(panel)
+    GLib.set_prgname("prime-calendar")    # after the import: prime-panel names itself too
+    if not panel.has_display():
+        print("Calendar needs the desktop", file=sys.stderr)
+        return 1
+    loop = GLib.MainLoop()
+    win, card = panel.card_window("Calendar — Prime")
+    win.set_default_size(380, 420)
+    win.connect("close-request", lambda *_: loop.quit() or False)
+    today = datetime.date.today()
+    panel.header(card, "Calendar", today.strftime("%A, %B %-d, %Y"))
+    cal = Gtk.Calendar(margin_start=16, margin_end=16, margin_bottom=16, vexpand=True)
+    panel.labelled(cal, "Calendar")
+    card.append(cal)
+    keys = Gtk.EventControllerKey()
+    keys.connect("key-pressed", lambda _c, k, *_: (win.close(), loop.quit(), True)[2]
+                 if k == Gdk.KEY_Escape else False)
+    win.add_controller(keys)
+    win.present()
+    cal.grab_focus()
+    loop.run()
+    return 0
+
+
+def main() -> int:
+    if "--which" in sys.argv:
+        print(which())
+        return 0
+    return open_app() if which() == "app" else open_view()
+
+
+if __name__ == "__main__":
+    sys.exit(main())

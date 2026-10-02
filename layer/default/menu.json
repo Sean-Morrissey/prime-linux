@@ -286,7 +286,7 @@
         {
           "id": "tool.calc",
           "label": "Calculator",
-          "hint": "or type sums into Spotlight",
+          "hint": "or type sums into Prime Search",
           "kind": "run",
           "cmd": "exec gnome-calculator"
         },

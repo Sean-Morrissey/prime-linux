@@ -92,7 +92,7 @@ layer/addons/<name>/
 ### Personal add-ons
 
 The same folder shape works in **`~/.config/prime/addons.d/<name>/`**: your own
-shortcuts, bar items, menu rows, right-click rows, Spotlight snip actions and
+shortcuts, bar items, menu rows, right-click rows, Prime Search snip actions and
 background services, kept apart from Prime's. They are never shipped and never
 touched by `prime-update`; `prime-addon list` shows them marked *(personal)*, and
 `prime-addon enable/disable/check <name>` work on them like on any other. A

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Prime Spotlight launcher — what the Super+Space bind runs.
+# Prime Search launcher — what the Super+Space bind runs.
 #
 # One instance at a time: pressing the key again while the box is open restarts
 # it rather than stacking overlays (the old one is killed, and the bracket in the

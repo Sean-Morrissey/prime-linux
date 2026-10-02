@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # preview-desktop.sh [out-dir] — render the desktop surfaces to PNGs for review:
-# the Prime windows (health check, update, About, password, Activity), Spotlight,
+# the Prime windows (health check, update, About, password, Activity), Prime Search,
 # the rofi pickers at two text sizes, and the bar. Runs on a virtual display
 # (xvfb-run) with a throwaway HOME, so it never touches the real desktop.
 #
@@ -160,11 +160,11 @@ $IM "$WALL" -resize "${W}x${H}^" -gravity center -extent "${W}x${H}" -blur 0x10 
     -fill 'rgba(255,255,255,0.35)' -pointsize 14 -gravity northwest -annotate +16+12 "MOCK — drawn from hyprlock.conf's values; the real screen is drawn by hyprlock" \
     "$OUT/lockscreen.png" && echo "$OUT/lockscreen.png"
 
-# window title bars: the three buttons, each with its symbol (mock, same colours and glyphs)
+# window title bars: Prime's three buttons on the right, each with its symbol (mock, same look)
 $IM -size 360x60 'xc:rgba(20,20,26,0.95)' \
-    -fill '#ff5f57' -draw 'circle 26,30 26,37' -fill '#ffbd2e' -draw 'circle 52,30 52,37' -fill '#28c840' -draw 'circle 78,30 78,37' \
-    -fill 'rgba(0,0,0,0.65)' -font DejaVu-Sans-Bold -pointsize 11 -gravity northwest \
-    -annotate +21+22 '✕' -annotate +48+21 '−' -annotate +48+21 '' -annotate +74+21 '+' \
-    -fill '#e4e4e7' -font Inter-Medium -pointsize 15 -gravity center -annotate +40+0 'Documents — Files' \
+    -fill 'rgba(255,255,255,0.10)' -draw 'circle 282,30 282,39' -draw 'circle 308,30 308,39' -draw 'circle 334,30 334,39' \
+    -fill '#e4e4e7' -font DejaVu-Sans -pointsize 12 -gravity northwest \
+    -annotate +277+21 '−' -annotate +303+21 '□' -annotate +329+21 '✕' \
+    -fill '#e4e4e7' -font Inter-Medium -pointsize 15 -gravity center -annotate -40+0 'Documents — Files' \
     -fill 'rgba(255,255,255,0.35)' -pointsize 10 -gravity southeast -annotate +6+3 'MOCK of hyprbars' \
     -resize 200% "$OUT/titlebar-buttons.png" && echo "$OUT/titlebar-buttons.png"

@@ -32,7 +32,8 @@ CFG = os.path.join(HOME, ".config/prime")
 ACCENTS = [("Rose", "f87171"), ("Ember", "fb923c"), ("Amber", "fbbf24"), ("Emerald", "34d399"),
            ("Teal", "2dd4bf"), ("Sapphire", "60a5fa"), ("Amethyst", "c084fc"), ("Silver", "d4d4d8")]
 TEXT_SIZES = [("Small", "small"), ("Default", "default"), ("Large", "large"), ("Larger", "larger")]
-LOOKS = [("Rounded", "rounded"), ("Sharp", "sharp"), ("Compact", "compact"), ("Airy", "airy")]
+LOOKS = [("Standard", "standard"), ("Compact", "compact"), ("Sharp", "sharp"), ("Spacious", "spacious")]
+LOOK_VALUES = {"standard": (6, 14), "compact": (3, 8), "sharp": (1, 0), "spacious": (10, 20)}   # = prime-settings
 POLICIES = [("Automatically, at night (recommended)", "automatic"), ("Ask me first", "ask"),
             ("Only security fixes", "security"), ("Never by itself", "off")]
 POWER = [("Battery saver", "power-saver"), ("Balanced", "balanced"), ("Performance", "performance")]
@@ -122,6 +123,26 @@ def enabled_addons() -> set:
         return set()
 
 
+def installed_apps() -> list:
+    """[(name, desktop id)] for the apps on the menu, by name."""
+    seen = {}
+    for d in (os.path.join(HOME, ".local/share/applications"), "/usr/share/applications"):
+        try:
+            names = sorted(os.listdir(d))
+        except OSError:
+            continue
+        for f in names:
+            if not f.endswith(".desktop") or f in seen:
+                continue
+            text = read(os.path.join(d, f))
+            if re.search(r"^(NoDisplay|Hidden)=true", text, re.M) or "[Desktop Entry]" not in text:
+                continue
+            m = re.search(r"^Name=(.+)$", text, re.M)
+            if m:
+                seen[f] = m.group(1).strip()
+    return sorted(((n, f) for f, n in seen.items()), key=lambda x: x[0].lower())
+
+
 def gb(n_bytes: float) -> str:
     return f"{n_bytes / 1e9:.0f} GB" if n_bytes >= 10e9 else f"{n_bytes / 1e9:.1f} GB"
 
@@ -201,7 +222,22 @@ def battery() -> dict:
 
 MONITORS_CONF = os.path.join(HOME, ".config/hypr/monitors.conf")
 HYPRCTL = "hyprctl"                         # the window manager's control command
+SYSTEMCTL = "systemctl"                     # starts and stops the desktop's parts
 SCALES = [("100%", 1.0), ("125%", 1.25), ("150%", 1.5), ("175%", 1.75), ("200%", 2.0)]
+MINUTE_CHOICES = [("1 minute", 1), ("2 minutes", 2), ("5 minutes", 5), ("10 minutes", 10), ("15 minutes", 15),
+                  ("20 minutes", 20), ("30 minutes", 30), ("45 minutes", 45), ("1 hour", 60), ("2 hours", 120),
+                  ("Never", 0)]
+BAR_ITEM_NAMES = [("media", "Music controls", "Play, pause and skip, with what's playing"),
+                  ("toggles", "Quick toggles", "Night light, do not disturb, keep awake"),
+                  ("keyboard", "Keyboard layout", "Shown when you have more than one"),
+                  ("tray", "App icons (tray)", "Apps that run in the background, such as Discord or Steam"),
+                  ("network", "Wi-Fi", "Network and its menu"),
+                  ("bluetooth", "Bluetooth", "Bluetooth and its devices"),
+                  ("sound", "Volume", "Volume and sound devices"),
+                  ("battery", "Battery", "On laptops"),
+                  ("updates", "Updates", "Shown when updates are waiting"),
+                  ("notifications", "Notifications", "The notification centre button"),
+                  ("stats", "Processor, memory and graphics use", "Live numbers (with the Gaming pack)")]
 VRR_MODES = [("Off", 0), ("Always", 1), ("Full-screen games and video", 2)]
 
 
@@ -388,8 +424,12 @@ PAGES = [
     ("sound", "Sound", "audio-volume-high-symbolic", "volume speakers headphones microphone mute output input"),
     ("display", "Displays", "video-display-symbolic", "screen monitor resolution scale brightness night light refresh hz screenshot snip print capture"),
     ("appearance", "Appearance", "preferences-desktop-appearance-symbolic", "theme wallpaper background accent colour color dark text size corners animations window layout tiling tile float floating tidy"),
+    ("dock", "Dock", "go-bottom-symbolic", "dock taskbar launcher pinned apps hide autohide size position bottom left right"),
+    ("topbar", "Top Bar", "go-top-symbolic", "bar top panel waybar clock time 24 hour seconds date items icons tray hide show"),
+    ("windows", "Windows & Workspaces", "view-dual-symbolic", "windows workspaces desktops virtual spaces snap tiling gaps corners title bars focus mouse arrows main half"),
     ("notifications", "Notifications", "preferences-system-notifications-symbolic", "do not disturb alerts banners"),
     ("power", "Power & Battery", "battery-full-symbolic", "battery sleep performance power saver keep awake laptop"),
+    ("lock", "Lock & Sleep", "system-lock-screen-symbolic", "lock screen sleep suspend idle timeout screen off dim screensaver keep awake password"),
     ("mouse", "Mouse & Touchpad", "input-mouse-symbolic", "pointer speed acceleration scrolling natural tap click left handed trackpad"),
     ("keyboard", "Keyboard", "input-keyboard-symbolic", "layout language repeat shortcuts keys typing"),
     ("processor", "Processor", "cpu-symbolic", "cpu cores speed temperature usage activity performance"),
@@ -398,6 +438,7 @@ PAGES = [
     ("gaming", "Gaming", "input-gaming-symbolic", "steam games performance fps overlay mangohud gamemode proton"),
     ("assistant", "AI Assistant", "user-available-symbolic", "ai ask prime model chat assistant permissions autonomy"),
     ("apps", "Apps", "view-app-grid-symbolic", "default browser file manager startup autostart packs add-ons app store"),
+    ("startup", "Startup Apps", "system-run-symbolic", "startup autostart login boot open automatically background apps"),
     ("updates", "Updates", "software-update-available-symbolic", "update upgrade automatic nightly undo rollback snapshot"),
     ("security", "Privacy & Security", "security-high-symbolic", "firewall ssh remote login password encryption permissions"),
     ("printers", "Printers", "printer-symbolic", "print printer scanner paper ink"),
@@ -405,6 +446,7 @@ PAGES = [
     ("region", "Language & Region", "preferences-desktop-locale-symbolic", "language locale region format"),
     ("accounts", "Users & Accounts", "system-users-symbolic", "account name password user login"),
     ("accessibility", "Accessibility", "preferences-desktop-accessibility-symbolic", "text size larger motion animations zoom contrast"),
+    ("troubleshoot", "Troubleshooting", "emblem-system-symbolic", "fix repair broken sound no audio wifi bar dock frozen restart reset reload title bars notifications help problem"),
     ("about", "About & Help", "help-about-symbolic", "about version computer specs help support repair health check report restore"),
 ]
 
@@ -554,6 +596,17 @@ def gui(page: str = "", screenshots: str = "", selftest: bool = False) -> int:
         b = Gtk.Button(label=label, valign=Gtk.Align.CENTER)
         b.update_property([Gtk.AccessibleProperty.LABEL], [f"{label}: {title}"])
         b.connect("clicked", lambda *_: launch(*cmd))
+        r.add_suffix(b)
+        r.set_activatable_widget(b)
+        g.add(r)
+        return r
+
+    def goto(win, g, title, subtitle, pid, label="Open"):
+        """A row that opens another page of this window."""
+        r = Adw.ActionRow(title=GLib.markup_escape_text(title), subtitle=GLib.markup_escape_text(subtitle))
+        b = Gtk.Button(label=label, valign=Gtk.Align.CENTER)
+        b.update_property([Gtk.AccessibleProperty.LABEL], [f"{label}: {title}"])
+        b.connect("clicked", lambda *_: GLib.idle_add(lambda: win.show(pid) and False))
         r.add_suffix(b)
         r.set_activatable_widget(b)
         g.add(r)
@@ -873,10 +926,12 @@ def gui(page: str = "", screenshots: str = "", selftest: bool = False) -> int:
         choice(win, g, "Text size", "One size for the whole desktop", TEXT_SIZES, th.get("TEXT", "default"),
                lambda t: done(ok("prime-theme", "--set-text", t), "Text size changed"))
         choice(win, g, "Window layout", "Tidy: the main window takes the left half and new ones share the right half; Super+arrows snap a window to a side. "
-               "Free: they float like on a Mac and snap to edges when dragged. Super+Shift+V flips one window.",
-               [("Tidy — snap into place (recommended)", "tidy"), ("Free — float like a Mac", "free")],
+               "Free: they float freely and snap to edges when dragged. Super+Shift+V flips one window.",
+               [("Tidy (recommended)", "tidy"), ("Free", "free")],
                st.get("window_layout", "tidy"), lambda v: tb("window_layout", v))
-        choice(win, g, "Window style", "Corners and the space between windows", LOOKS, st.get("look", ""),
+        look = next((k for k, v in LOOK_VALUES.items()
+                     if (int(st.get("gaps", -1)), int(st.get("rounding", -1))) == v), "")
+        choice(win, g, "Window style", "Corners and the space between windows", LOOKS, look,
                lambda p: toolbox("set_look", {"preset": p}))
         g2 = group(page, "Motion")
         switch(win, g2, "Animations", "Windows slide and fade; off is calmer and faster",
@@ -886,6 +941,194 @@ def gui(page: str = "", screenshots: str = "", selftest: bool = False) -> int:
                os.path.join(HOME, ".config/hypr/hyprland.conf")], "Edit")
         g3 = group(page, "Screen saver")
         opener(g3, "Preview the screen saver", "What shows before the screen locks", ["prime-screensaver"], "Preview")
+        return page
+
+    def p_dock(win):
+        page = Adw.PreferencesPage()
+        st = managed()
+        g = group(page, "Dock", "Your pinned apps and everything that's open")
+        choice(win, g, "Show the dock", "Hidden, it appears when the pointer touches the edge — the screen stays yours",
+               [("Hide until needed", "autohide"), ("Always show", "always")],
+               st.get("dock_mode", "autohide"), lambda v: tb("dock_mode", v))
+        choice(win, g, "Position", "Which edge of the screen", [("Bottom", "bottom"), ("Left", "left"), ("Right", "right")],
+               st.get("dock_position", "bottom"), lambda v: tb("dock_position", v))
+        choice(win, g, "Size", "How big the app icons are", [("Small", "small"), ("Medium", "medium"), ("Large", "large")],
+               st.get("dock_size", "medium"), lambda v: tb("dock_size", v))
+        g2 = group(page, "Pinned apps", "Right-click an app in the dock to pin or unpin it")
+
+        def reset_pins():
+            try:
+                os.remove(os.path.join(HOME, ".cache/nwg-dock-pinned"))
+            except OSError:
+                pass
+            ok(SYSTEMCTL, "--user", "restart", "prime-dock")
+            return True, "Pinned apps are back to Prime's"
+        r = Adw.ActionRow(title="Start over with Prime's pinned apps", subtitle="Files, the browser, the App Store and Settings")
+        b = Gtk.Button(label="Reset", valign=Gtk.Align.CENTER)
+        b.update_property([Gtk.AccessibleProperty.LABEL], ["Reset pinned apps"])
+        b.connect("clicked", lambda *_: win.toast(reset_pins()[1]))
+        r.add_suffix(b)
+        g2.add(r)
+        return page
+
+    def p_topbar(win):
+        page = Adw.PreferencesPage()
+        st = managed()
+        g = group(page, "Clock")
+        choice(win, g, "Clock style", "", [("12-hour (3:45 PM)", "12h"), ("24-hour (15:45)", "24h")],
+               st.get("clock_format", "12h"), lambda v: tb("clock_format", v))
+        switch(win, g, "Show the date", "Next to the time", st.get("clock_date", "on") != "off",
+               lambda on: tb("clock_date", "on" if on else "off"))
+        switch(win, g, "Show seconds", "", st.get("clock_seconds", "off") == "on",
+               lambda on: tb("clock_seconds", "on" if on else "off"))
+        info(g, "Click the clock", "Opens the calendar")
+        g2 = group(page, "What the bar shows", "Switch off what you don't need — the bar stays tidy")
+        hidden = {x for x in str(st.get("bar_hidden", "")).split(",") if x}
+
+        def set_item(key, on):
+            now = set(x for x in str(managed().get("bar_hidden", "")).split(",") if x)
+            now = now - {key} if on else now | {key}
+            return tb("bar_hidden", ",".join(sorted(now)))
+        for key, title, sub_ in BAR_ITEM_NAMES:
+            switch(win, g2, title, sub_, key not in hidden, lambda on, key=key: set_item(key, on))
+        g3 = group(page, "More")
+        opener(g3, "Use the bar from the keyboard", "Every bar item and its menu (Super+Alt+B)", ["prime-bar", "--keys"])
+        opener(g3, "Restart the bar", "If it froze or vanished (Super+W)", ["prime-bar", "restart"], "Restart")
+        return page
+
+    def p_windows(win):
+        page = Adw.PreferencesPage()
+        st = managed()
+        g = group(page, "Workspaces", "Separate desktops, numbered on the top bar. Click one to go there — "
+                  "apps stay on the workspace they were opened on")
+        choice(win, g, "How many", "Always on the bar, even when empty",
+               [(str(n), n) for n in range(1, 11)], int(st.get("workspaces", 5)), lambda v: tb("workspaces", str(v)))
+        switch(win, g, "Apps stay where they were opened", "An app never moves you to another workspace; it lights up "
+               "on the bar instead", st.get("workspace_guard", "on") != "off",
+               lambda on: tb("workspace_guard", "on" if on else "off"))
+        g2 = group(page, "Windows")
+        choice(win, g2, "Window layout", "Tidy: the main window takes the left half and new ones share the right half. "
+               "Free: they float freely and snap to edges when dragged.",
+               [("Tidy (recommended)", "tidy"), ("Free", "free")],
+               st.get("window_layout", "tidy"), lambda v: tb("window_layout", v))
+        choice(win, g2, "New windows open", "In the Tidy layout; the main window stays on the left half",
+               [("On the right half", "right"), ("As the main window", "main")],
+               st.get("new_windows", "right"), lambda v: tb("new_windows", v))
+        choice(win, g2, "Super + arrow keys", "Snap the window to that side, or switch to the window there. Super + Shift + arrows does the other one",
+               [("Snap the window", "move"), ("Switch windows", "focus")],
+               st.get("snap_keys", "move"), lambda v: tb("snap_keys", v))
+        switch(win, g2, "Focus follows the pointer", "The window under the pointer is the one you type into",
+               st.get("focus_follows_mouse", "on") != "off", lambda on: tb("focus_follows_mouse", "on" if on else "off"))
+        switch(win, g2, "Title bars", "The bar on top of each window, with − □ ✕",
+               st.get("titlebars", "on") != "off", lambda on: tb("titlebars", "on" if on else "off"))
+        g3 = group(page, "Look")
+        slider(win, g3, "Space between windows", "0 is edge to edge", 0, 40, 1, float(st.get("gaps", 6)),
+               lambda x: tb("gaps", str(int(x))))
+        slider(win, g3, "Rounded corners", "0 is square", 0, 30, 1, float(st.get("rounding", 12)),
+               lambda x: tb("rounding", str(int(x))))
+        g4 = group(page, "Keys", "Every shortcut: Super+/")
+        for k, what in (("Super + 1 … 9", "Go to that workspace"), ("Super + Shift + 1 … 9", "Send the window there"),
+                        ("Super + F", "Full screen on / off"), ("Super + Q", "Close the window")):
+            info(g4, k, what)
+        return page
+
+    def p_lock(win):
+        page = Adw.PreferencesPage()
+        st = managed()
+        g = group(page, "When you step away", "Counted from the last time you touched the keyboard or mouse. "
+                  "Video and games keep the screen on by themselves")
+        choice(win, g, "Lock the screen after", "A minute before, the screen dims", MINUTE_CHOICES,
+               int(st.get("lock_after", 10)), lambda v: tb("lock_after", str(v)))
+        choice(win, g, "Turn the screens off after", "", MINUTE_CHOICES,
+               int(st.get("screen_off_after", 20)), lambda v: tb("screen_off_after", str(v)))
+        choice(win, g, "Put the computer to sleep after", "Asleep, it uses almost no power", MINUTE_CHOICES,
+               int(st.get("sleep_after", 0)), lambda v: tb("sleep_after", str(v)))
+        idle = sh("prime-toggle", "status", "idle") == "on"
+        switch(win, g, "Keep awake", "Pause all of this until you switch it off or log out", idle,
+               lambda on: done(ok("prime-toggle", "idle", "on" if on else "off"),
+                               "Keep awake is " + ("on" if on else "off")))
+        g2 = group(page, "Now")
+        opener(g2, "Lock the screen", "Super+L", ["prime-lock", "--now"], "Lock")
+        opener(g2, "Preview the screen saver", "What shows before the password screen", ["prime-screensaver"], "Preview")
+        opener(g2, "Sleep, restart or shut down", "", ["prime-power-menu"])
+        goto(win, g2, "Change your password", "Users & Accounts", "accounts")
+        return page
+
+    def p_startup(win):
+        page = Adw.PreferencesPage()
+        g3 = group(page, "Open by themselves when you log in", "Switch one off and it stays installed — it just doesn't start by itself")
+        auto = os.path.join(HOME, ".config/autostart")
+        entries = sorted(f for f in os.listdir(auto) if f.endswith(".desktop")) if os.path.isdir(auto) else []
+        shown = 0
+        for f in entries:
+            path = os.path.join(auto, f)
+            text = read(path)
+            if "hidden by Prime" in text:
+                continue
+            name = (re.search(r"^Name=(.*)$", text, re.M) or [None, f[:-8]])[1]
+            hidden = re.search(r"^Hidden=true", text, re.M) is not None
+
+            def flip(on, path=path):
+                t = read(path)
+                t = re.sub(r"^Hidden=.*\n?", "", t, flags=re.M).rstrip("\n") + ("\n" if on else "\nHidden=true\n")
+                try:
+                    open(path, "w").write(t)
+                    return True, "Saved — it applies from your next login"
+                except OSError:
+                    return False, "Couldn't change that file"
+            switch(win, g3, name, "Starts when you log in", not hidden, flip)
+            shown += 1
+        if not shown:
+            info(g3, "Nothing extra starts yet", "Add an app below")
+        g4 = group(page, "Add an app")
+        apps = installed_apps()
+        if apps:
+            def add(desktop_id):
+                src = next((p for p in (os.path.join(HOME, ".local/share/applications", desktop_id),
+                                        os.path.join("/usr/share/applications", desktop_id)) if os.path.exists(p)), "")
+                if not src:
+                    return False, "That app isn't installed any more"
+                os.makedirs(auto, exist_ok=True)
+                try:
+                    shutil.copyfile(src, os.path.join(auto, desktop_id))
+                except OSError:
+                    return False, "Couldn't add it"
+                GLib.idle_add(win.refresh)
+                return True, "Added — it opens by itself from your next login"
+            choice(win, g4, "Open this app when I log in", "Pick one", apps, None, add)
+        return page
+
+    def p_troubleshoot(win):
+        page = Adw.PreferencesPage()
+        g = group(page, "Something's not right?", "Each one fixes one thing and touches nothing else. Try the first one first")
+        opener(g, "Check and fix the desktop", "Looks at everything and repairs what it safely can (Super+H)", ["prime-doctor"], "Check")
+        g2 = group(page, "Quick fixes")
+        opener(g2, "No sound", "Restart the sound system — playing apps come back in a second",
+               ["sh", "-c", "systemctl --user restart wireplumber pipewire pipewire-pulse"], "Fix")
+        opener(g2, "Wi-Fi won't connect", "Switch networking off and on again",
+               ["sh", "-c", "nmcli networking off; sleep 2; nmcli networking on"], "Fix")
+        opener(g2, "The top bar froze or vanished", "Start it again (Super+W)", ["prime-bar", "restart"], "Fix")
+        opener(g2, "The dock is missing", "Start it again", [SYSTEMCTL, "--user", "restart", "prime-dock"], "Fix")
+        opener(g2, "Notifications stopped", "Start the notification centre again",
+               [SYSTEMCTL, "--user", "restart", "swaync"], "Fix")
+        opener(g2, "Window title bars are gone", "Build them again for this version (about a minute)",
+               ["prime-titlebars", "--rebuild"], "Fix")
+        opener(g2, "The screen doesn't lock by itself", "Start the idle timer again", ["prime-idle", "--restart"], "Fix")
+        opener(g2, "Something looks wrong after a change", "Reload the window settings", [HYPRCTL, "reload"], "Fix")
+        g3 = group(page, "Go back")
+        r = Adw.ActionRow(title="Undo the last change made in Settings", subtitle="Mouse, keyboard, look, dock, bar and the rest")
+        b = Gtk.Button(label="Undo", valign=Gtk.Align.CENTER)
+        b.connect("clicked", lambda *_: (win.toast(toolbox("undo_last", {})[1] or "Undone"), win.refresh()))
+        r.add_suffix(b)
+        g3.add(r)
+        opener(g3, "Restore desktop settings", "Back to a copy saved before an update", ["prime-desktop-backup", "restore"], "Restore")
+        opener(g3, "Save desktop settings now", "A copy you can restore later", ["prime-menu", "--run", "style.save"], "Save")
+        opener(g3, "Undo the last update", "Go back to how the system was before it", ["prime-update", "--undo"], "Undo")
+        opener(g3, "Get a file back", "File History", ["prime-file-history"], "Open")
+        g4 = group(page, "Still stuck?")
+        opener(g4, "Update Prime", "Fixes often arrive as updates", ["prime-panel", "--title", "Updating Prime", "--",
+               os.path.join(BIN, "prime-update"), "--prime"], "Update")
+        opener(g4, "Get help", "A report to send to whoever helps you — no passwords, no files", ["prime-help"], "Make")
         return page
 
     def p_notifications(win):
@@ -1091,7 +1334,7 @@ def gui(page: str = "", screenshots: str = "", selftest: bool = False) -> int:
         page = Adw.PreferencesPage()
         on = "ai" in enabled_addons()
         g = group(page, "Ask Prime", "Optional. Nothing is sent anywhere until you connect a model.")
-        switch(win, g, "AI assistant", "Ask Prime from Spotlight, right-click menus and Super+Shift+Space", on,
+        switch(win, g, "AI assistant", "Ask Prime from Prime Search, right-click menus and Super+Shift+Space", on,
                lambda v: pack(v, "ai", "AI assistant"))
         conf = read(os.path.join(CFG, "ai.conf"))
         mm = re.search(r"^MODEL=(.*)$", conf, re.M)
@@ -1122,30 +1365,8 @@ def gui(page: str = "", screenshots: str = "", selftest: bool = False) -> int:
         info(g2, "Web browser", br or "not set")
         info(g2, "File manager", fm or "not set")
         opener(g2, "Change the default apps", "", ["prime-default-apps"], "Change")
-        g3 = group(page, "Start with the computer", "Apps that open by themselves when you log in")
-        auto = os.path.join(HOME, ".config/autostart")
-        entries = sorted(f for f in os.listdir(auto) if f.endswith(".desktop")) if os.path.isdir(auto) else []
-        shown = 0
-        for f in entries:
-            path = os.path.join(auto, f)
-            text = read(path)
-            if "hidden by Prime" in text:
-                continue
-            name = (re.search(r"^Name=(.*)$", text, re.M) or [None, f[:-8]])[1]
-            hidden = re.search(r"^Hidden=true", text, re.M) is not None
-
-            def flip(on, path=path):
-                t = read(path)
-                t = re.sub(r"^Hidden=.*\n?", "", t, flags=re.M).rstrip("\n") + ("\n" if on else "\nHidden=true\n")
-                try:
-                    open(path, "w").write(t)
-                    return True, "Saved — it applies from your next login"
-                except OSError:
-                    return False, "Couldn't change that file"
-            switch(win, g3, name, f, not hidden, flip)
-            shown += 1
-        if not shown:
-            info(g3, "Nothing extra starts with the computer", "Apps you set to start by themselves show up here")
+        g3 = group(page, "Start with the computer")
+        goto(win, g3, "Apps that open when you log in", "Startup Apps", "startup")
         for sec in registry():               # Coding, Creating, Studying… (Gaming and AI have their own pages)
             if sec.get("id") not in CORE_SECTIONS | {"gaming", "prime"}:
                 pack_group(page, sec)
@@ -1324,13 +1545,13 @@ def gui(page: str = "", screenshots: str = "", selftest: bool = False) -> int:
         g2.add(r)
         opener(g2, "About Prime", "P.R.I.M.E — Please Relax I'll Manage Everything", ["prime-about"])
         g3 = group(page, "Repair")
-        opener(g3, "Save desktop settings now", "A copy you can restore later", ["prime-menu", "--run", "style.save"], "Save")
-        opener(g3, "Restart the bar", "If the bar froze or vanished (Super+W)", ["prime-bar", "restart"], "Restart")
-        opener(g3, "Reload window settings", "After editing the settings file by hand", ["prime-menu", "--run", "style.reload"], "Reload")
+        goto(win, g3, "Troubleshooting", "One-click fixes for sound, Wi-Fi, the bar, the dock and more", "troubleshoot")
         return page
 
     BUILDERS = {"network": p_network, "bluetooth": p_bluetooth, "sound": p_sound, "display": p_display,
-                "appearance": p_appearance, "notifications": p_notifications, "power": p_power,
+                "appearance": p_appearance, "dock": p_dock, "topbar": p_topbar, "windows": p_windows,
+                "notifications": p_notifications, "power": p_power, "lock": p_lock, "startup": p_startup,
+                "troubleshoot": p_troubleshoot,
                 "mouse": p_mouse, "keyboard": p_keyboard, "processor": p_processor, "graphics": p_graphics,
                 "storage": p_storage, "gaming": p_gaming, "assistant": p_assistant, "apps": p_apps,
                 "updates": p_updates, "security": p_security, "printers": p_printers, "datetime": p_datetime, "region": p_region,

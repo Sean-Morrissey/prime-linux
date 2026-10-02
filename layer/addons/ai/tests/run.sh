@@ -65,7 +65,7 @@ cp "$T/settings.good" "$H/.config/prime/settings.json"
 fi
 ck "default browser set from installed apps"        "in_home $S run set_default_app '{\"kind\":\"browser\",\"app\":\"Fakefox\"}' | grep -q true && grep -q fake-browser $H/.config/mimeapps.list"
 ck "remove a shortcut Prime added"                  "in_home $S run remove_shortcut '{\"keys\":\"Super+Shift+B\"}' | grep -q true && ! grep -q 'SUPER SHIFT, B' $H/.config/hypr/hyprland.conf"
-ck "list tools read without asking"                 "in_home $S run list_shortcuts '{}' --actor ai | grep -q 'Spotlight'"
+ck "list tools read without asking"                 "in_home $S run list_shortcuts '{}' --actor ai | grep -q 'Prime Search'"
 
 echo "== autonomy levels"
 in_home "$S" autonomy auto-user >/dev/null

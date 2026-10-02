@@ -77,6 +77,8 @@ jobs:
         run: bash tests/check-prime-do.sh
       - name: Title bars rebuild themselves after a Hyprland update
         run: bash tests/check-titlebars.sh
+      - name: Super+arrows snap windows to a half; Super+F toggles full screen
+        run: bash tests/check-snap.sh
       - name: shellcheck (warning level) on every shell script
         run: bash tests/check-shellcheck.sh
 

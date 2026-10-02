@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# prime-snap l|r|u|d — Super+arrow: send the window to that side of the screen.
+# Left makes it the main window (left half); right puts it with the others on the
+# right half; up and down swap it with the window above or below it there.
+# A full-screen window comes out of full screen first, and a floating one snaps
+# back into place, so the key always does what it says.
+set -u
+dir="${1:-}"
+case "$dir" in l|r|u|d) ;; *) echo "usage: prime-snap l|r|u|d" >&2; exit 2 ;; esac
+win="$(hyprctl activewindow -j 2>/dev/null)" || exit 0
+[ -n "$win" ] && [ "$win" != "{}" ] || exit 0
+full="$(jq -r '.fullscreen // 0' <<<"$win")"
+case "$full" in
+    1|true) hyprctl dispatch fullscreen 1 >/dev/null ;;
+    2|3)    hyprctl dispatch fullscreen 0 >/dev/null ;;
+esac
+[ "$(jq -r '.floating' <<<"$win")" = true ] && hyprctl dispatch togglefloating >/dev/null
+hyprctl dispatch movewindow "$dir" >/dev/null

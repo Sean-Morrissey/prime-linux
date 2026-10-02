@@ -41,7 +41,7 @@ mean?" — or ask for changes:
 
 - "make the accent green" · "use the dune wallpaper" · "make the windows less round"
 - "turn off animations" · "scroll like on my phone" · "switch my keyboard to German"
-- "turn on night light" · "add a shortcut: Super+Shift+F opens Firefox"
+- "turn on night light" · "add a shortcut: Super+Shift+O opens Firefox"
 - "make Firefox my default browser" · "turn on the gaming pack"
 - "check my computer" · "update everything" · "update automatically every night"
 - "save my desktop settings" · "undo that"

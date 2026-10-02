@@ -150,8 +150,14 @@ Everything in this guide is also in Settings or Spotlight, so you never *need* a
 - Mouse, keyboard, look and the other saved settings can be undone: About & Help → **Undo the last change made here**.
 
 ### Windows and workspaces
-- Windows snap into place side by side and never cover the bar or the dock; with one
-  window open it fills the screen. **Super+F** makes any window full screen.
+- Windows snap into place and never cover the bar or the dock. One window fills the
+  screen; the first window stays on the left half and new ones share the right half.
+- **Super+←** snaps a window to the left half (it becomes the main window), **Super+→**
+  to the right half, **Super+↑ / Super+↓** move it up or down within the right half.
+  Dragging a window by its title bar and dropping it on a half does the same.
+- **Super+Shift+arrows** move between windows; **Alt+Tab** cycles through them.
+- **Super+F** puts a window full screen and the same keys bring it back;
+  **Super+Shift+F** maximises it but keeps the bar.
 - Prefer windows that float like on a Mac? Settings → Appearance → **Window layout →
   Free** (or type "floating windows" in Super+Space): they open at a sensible size in the
   middle and snap to edges when you drag them. **Super+Shift+V** flips one window either way.

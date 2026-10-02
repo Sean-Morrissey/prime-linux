@@ -27,12 +27,12 @@ The ones still missing are listed at the bottom with an owner.
 
 | Capability | Omarchy | Prime | Status |
 |---|---|---|---|
-| App launcher | walker / quickshell | Spotlight (Super+Space): apps, files, maths, web | have |
+| App launcher | walker / quickshell | Prime Search (Super+Space): apps, files, maths, web | have |
 | One menu for everything | `omarchy-menu` (Super+Alt+Space) | Prime menu (Super+Alt+Space), declarative `menu.json`, add-ons extend it | have |
 | Keybinding cheat sheet | `omarchy-menu-keybindings` | Super+/ reads live `hyprctl binds`; every bind has a description (tested) | have |
 | Right-click menus on the bar | — | every bar element has one (`elements.json`) | better |
-| File search | walker files | Spotlight (fd + plocate) | have |
-| Calculator | walker calc / omacalc | Spotlight maths + GNOME Calculator (menu, XF86Calculator key) | built |
+| File search | walker files | Prime Search (fd + plocate) | have |
+| Calculator | walker calc / omacalc | Prime Search maths + GNOME Calculator (menu, XF86Calculator key) | built |
 | Emoji picker | `omarchy-menu-emoji` (Super+Ctrl+E) | `prime-emoji` (rofimoji: types + copies), Super+Ctrl+E | built |
 | Clipboard history | walker clipboard | Super+V (cliphist, text + images, survives app close) | have |
 | Web apps | `omarchy-webapp-install/remove` (Chromium `--app`) | `prime-webapp`: pick WhatsApp/YouTube/Gmail… or any URL; default browser's app mode, Firefox-only falls back to a window; icon fetched | built |

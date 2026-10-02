@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# preview-pro-ui.sh [out-dir] — render the start menu, Spotlight, the Prime menu, a
+# preview-pro-ui.sh [out-dir] — render the start menu, Prime Search, the Prime menu, a
 # right-click menu and the terminal greeting to PNGs for review. Virtual display
 # (xvfb-run) and a throwaway HOME with a handful of sample apps and recent files,
 # so it never touches the real desktop.
@@ -33,7 +33,7 @@ EOF
 bash "$L/bin/prime-theme" --apply >/dev/null 2>&1
 mkdir -p "$HOME/.config/gtk-3.0"
 printf '[Settings]\ngtk-icon-theme-name=%s\ngtk-application-prefer-dark-theme=1\ngtk-font-name=Inter 10\n' \
-    "$( [ -d /usr/share/icons/WhiteSur-dark ] && echo WhiteSur-dark || echo Papirus-Dark)" > "$HOME/.config/gtk-3.0/settings.ini"
+    Papirus-Dark > "$HOME/.config/gtk-3.0/settings.ini"
 printf 'name: "Alex Rivera"\n' > "$HOME/.config/prime/identity.yaml"
 
 app() {  # app <id> <Name> <icon> <comment>

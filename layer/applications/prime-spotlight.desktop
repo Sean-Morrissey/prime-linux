@@ -1,6 +1,6 @@
 [Desktop Entry]
 Type=Application
-Name=Spotlight
+Name=Prime Search
 Comment=Search apps, files and the web
 Exec=@LAYER@/bin/prime-spotlight
 Icon=system-search

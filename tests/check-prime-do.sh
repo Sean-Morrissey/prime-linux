@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# tests/check-prime-do.sh — Prime does everyday requests without AI (prime-do), Spotlight
+# tests/check-prime-do.sh — Prime does everyday requests without AI (prime-do), Prime Search
 # shows them first, the Ask box tries them before the model, and a screenshot never
 # asks anything before it is saved (prime-snip). Throwaway HOME, fake capture tools.
 set -u
@@ -66,10 +66,10 @@ ck "every Prime tool an action runs exists${bad:+ (missing:$bad)}" "[ -z '$bad' 
 ck "the programs actions use are in the package list" \
    "for p in networkmanager bluez-utils wireplumber brightnessctl gnome-software; do grep -qx \$p '$REPO/os/arch/packages.txt' || exit 1; done"
 
-# ── Spotlight shows them first, the Ask box tries them first ───────────────
-ck "Spotlight: \"wifi off\" is the Top Hit, under Do it" \
+# ── Prime Search shows them first, the Ask box tries them first ───────────────
+ck "Prime Search: \"wifi off\" is the Top Hit, under Do it" \
    "grep -q 'lambda r: r\[0\] == \"do\" and r\[3\] == \"sure\"' '$REPO/layer/bin/prime-spotlight' && grep -q '\"do\": \"Do it\"' '$REPO/layer/bin/prime-spotlight'"
-ck "Spotlight runs the action by its id"       "grep -q '\"prime-do\"), \"--id\", payload' '$REPO/layer/bin/prime-spotlight'"
+ck "Prime Search runs the action by its id"       "grep -q '\"prime-do\"), \"--id\", payload' '$REPO/layer/bin/prime-spotlight'"
 ck "the Ask box does known requests without the model" "grep -q 'just_do(q)' '$REPO/layer/addons/ai/bin/prime-ask'"
 
 # ── screenshots: saved and copied first; the next step is offered, not asked ─

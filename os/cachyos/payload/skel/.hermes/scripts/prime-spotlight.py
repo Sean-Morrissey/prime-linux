@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-"""Prime Spotlight — the one box that finds anything, and asks Prime for the rest.
+"""Prime Search — the one box that finds anything, and asks Prime for the rest.
 
 Super+Space opens it. Typing searches locally and instantly (no model in the
 loop): applications, then files and folders under ~. Enter opens the top hit.
@@ -296,7 +296,7 @@ def results_for(query: str, apps: list, recents: list, timeout: int = 4) -> list
 
 # ── window ─────────────────────────────────────────────────────────────────────
 
-class Spotlight(Gtk.Window):
+class SearchWindow(Gtk.Window):
     def __init__(self, show: bool = True):
         super().__init__(type=Gtk.WindowType.TOPLEVEL)
         self.apps = load_apps()
@@ -535,7 +535,7 @@ def selftest() -> int:
     recents = load_recent()
     check("recent files parsed", isinstance(recents, list), f"{len(recents)} entries")
 
-    win = Spotlight(show=False)
+    win = SearchWindow(show=False)
     check("window builds with the layer shell configured", win.get_name() == "prime-spotlight")
     check("nothing was mapped (no window on screen)",
           not win.get_mapped() and not win.get_visible(),
@@ -564,7 +564,7 @@ def main() -> int:
         Gdk.Screen.get_default(), style, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
 
     started = time.monotonic()
-    win = Spotlight()
+    win = SearchWindow()
     if a.seconds:
         GLib.timeout_add(int(a.seconds * 1000), lambda: (win.hide_now(), False)[1])
     Gtk.main()

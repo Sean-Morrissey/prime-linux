@@ -116,7 +116,7 @@ fi
 
 printf '# Prime assistant — change it in the Settings → AI Assistant → Change the model\nBASE_URL=%s\nMODEL=%s\n' "$url" "$model" > "$CONF"
 if "$HERE/prime-ask" --test >/dev/null 2>&1; then
-    say "Ready. Super+Shift+Space asks Prime; Spotlight and right-click menus can ask too."
+    say "Ready. Super+Shift+Space asks Prime; Prime Search and right-click menus can ask too."
 else
     say "Saved, but Prime couldn't reach the model yet — make sure it is running, then try again from Settings → AI Assistant."
 fi

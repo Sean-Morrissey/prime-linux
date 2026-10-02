@@ -131,7 +131,7 @@ Three keys to remember — *Super* is the Windows key:
 | **Super + I** | Settings: Wi-Fi, sound, display, mouse, gaming, updates, everything |
 | **Super + /** | Every keyboard shortcut, searchable |
 
-Everything in this guide is also in Settings or Spotlight, so you never *need* a terminal.
+Everything in this guide is also in Settings or Prime Search, so you never *need* a terminal.
 
 ## 4. Everyday things
 
@@ -140,7 +140,7 @@ Everything in this guide is also in Settings or Spotlight, so you never *need* a
 - **Install an app**: Settings → Apps → **App Store**. Click Install.
 - **A website as an app** (WhatsApp, YouTube, Gmail…): Settings → Apps
   → **Make a website into an app**. It gets its own window and icon.
-- **Close a window**: Super+Q, or the red dot on the window's title bar.
+- **Close a window**: Super+Q, or the ✕ button at the right of the window's title bar.
 - **The dock**: move the pointer to the bottom edge of the screen. Click an app to open or
   switch to it; right-click to pin or unpin it; the grid button opens Start.
 
@@ -158,7 +158,7 @@ Everything in this guide is also in Settings or Spotlight, so you never *need* a
 - **Super+Shift+arrows** move between windows; **Alt+Tab** cycles through them.
 - **Super+F** puts a window full screen and the same keys bring it back;
   **Super+Shift+F** maximises it but keeps the bar.
-- Prefer windows that float like on a Mac? Settings → Appearance → **Window layout →
+- Prefer windows that float freely? Settings → Appearance → **Window layout →
   Free** (or type "floating windows" in Super+Space): they open at a sensible size in the
   middle and snap to edges when you drag them. **Super+Shift+V** flips one window either way.
 - **Super+1 … Super+9** switch between workspaces (separate desktops).

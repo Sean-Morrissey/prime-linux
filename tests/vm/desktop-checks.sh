@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Runs INSIDE the test VM, in the logged-in Prime (Hyprland) session, over SSH
 # (tests/vm/run.sh copies it in). The things a friend sees first: the bar, the
-# P-logo Start menu, Spotlight, the Prime menu and the P.R.I.M.E terminal
+# P-logo Start menu, Prime Search, the Prime menu and the P.R.I.M.E terminal
 # greeting — each one is opened for real and looked for on screen.
 set -u
 L="$HOME/.local/share/prime-linux/layer"
@@ -20,7 +20,7 @@ ck 'Start menu (P logo, Super+X) opens'      '( setsid "$L/bin/prime-start" >/tm
 grim /tmp/start-menu.png 2>/dev/null
 # (match the Start program itself: the dock's command line names prime-start too)
 ck 'Start menu closes again (toggle)'        '"$L/bin/prime-start"; gone "python3? [^ ]*bin/prime-start"'
-ck 'Spotlight (Super+Space) opens'           '( setsid "$L/bin/prime-spotlight" >/tmp/spotlight.log 2>&1 & ); layer_up prime-spotlight'
+ck 'Prime Search (Super+Space) opens'           '( setsid "$L/bin/prime-spotlight" >/tmp/spotlight.log 2>&1 & ); layer_up prime-spotlight'
 grim /tmp/spotlight.png 2>/dev/null
 pkill -f bin/prime-spotlight; gone bin/prime-spotlight
 ck 'Prime menu (Super+Alt+Space) opens'      '( setsid "$L/bin/prime-menu" >/tmp/menu.log 2>&1 & ); layer_up rofi'

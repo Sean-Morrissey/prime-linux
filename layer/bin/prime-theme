@@ -8,7 +8,7 @@
 # step keeps what you already have.
 #
 # Text size is the third setting, and the ONLY font size in Prime: the system
-# font (GTK: bar, notifications, Spotlight and apps are all sized in rem) and
+# font (GTK: bar, notifications, Prime Search and apps are all sized in rem) and
 # the generated rofi / lock screen / title bar / terminal sizes derive from it.
 #
 #   prime-theme                     pick wallpaper, then accent, then text size
@@ -144,7 +144,7 @@ EOF
   done
 
   # Prime's own GTK 4 windows (Settings, Welcome): the exact accent and the same
-  # blue-black surfaces as Start, Spotlight and the menus — not libadwaita's grey
+  # blue-black surfaces as Start, Prime Search and the menus — not libadwaita's grey
   cat > "$OUT/adw.css" <<EOF
 /* written by prime-theme — loaded by Prime's GTK 4 windows */
 @define-color accent_color #$a;
@@ -191,7 +191,7 @@ EOF
 EOF
   [ -f "$HOME/.config/swaync/user.css" ] && echo "@import url(\"file://$HOME/.config/swaync/user.css\");" >> "$OUT/swaync.css"
 
-  # the system font: GTK apps, the bar, notifications and Spotlight all size from it
+  # the system font: GTK apps, the bar, notifications and Prime Search all size from it
   { live || [ -z "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]; } && [ -z "${PRIME_NO_GSETTINGS:-}" ] &&
     gsettings set org.gnome.desktop.interface font-name "Inter $(size 10)" 2>/dev/null
 

@@ -35,7 +35,7 @@ computer again** (or `prime-welcome`).
 
 ### Asking Prime
 
-**Super+Shift+Space** (or the **Ask** button on the bar, Spotlight, or right-click
+**Super+Shift+Space** (or the **Ask** button on the bar, Prime Search, or right-click
 → *Ask Prime about this*). Ask questions — "what does the bar's CPU number
 mean?" — or ask for changes:
 

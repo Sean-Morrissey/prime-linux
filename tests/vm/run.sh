@@ -182,7 +182,7 @@ cmd_prime() {
         ck 'login health check clean'    '~/.local/share/prime-linux/layer/bin/prime-doctor --login'
         grim /tmp/desktop.png" | tee "$WORK/session-checks.log"
     scp_vm alex@127.0.0.1:/tmp/desktop.png "$WORK/desktop.png" && say "screenshot: $WORK/desktop.png"
-    say "opening what a friend sees first: bar, Start menu, Spotlight, Prime menu, terminal greeting"
+    say "opening what a friend sees first: bar, Start menu, Prime Search, Prime menu, terminal greeting"
     scp_vm "$HERE/desktop-checks.sh" alex@127.0.0.1:/tmp/desktop-checks.sh
     ssh_vm "$E; export XDG_RUNTIME_DIR WAYLAND_DISPLAY HYPRLAND_INSTANCE_SIGNATURE; bash /tmp/desktop-checks.sh" \
         | tee -a "$WORK/session-checks.log"

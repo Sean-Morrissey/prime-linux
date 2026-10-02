@@ -129,7 +129,7 @@ section_has()   { jq -e --arg id "$1" --arg k "$2" '(.sections[] | select(.id ==
 # A section marked "list": "apps" gets every installed application appended to its
 # row list, so the Apps section IS the app menu — the thing he missed after the old
 # rofi drun was retired. The list comes from prime-spotlight.py's own loader, which
-# is what keeps the menu and Spotlight showing the same 99 apps; if that file ever
+# is what keeps the menu and Prime Search showing the same 99 apps; if that file ever
 # moves, the fallback parses /usr/share/applications exactly the same way.
 apps_rows() {             # [section id] — id<TAB>name<TAB>icon<TAB>comment
     local sec="${1:-apps}" pins
@@ -192,7 +192,7 @@ for d in dirs:
 # desktop files most names are fine while a handful are not. Passing an absolute path
 # (best match from his themes) means the row shows his icon or the generic one —
 # never a blank column.
-ICON_THEMES = ["WhiteSur", "WhiteSur-dark", "Papirus-Dark", "Papirus", "Adwaita", "breeze", "hicolor"]
+ICON_THEMES = ["Papirus-Dark", "Papirus", "Adwaita", "breeze", "hicolor"]
 ICON_ROOTS = ["/usr/share/icons", os.path.expanduser("~/.local/share/icons"), "/usr/share/pixmaps"]
 SIZE_RE = re.compile(r"/(\d+)(?:@2x)?/")
 
@@ -215,7 +215,7 @@ def resolve_icon(name):
     def rank(path):
         # his GTK theme first (it is what the rest of the desktop uses), then vector art,
         # then the largest usable raster. Ranking by "@2x" alone used to hand Konsole and
-        # Files near-black 16px breeze bitmaps while Chrome got crisp WhiteSur art.
+        # Files near-black 16px breeze bitmaps while Chrome got crisp Papirus art.
         theme = next((ICON_THEMES.index(t) for t in ICON_THEMES if f"/{t}/" in path),
                      len(ICON_THEMES))
         m = SIZE_RE.search(path)
@@ -456,7 +456,7 @@ SEARCH_STR=(
 )
 LAYOUT_STR=("${SEARCH_STR[@]}" -theme-str 'listview { lines: 12; }')
 if [ "$SHOW_ICONS" = 1 ]; then
-    # the theme install.sh sets (Papirus-Dark), or WhiteSur where someone installed it
+    # the theme install.sh sets (Papirus-Dark), or whichever one this person chose
     ICON_THEME="$(gsettings get org.gnome.desktop.interface icon-theme 2>/dev/null | tr -d "'")"
     ICON_FLAGS=(-show-icons -icon-theme "${ICON_THEME:-Papirus-Dark}")
     SHOW_ICONS=1

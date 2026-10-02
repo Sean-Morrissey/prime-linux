@@ -92,7 +92,8 @@ NAMED_KEYS = {"space": "space", "enter": "Return", "return": "Return", "tab": "T
               "equal": "equal", "=": "equal", "backspace": "backspace", "insert": "Insert",
               "pageup": "Prior", "pagedown": "Next", "escape": "Escape", "esc": "Escape"}
 PRIME_ACTIONS = {   # target -> (description, dispatcher+args)
-    "spotlight": ("Spotlight search", "exec, $bin/prime-spotlight"),
+    "search": ("Prime Search", "exec, $bin/prime-spotlight"),
+    "spotlight": ("Prime Search", "exec, $bin/prime-spotlight"),
     "menu": ("Prime menu", "exec, $bin/prime-menu"),
     "shortcuts": ("Keyboard shortcuts", "exec, $bin/prime-keys"),
     "theme": ("Change wallpaper and accent", "exec, $bin/prime-theme"),
@@ -799,9 +800,9 @@ def t_change_setting(a):
         v = {"free": "free", "float": "free", "floating": "free", "mac": "free", "windows": "free",
              "tidy": "tidy", "tile": "tidy", "tiled": "tidy", "tiling": "tidy"}.get(v)
         if v is None:
-            raise Refuse("window_layout is free (windows float, like a Mac or Windows) or tidy (side by side)")
+            raise Refuse("window_layout is free (windows float freely) or tidy (side by side)")
         val = v
-        summary = ("let new windows float, like a Mac" if v == "free"
+        summary = ("let new windows float freely" if v == "free"
                    else "snap new windows into place side by side (tidy)")
     elif name == "vrr":
         v = str(raw).strip().lower()

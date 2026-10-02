@@ -5,7 +5,7 @@ A frosted card that drops out of the top-left corner, under the bar, on the
 monitor you are using:
 
   * a search field — type and the apps filter live; Enter opens the top match,
-    and when nothing matches the text goes on to Spotlight;
+    and when nothing matches the text goes on to Prime Search;
   * Pinned — six to a row; right-click an app to pin or unpin it
     (~/.config/prime/pinned, one app id per line);
   * All apps › — every app, A to Z;
@@ -56,7 +56,7 @@ IDENTITY = os.path.join(HOME, ".config/prime/identity.yaml")
 MENU_JSON = os.path.join(LAYER, "default/menu.json")
 COLUMNS, WIDTH, BAR_GAP = 6, 640, 6
 
-# Spotlight owns the app list, the icons and the Recent list: load its module
+# Prime Search owns the app list, the icons and the Recent list: load its module
 # instead of keeping a second copy that would drift.
 _loader = importlib.machinery.SourceFileLoader("prime_spotlight", os.path.join(BIN, "prime-spotlight"))
 spot = importlib.util.module_from_spec(importlib.util.spec_from_loader("prime_spotlight", _loader))
@@ -258,7 +258,7 @@ def user_name() -> str:
 
 
 def enter_action(query: str, apps: list) -> tuple:
-    """What Enter does in the search field: open the top match, or hand the text to Spotlight."""
+    """What Enter does in the search field: open the top match, or hand the text to Prime Search."""
     q = query.strip()
     if not q:
         return ("none", "")
@@ -338,7 +338,7 @@ class Start:
         self.entry = Gtk.Entry()
         self.entry.set_name("search")
         self.entry.set_has_frame(False)
-        self.entry.set_placeholder_text("Search for apps, or type anything for Spotlight")
+        self.entry.set_placeholder_text("Search for apps, or type anything for Prime Search")
         named(self.entry, "Search apps")
         self.entry.connect("changed", lambda *_: self.refresh())
         self.entry.connect("activate", lambda *_: self.on_enter())
@@ -768,7 +768,7 @@ def selftest() -> int:
 
     apps = spot.load_apps()
     installed = {did for _n, _e, did, _c in apps}
-    check("apps come from Spotlight's loader", len(apps) > 3, f"{len(apps)} apps")
+    check("apps come from Prime Search's loader", len(apps) > 3, f"{len(apps)} apps")
     first = sorted(installed)[0] if installed else ""
 
     pins = read_pins(installed)
@@ -791,7 +791,7 @@ def selftest() -> int:
         name = apps[0][0]
         act = enter_action(name[:4], apps)
         check("Enter opens the top match", act[0] == "launch" and act[1] in installed, str(act))
-    check("Enter with no match goes to Spotlight", enter_action("zzqxv no such app", apps) == ("spotlight", "zzqxv no such app"))
+    check("Enter with no match goes to Prime Search", enter_action("zzqxv no such app", apps) == ("spotlight", "zzqxv no such app"))
     check("Enter on an empty field does nothing", enter_action("   ", apps) == ("none", ""))
     shared = os.path.join(tmp, "shared"); os.mkdir(shared); os.chmod(shared, 0o777)
     mine = os.path.join(tmp, "mine"); os.mkdir(mine, 0o700)

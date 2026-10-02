@@ -873,8 +873,8 @@ def gui(page: str = "", screenshots: str = "", selftest: bool = False) -> int:
         choice(win, g, "Text size", "One size for the whole desktop", TEXT_SIZES, th.get("TEXT", "default"),
                lambda t: done(ok("prime-theme", "--set-text", t), "Text size changed"))
         choice(win, g, "Window layout", "Tidy: the main window takes the left half and new ones share the right half; Super+arrows snap a window to a side. "
-               "Free: they float like on a Mac and snap to edges when dragged. Super+Shift+V flips one window.",
-               [("Tidy — snap into place (recommended)", "tidy"), ("Free — float like a Mac", "free")],
+               "Free: they float freely and snap to edges when dragged. Super+Shift+V flips one window.",
+               [("Tidy — snap into place (recommended)", "tidy"), ("Free — windows float", "free")],
                st.get("window_layout", "tidy"), lambda v: tb("window_layout", v))
         choice(win, g, "Window style", "Corners and the space between windows", LOOKS, st.get("look", ""),
                lambda p: toolbox("set_look", {"preset": p}))
@@ -1091,7 +1091,7 @@ def gui(page: str = "", screenshots: str = "", selftest: bool = False) -> int:
         page = Adw.PreferencesPage()
         on = "ai" in enabled_addons()
         g = group(page, "Ask Prime", "Optional. Nothing is sent anywhere until you connect a model.")
-        switch(win, g, "AI assistant", "Ask Prime from Spotlight, right-click menus and Super+Shift+Space", on,
+        switch(win, g, "AI assistant", "Ask Prime from Prime Search, right-click menus and Super+Shift+Space", on,
                lambda v: pack(v, "ai", "AI assistant"))
         conf = read(os.path.join(CFG, "ai.conf"))
         mm = re.search(r"^MODEL=(.*)$", conf, re.M)

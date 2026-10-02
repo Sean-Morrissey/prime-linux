@@ -54,7 +54,7 @@ rm -rf "$LK"
 echo; echo "== windows (GTK)"
 if [ -n "$GUI" ]; then
     ck "Prime window: protocol, rows, words, accessible names" "$GUI $PY $L/bin/prime-panel --selftest"
-    ck "Spotlight: sources, router, window, accessible names" "PATH=\"\$(dirname \$(command -v $PY)):\$PATH\" $GUI $PY $L/bin/prime-spotlight --selftest"
+    ck "Prime Search: sources, router, window, accessible names" "PATH=\"\$(dirname \$(command -v $PY)):\$PATH\" $GUI $PY $L/bin/prime-spotlight --selftest"
     ck "Screen saver: frames, drift, wake rules"               "$PY $L/bin/prime-screensaver --selftest"
     ck "Activity lists apps with words for how busy"          "$PY $L/bin/prime-activity --list | grep -qE '(idle|light|busy|very busy)'"
     # sudo reads the password from this dialog's standard output: nothing else may ever land there

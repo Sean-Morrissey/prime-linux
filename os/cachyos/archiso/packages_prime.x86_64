@@ -97,8 +97,6 @@ docker
 # first-boot step (neither exists yet). Listed so the gap is visible, not forgotten.
 # =====================================================================================
 # bibata-cursor-theme-bin        (AUR)  — cursor theme
-# whitesur-gtk-theme             (AUR)  — GTK theme
-# whitesur-icon-theme            (AUR)  — icon theme
 # libastal-git / libastal-4-git  (AUR)  — the bar pills' GTK4 layer-shell bindings
 # python-pywal / wallust               — wallpaper-driven theming
 # google-chrome / discord / lmstudio-bin / orca-slicer-bin — the author's own apps, not ours

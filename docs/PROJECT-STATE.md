@@ -6,6 +6,18 @@ the shared source of truth for *state*; `docs/` is the source of truth for *desi
 
 Last verified: 2026-09-21.
 
+> **This whole file is about the parked Fedora/bootc image track and is stale as
+> of 2026-10-02** — over 100 commits and the 2026-09-26 pivot to shipping Prime as
+> a layer on CachyOS (`install.sh` + `layer/`) happened after the "last verified"
+> date below. For the state of the product that actually ships today, read, in
+> order: [`PRIME-LAYER.md`](PRIME-LAYER.md) (what it is and how it's built),
+> [`SHIP-GATES.md`](SHIP-GATES.md) (the acceptance bar and what's verified against
+> it), and [`REDTEAM-2026-10.md`](REDTEAM-2026-10.md) (the two most recent
+> red-team passes against `main`, with what's fixed and what's still open). The
+> rest of this file is kept as a historical record of the image track's
+> last-known state, not a claim about current reality — do not treat any fact
+> below as current without re-checking it.
+
 ---
 
 ## What this is, in one paragraph

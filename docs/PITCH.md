@@ -4,6 +4,14 @@ Two paragraphs: the idea as its author states it, and the designer's interpretat
 of what that commits us to. Both are written to be red-teamed — the useful critique
 is the one that finds the load-bearing assumption.
 
+**Note (2026-10-02):** the designer's interpretation below describes the original
+mechanism — an atomic Fedora image. The idea it defends ("bounded failure, a
+permission ladder, a layer that's never baked with one person's data") shipped
+instead as a layer on top of CachyOS (`install.sh`, `docs/PRIME-LAYER.md`), using
+btrfs snapshots for the undo path instead of a whole new image. The load-bearing
+assumptions below are still the ones to attack; only "custom image... read-only
+root" is no longer the actual mechanism.
+
 ---
 
 ## The idea (as Sean puts it)

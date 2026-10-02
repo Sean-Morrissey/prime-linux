@@ -141,6 +141,25 @@ EOF
     cp -f "$LAYER/branding/terminal/$t" "$(dirname "$OUT")/$t" 2>/dev/null || true
   done
 
+  # Prime's own GTK 4 windows (Settings, Welcome): the exact accent and the same
+  # blue-black surfaces as Start, Spotlight and the menus — not libadwaita's grey
+  cat > "$OUT/adw.css" <<EOF
+/* written by prime-theme — loaded by Prime's GTK 4 windows */
+@define-color accent_color #$a;
+@define-color accent_bg_color #$a;
+@define-color accent_fg_color #0a0a0e;
+@define-color window_bg_color #16161c;
+@define-color window_fg_color #f4f4f6;
+@define-color view_bg_color #16161c;
+@define-color headerbar_bg_color #16161c;
+@define-color headerbar_backdrop_color #16161c;
+@define-color sidebar_bg_color #1c1c24;
+@define-color sidebar_backdrop_color #1c1c24;
+@define-color secondary_sidebar_bg_color #1c1c24;
+@define-color card_bg_color rgba(255, 255, 255, 0.05);
+@define-color dialog_bg_color #1c1c24;
+@define-color popover_bg_color #22222b;
+EOF
   # the dock (prime-dock → nwg-dock-hyprland): the same glass as the bar and menus
   cat > "$OUT/dock.css" <<EOF
 /* written by prime-theme — the dock at the bottom of the screen */

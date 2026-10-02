@@ -57,6 +57,13 @@ if [ -n "$GUI" ]; then
     ck "Spotlight: sources, router, window, accessible names" "PATH=\"\$(dirname \$(command -v $PY)):\$PATH\" $GUI $PY $L/bin/prime-spotlight --selftest"
     ck "Screen saver: frames, drift, wake rules"               "$PY $L/bin/prime-screensaver --selftest"
     ck "Activity lists apps with words for how busy"          "$PY $L/bin/prime-activity --list | grep -qE '(idle|light|busy|very busy)'"
+    # sudo reads the password from this dialog's standard output: nothing else may ever land there
+    if command -v Xvfb >/dev/null; then
+        D=":$((90 + RANDOM % 80))"; Xvfb "$D" -screen 0 1024x768x24 >/dev/null 2>&1 & XV=$!; sleep 1
+        ck "password dialog prints nothing until a password is typed" \
+           "[ -z \"\$(DISPLAY=$D GDK_BACKEND=x11 timeout 4 $PY $L/bin/prime-panel --askpass test 2>/dev/null)\" ]"
+        kill "$XV" 2>/dev/null
+    fi
 else
     echo "  SKIP  no display and no xvfb-run — the GTK windows weren't built"
 fi

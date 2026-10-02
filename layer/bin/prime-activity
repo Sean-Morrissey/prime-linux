@@ -19,8 +19,8 @@ import time
 
 import gi
 
-gi.require_version("Gtk", "3.0")
-gi.require_version("Gdk", "3.0")
+gi.require_version("Gtk", "4.0")
+gi.require_version("Gdk", "4.0")
 from gi.repository import Gdk, GLib, Gtk, Pango  # noqa: E402
 
 GLib.set_prgname("prime-activity")
@@ -28,20 +28,18 @@ BIN = os.path.dirname(os.path.realpath(__file__))
 sys.dont_write_bytecode = True          # never leave a cache file inside the layer
 import importlib.machinery, importlib.util  # noqa: E402,E401
 
-# the window style, header and helpers are shared with prime-panel
+# the window style, header and helpers are shared with prime-panel (GTK 4 + libadwaita)
 _loader = importlib.machinery.SourceFileLoader("prime_panel", os.path.join(BIN, "prime-panel"))
 panel = importlib.util.module_from_spec(importlib.util.spec_from_loader("prime_panel", _loader))
 _loader.exec_module(panel)
 SHOWN = 14
-# the list, in the Prime window's look (sizes in rem: Theme → Text size)
+COLS = (("App", True, 0), ("Processor", False, 150), ("Memory", False, 110))
 CSS = """
-#activity { background-color: transparent; color: #f4f4f6; font-size: 1rem; }
-#activity:selected, #activity:selected:focus { background-color: alpha(@ACCENT@, 0.28); color: #ffffff; }
-#activity header button {
-    border-radius: 0; background-color: transparent; background-image: none; box-shadow: none;
-    border: none; border-bottom: 1px solid rgba(255, 255, 255, 0.08); padding: 8px 14px;
-    font-size: 0.85rem; font-weight: 600; color: rgba(255, 255, 255, 0.55);
-}
+.prime-card #activity { background: transparent; }
+.prime-card #activity row { padding: 0 8px; border-radius: 8px; }
+.prime-card #activity row:selected { background-color: alpha(@ACCENT@, 0.22); }
+.prime-card .colhead { font-size: 0.85rem; font-weight: 600; color: rgba(255, 255, 255, 0.55); padding: 8px 14px; }
+.prime-card .cell { font-size: 1rem; padding: 7px 14px; }
 """
 
 
@@ -100,41 +98,57 @@ def snapshot() -> list:
     return rows
 
 
+def cells(values: list) -> Gtk.Box:
+    """One line of the table: the app's name takes the room, the numbers keep their width."""
+    box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+    for (title, expand, width), value in zip(COLS, values):
+        lab = Gtk.Label(label=value, xalign=0.0, hexpand=expand, ellipsize=Pango.EllipsizeMode.END if expand else Pango.EllipsizeMode.NONE)
+        lab.add_css_class("cell")
+        if width:
+            lab.set_size_request(width, -1)
+        box.append(lab)
+    return box
+
+
 class Activity:
-    def __init__(self, offscreen: bool = False):
+    def __init__(self, offscreen: bool = False, loop=None):
+        self.loop, self.pids = loop, []
         self.win, card = panel.card_window("Activity — Prime")
         self.win.set_default_size(760, 560)
-        self.win.connect("delete-event", lambda *_: Gtk.main_quit())
-        self.win.connect("key-press-event", self.on_key)
+        self.win.connect("close-request", lambda *_: (self.loop.quit() if self.loop else None) or False)
+        keys = Gtk.EventControllerKey()
+        keys.connect("key-pressed", self.on_key)
+        self.win.add_controller(keys)
         panel.header(card, "Activity", "What is using the computer right now, busiest first.")
-        self.store = Gtk.ListStore(int, str, str, str)
-        self.view = Gtk.TreeView(model=self.store)
+        head = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, margin_start=16, margin_end=16)
+        for title, expand, width in COLS:
+            lab = Gtk.Label(label=title, xalign=0.0, hexpand=expand)
+            lab.add_css_class("colhead")
+            if width:
+                lab.set_size_request(width, -1)
+            head.append(lab)
+        card.append(head)
+        self.view = Gtk.ListBox()
         self.view.set_name("activity")
+        self.view.set_selection_mode(Gtk.SelectionMode.SINGLE)
         panel.labelled(self.view, "Running apps, busiest first")
-        for i, (title, expand) in enumerate((("App", True), ("Processor", False), ("Memory", False)), 1):
-            r = Gtk.CellRendererText()
-            r.set_padding(14, 7)
-            r.set_property("ellipsize", Pango.EllipsizeMode.END if expand else Pango.EllipsizeMode.NONE)
-            col = Gtk.TreeViewColumn(title, r, text=i)
-            col.set_expand(expand)
-            self.view.append_column(col)
-        scroll = Gtk.ScrolledWindow()
-        scroll.add(self.view)
-        card.pack_start(scroll, True, True, 0)
+        scroll = Gtk.ScrolledWindow(vexpand=True, margin_start=8, margin_end=8)
+        scroll.set_child(self.view)
+        card.append(scroll)
         foot = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
         foot.set_name("footer")
-        self.status = Gtk.Label(xalign=0.0)
+        self.status = Gtk.Label(xalign=0.0, hexpand=True)
         self.status.set_name("status")
-        foot.pack_start(self.status, True, True, 0)
+        foot.append(self.status)
         self.quit_btn = Gtk.Button(label="Quit the selected app")
         panel.labelled(self.quit_btn, "Quit the selected app")
         self.quit_btn.connect("clicked", lambda *_: self.quit_selected())
+        foot.append(self.quit_btn)
         close = Gtk.Button(label="Close")
-        close.get_style_context().add_class("suggested")
-        close.connect("clicked", lambda *_: Gtk.main_quit())
-        foot.pack_end(close, False, False, 0)
-        foot.pack_end(self.quit_btn, False, False, 0)
-        card.pack_end(foot, False, False, 0)
+        close.add_css_class("suggested-action")
+        close.connect("clicked", lambda *_: self.close())
+        foot.append(close)
+        card.append(foot)
         self.refresh()
         if not offscreen:
             GLib.timeout_add_seconds(2, self.refresh)
@@ -142,11 +156,17 @@ class Activity:
     def refresh(self) -> bool:
         sel = self.selected_pid()
         rows = snapshot()[:SHOWN]
-        self.store.clear()
+        while (child := self.view.get_first_child()) is not None:
+            self.view.remove(child)
+        self.pids = []
         for pid, name, cpu, mem, mb in rows:
-            it = self.store.append([pid, name, f"{cpu:4.1f}%  {level(cpu)}", f"{mb} MB"])
+            row = Gtk.ListBoxRow()
+            row.set_child(cells([name, f"{cpu:4.1f}%  {level(cpu)}", f"{mb} MB"]))
+            panel.labelled(row, f"{name}: processor {cpu:.1f} percent, {level(cpu)}; memory {mb} megabytes")
+            self.view.append(row)
+            self.pids.append((pid, name))
             if pid == sel:
-                self.view.get_selection().select_iter(it)
+                self.view.select_row(row)
         try:
             la = os.getloadavg()[0] / max(os.cpu_count() or 1, 1) * 100
         except OSError:
@@ -154,27 +174,36 @@ class Activity:
         self.status.set_text(f"The computer overall: {level(la)}  ·  updates every 2 seconds")
         return True
 
+    def selected(self):
+        row = self.view.get_selected_row()
+        if row is None:
+            return 0, ""
+        return self.pids[row.get_index()]
+
     def selected_pid(self) -> int:
-        model, it = self.view.get_selection().get_selected()
-        return model[it][0] if it else 0
+        return self.selected()[0]
 
     def quit_selected(self):
-        model, it = self.view.get_selection().get_selected()
-        if not it:
+        pid, name = self.selected()
+        if not pid:
             self.status.set_text("Pick an app in the list first, then Quit.")
             return
-        pid, name = model[it][0], model[it][1]
         try:
             os.kill(pid, signal.SIGTERM)
             self.status.set_text(f"Asked {name} to quit — it can save first.")
         except OSError:
             self.status.set_text(f"{name} couldn't be closed from here.")
 
-    def on_key(self, _w, event) -> bool:
-        if event.keyval == Gdk.KEY_Escape:
-            Gtk.main_quit()
+    def close(self):
+        self.win.close()
+        if self.loop:
+            self.loop.quit()
+
+    def on_key(self, _c, keyval, _code, _state) -> bool:
+        if keyval == Gdk.KEY_Escape:
+            self.close()
             return True
-        if event.keyval == Gdk.KEY_Delete:
+        if keyval == Gdk.KEY_Delete:
             self.quit_selected()
             return True
         return False
@@ -185,38 +214,34 @@ def main() -> int:
         for pid, name, cpu, mem, mb in snapshot()[:SHOWN]:
             print(f"{name:<28} {cpu:5.1f}% {level(cpu):<10} {mb} MB")
         return 0
-    if not Gtk.init_check(sys.argv)[0]:
+    if not panel.has_display():
         print("Activity needs the desktop", file=sys.stderr)
         return 1
     panel.install_css()
     style = Gtk.CssProvider()
-    style.load_from_data(CSS.replace("@ACCENT@", panel.theme_accent()).encode())
-    Gtk.StyleContext.add_provider_for_screen(Gdk.Screen.get_default(), style,
-                                             Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION + 1)
+    css = CSS.replace("@ACCENT@", panel.theme_accent())
+    style.load_from_string(css) if hasattr(style, "load_from_string") else style.load_from_data(css.encode())
+    Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(), style,
+                                              Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION + 2)
     if "--screenshot" in sys.argv:
         path = sys.argv[sys.argv.index("--screenshot") + 1]
         a = Activity(offscreen=True)
-        off = Gtk.OffscreenWindow()
-        if off.get_screen().get_rgba_visual() is not None:
-            off.set_visual(off.get_screen().get_rgba_visual())
-        card = a.win.get_child()
-        a.win.remove(card)
-        card.set_size_request(760, 560)
-        off.add(card)
-        off.show_all()
-        a.view.get_selection().select_path(Gtk.TreePath.new_first())
-        for _ in range(40):
-            while Gtk.events_pending():
-                Gtk.main_iteration_do(False)
-            time.sleep(0.01)
-        off.get_pixbuf().savev(path, "png", [], [])
-        print(path)
-        return 0
-    a = Activity()
-    a.win.set_position(Gtk.WindowPosition.CENTER)
-    a.win.show_all()
+        a.win.present()
+        first = a.view.get_row_at_index(0)
+        if first is not None:
+            a.view.select_row(first)
+        panel.pump(1.0)
+        for _ in range(20):
+            if panel.save_png(a.win, path):
+                print(path)
+                return 0
+            panel.pump(0.2)
+        return 1
+    loop = GLib.MainLoop()
+    a = Activity(loop=loop)
+    a.win.present()
     a.view.grab_focus()
-    Gtk.main()
+    loop.run()
     return 0
 
 

@@ -76,24 +76,23 @@ sys.dont_write_bytecode = True
 ld = importlib.machinery.SourceFileLoader("pp", os.environ["PANEL"])
 pp = importlib.util.module_from_spec(importlib.util.spec_from_loader("pp", ld)); ld.exec_module(pp)
 from gi.repository import Gtk
-Gtk.init_check(sys.argv); pp.install_css()
+Gtk.init_check()
 win, card = pp.card_window("Password — Prime")
+win.set_default_size(460, -1)
 pp.header(card, "Your password, please", "Prime needs your password to install the system updates.")
 body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8); body.set_name("header")
-e = Gtk.Entry(); e.set_visibility(False); e.set_text("hunter22"); e.set_position(-1); e.select_region(-1, -1); body.pack_start(e, False, False, 0)
-c = Gtk.Label(label="Caps Lock is on", xalign=0.0); c.set_name("capslock"); body.pack_start(c, False, False, 0)
-card.pack_start(body, False, False, 0)
-f = Gtk.Box(spacing=8); f.set_name("footer")
-ok = Gtk.Button(label="Continue"); ok.get_style_context().add_class("suggested")
-f.pack_end(ok, False, False, 0); f.pack_end(Gtk.Button(label="Cancel"), False, False, 0)
-card.pack_end(f, False, False, 0)
-off = Gtk.OffscreenWindow()
-if off.get_screen().get_rgba_visual(): off.set_visual(off.get_screen().get_rgba_visual())
-win.remove(card); card.set_size_request(460, -1); off.add(card); off.show_all()
-for _ in range(30):
-    while Gtk.events_pending(): Gtk.main_iteration_do(False)
-    time.sleep(0.01)
-off.get_pixbuf().savev(sys.argv[1], "png", [], [])
+e = Gtk.PasswordEntry(show_peek_icon=True); e.set_text("hunter22"); body.append(e)
+c = Gtk.Label(label="Caps Lock is on", xalign=0.0); c.set_name("capslock"); body.append(c)
+card.append(body)
+f = Gtk.Box(spacing=8); f.set_name("footer"); f.append(Gtk.Box(hexpand=True))
+f.append(Gtk.Button(label="Cancel"))
+ok = Gtk.Button(label="Continue"); ok.add_css_class("suggested-action"); f.append(ok)
+card.append(f)
+win.present()
+pp.pump(1.0)
+for _ in range(20):
+    if pp.save_png(win, sys.argv[1]): break
+    pp.pump(0.2)
 PYEOF
 PANEL="$L/bin/prime-panel" "${XV[@]}" "$PY" "$T/askpass.py" "$T/askpass.png" >/dev/null 2>&1 && stage "$T/askpass.png" "$OUT/window-password.png" 900 520
 

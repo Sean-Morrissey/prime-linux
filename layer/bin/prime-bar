@@ -153,6 +153,26 @@ def keys(list_only):
              ["prime-context", rows[int(r.stdout.strip())][0]])
 
 
+def wait_for_top_bar(timeout: float = 6.0):
+    """The side bar waits until the top bar is on screen. The compositor fits each
+    bar into the space the earlier ones left: a side bar that appears first claims
+    the left edge, and the top bar then starts 52px in instead of spanning the
+    screen. No Hyprland (or no top bar within a few seconds): start anyway."""
+    import time
+    end = time.monotonic() + timeout
+    while time.monotonic() < end:
+        try:
+            r = subprocess.run(["hyprctl", "layers", "-j"], capture_output=True, text=True, timeout=2)
+            for mon in json.loads(r.stdout or "{}").values():
+                for level in mon.get("levels", {}).values():
+                    if any(l.get("namespace") == "waybar" and l.get("y") == 0 and l.get("w", 0) > 2 * l.get("h", 0)
+                           for l in level):
+                        return
+        except (OSError, ValueError, subprocess.TimeoutExpired, AttributeError):
+            return
+        time.sleep(0.2)
+
+
 def main():
     arg = sys.argv[1] if len(sys.argv) > 1 else "top"
     if arg == "--keys":
@@ -165,6 +185,8 @@ def main():
     if arg not in FILES:
         print(__doc__); return 2
     _, cfg_out, css_out = build(arg)
+    if arg == "side" and os.environ.get("HYPRLAND_INSTANCE_SIGNATURE"):
+        wait_for_top_bar()
     os.execvp("waybar", ["waybar", "-c", cfg_out, "-s", css_out])
 
 

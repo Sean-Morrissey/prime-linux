@@ -4,7 +4,7 @@
   "layer": "top",
   "position": "left",
   "width": 44,
-  "margin-top": 44,
+  "margin-top": 10,
   "margin-bottom": 10,
   "margin-left": 8,
   "exclusive": true,

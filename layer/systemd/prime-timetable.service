@@ -1,0 +1,7 @@
+[Unit]
+Description=Prime timetable: send what's due now
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/share/prime-linux/layer/bin/prime-timetable --tick
+Nice=10

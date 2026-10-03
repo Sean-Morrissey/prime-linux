@@ -1,0 +1,401 @@
+#!/usr/bin/env python3
+"""prime-timetable — your week of classes and your reminders, with a note before each.
+
+  prime-timetable                        open the Timetable window
+  prime-timetable --tick                 send what's due now (prime-timetable.timer, every minute)
+  prime-timetable --next                 the next class today, in words (or nothing)
+  prime-timetable --today                today's classes, one per line
+  prime-timetable --remind TEXT WHEN     add a reminder: WHEN is "in 20 minutes", "at 5pm",
+                                         "tomorrow at 9", "friday 3:30pm", "17:45"…
+  prime-timetable --list                 every class and reminder (tests)
+  prime-timetable --screenshot FILE      draw the window to a PNG (design review)
+
+Everything is kept in ~/.config/prime/timetable.json — on this computer, nowhere else.
+No AI is involved: the times are read by the rules below.
+"""
+from __future__ import annotations
+
+import datetime as dt
+import json
+import os
+import re
+import subprocess
+import sys
+
+HOME = os.path.expanduser("~")
+FILE = os.path.join(HOME, ".config/prime/timetable.json")
+DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+# "friday", "fri", "thurs"… → the day's number (Monday is 0)
+DAY_WORDS = {w: i for i, d in enumerate(DAYS) for w in (d.lower(), d[:3].lower())}
+DAY_WORDS.update({"tues": 1, "weds": 2, "thur": 3, "thurs": 3})
+
+
+def now() -> dt.datetime:
+    """The time (PRIME_NOW=YYYY-MM-DDTHH:MM pretends, for tests)."""
+    fake = os.environ.get("PRIME_NOW")
+    return dt.datetime.fromisoformat(fake) if fake else dt.datetime.now().replace(second=0, microsecond=0)
+
+
+def load() -> dict:
+    try:
+        with open(FILE) as f:
+            d = json.load(f)
+    except (OSError, ValueError):
+        d = {}
+    d.setdefault("classes", [])
+    d.setdefault("reminders", [])
+    d.setdefault("remind_before", 10)
+    return d
+
+
+def save(d: dict) -> None:
+    os.makedirs(os.path.dirname(FILE), exist_ok=True)
+    tmp = FILE + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(d, f, indent=1)
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, FILE)
+
+
+# ── reading times people type ────────────────────────────────────────────────
+def parse_clock(text: str) -> tuple | None:
+    """"5pm", "5:30 pm", "17:45", "9" → (hour, minute)."""
+    m = re.fullmatch(r"\s*(\d{1,2})(?:[:.](\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)?\s*", text.lower())
+    if not m:
+        return None
+    h, mi, ap = int(m.group(1)), int(m.group(2) or 0), (m.group(3) or "").replace(".", "")
+    if ap == "pm" and h < 12:
+        h += 12
+    if ap == "am" and h == 12:
+        h = 0
+    if not (0 <= h <= 23 and 0 <= mi <= 59):
+        return None
+    return h, mi
+
+
+def parse_when(text: str, base: dt.datetime | None = None) -> dt.datetime | None:
+    """When a reminder is due, from words — or None if it can't be read."""
+    base = base or now()
+    t = re.sub(r"\s+", " ", text.lower().strip())
+    m = re.fullmatch(r"in (\d+|an?|half an) (minutes?|mins?|hours?|hrs?)", t)
+    if m:
+        n = {"a": 1, "an": 1, "half an": 0.5}.get(m.group(1)) or int(m.group(1))
+        mins = n * 60 if m.group(2).startswith(("hour", "hr")) else n
+        return base + dt.timedelta(minutes=mins)
+    day = None
+    words = t.replace(",", " ").split()
+    rest = []
+    for w in words:
+        if w == "today" or w == "tonight":
+            day = base.date()
+        elif w == "tomorrow":
+            day = base.date() + dt.timedelta(days=1)
+        elif w in DAY_WORDS:
+            ahead = (DAY_WORDS[w] - base.weekday()) % 7 or 7
+            day = base.date() + dt.timedelta(days=ahead)
+        elif w in ("at", "on", "by", "around"):
+            continue
+        else:
+            rest.append(w)
+    clock = parse_clock(" ".join(rest)) if rest else (9, 0) if day else None
+    if clock is None:
+        return None
+    when = dt.datetime.combine(day or base.date(), dt.time(*clock))
+    if day is None and when <= base:
+        when += dt.timedelta(days=1)          # "at 7" when it's already 8: tomorrow
+    return when
+
+
+# ── what's on ────────────────────────────────────────────────────────────────
+def classes_on(d: dict, day: int) -> list:
+    return sorted((c for c in d["classes"] if c.get("day") == day), key=lambda c: c.get("start", ""))
+
+
+def next_class(d: dict, at: dt.datetime) -> dict | None:
+    hm = at.strftime("%H:%M")
+    return next((c for c in classes_on(d, at.weekday()) if c.get("start", "") > hm), None)
+
+
+def describe(c: dict) -> str:
+    room = f" in {c['room']}" if c.get("room") else ""
+    return f"{c['name']} at {c['start']}{room}"
+
+
+def due(d: dict, at: dt.datetime) -> list:
+    """[(title, body)] to send at this minute; marks reminders done."""
+    out = []
+    before = int(d.get("remind_before", 10))
+    if before > 0:
+        soon = (at + dt.timedelta(minutes=before)).strftime("%H:%M")
+        for c in classes_on(d, at.weekday()):
+            if c.get("start") == soon:
+                out.append((f"{c['name']} in {before} minutes", f"At {c['start']}" + (f", {c['room']}" if c.get("room") else "")))
+    for r in d["reminders"]:
+        if not r.get("done") and dt.datetime.fromisoformat(r["at"]) <= at:
+            out.append(("Reminder", r["text"]))
+            r["done"] = True
+    # finished reminders are kept a day, then tidied away
+    d["reminders"] = [r for r in d["reminders"]
+                      if not r.get("done") or dt.datetime.fromisoformat(r["at"]) > at - dt.timedelta(days=1)]
+    return out
+
+
+def notify(title: str, body: str) -> None:
+    if os.environ.get("PRIME_TIMETABLE_DRY"):
+        print(f"NOTIFY {title} | {body}")
+        return
+    subprocess.run(["notify-send", "-a", "Prime", "-i", "x-office-calendar", title, body],
+                   capture_output=True, timeout=10)
+
+
+def add_reminder(text: str, when_words: str) -> tuple:
+    text = text.strip()
+    when = parse_when(when_words)
+    if not text:
+        return False, "Say what to remind you about"
+    if when is None:
+        return False, f"I couldn't read “{when_words}” as a time — try “at 5pm”, “in 20 minutes” or “tomorrow at 9”"
+    d = load()
+    d["reminders"].append({"text": text, "at": when.isoformat(timespec="minutes"), "done": False})
+    save(d)
+    return True, f"I'll remind you {when_words_out(when)}: {text}"
+
+
+def when_words_out(when: dt.datetime) -> str:
+    today = now().date()
+    day = ("today" if when.date() == today else "tomorrow" if when.date() == today + dt.timedelta(days=1)
+           else f"on {DAYS[when.weekday()]} {when.day} {when.strftime('%B')}")
+    return f"{day} at {when.strftime('%H:%M')}"
+
+
+# ── the window ───────────────────────────────────────────────────────────────
+def gui(screenshot: str = "") -> int:
+    import gi
+    gi.require_version("Gtk", "4.0")
+    gi.require_version("Adw", "1")
+    from gi.repository import Adw, Gdk, Gio, GLib, Gtk
+
+    def esc(s):
+        return GLib.markup_escape_text(str(s))
+
+    class Win(Adw.ApplicationWindow):
+        def __init__(self, app):
+            super().__init__(application=app, title="Timetable")
+            self.set_default_size(760, 720)
+            self.toasts = Adw.ToastOverlay()
+            tv = Adw.ToolbarView()
+            hb = Adw.HeaderBar()
+            hb.set_title_widget(Adw.WindowTitle(title="Timetable", subtitle="Prime"))
+            tv.add_top_bar(hb)
+            self.holder = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, vexpand=True)
+            tv.set_content(self.holder)
+            self.toasts.set_child(tv)
+            self.set_content(self.toasts)
+            self.build()
+
+        def toast(self, text):
+            self.toasts.add_toast(Adw.Toast(title=esc(text), timeout=4))
+
+        def build(self):
+            d = load()
+            while (c := self.holder.get_first_child()) is not None:
+                self.holder.remove(c)
+            page = Adw.PreferencesPage()
+            self.holder.append(page)
+            at = now()
+            # today
+            g = Adw.PreferencesGroup(title=f"Today — {DAYS[at.weekday()]} {at.day} {at.strftime('%B')}")
+            page.add(g)
+            nxt = next_class(d, at)
+            todays = classes_on(d, at.weekday())
+            for c in todays:
+                r = Adw.ActionRow(title=esc(c["name"]), subtitle=esc(f"{c['start']}–{c.get('end', '')}"
+                                                                      + (f" · {c['room']}" if c.get("room") else "")
+                                                                      + (" · next" if c is nxt else "")))
+                r.add_prefix(Gtk.Image.new_from_icon_name("x-office-calendar-symbolic"))
+                g.add(r)
+            if not todays:
+                g.add(Adw.ActionRow(title="No classes today", subtitle="Add your week below"))
+            # the week
+            gw = Adw.PreferencesGroup(title="Your week", description="Prime sends a note before each class")
+            page.add(gw)
+            for i, day in enumerate(DAYS):
+                cs = classes_on(d, i)
+                if not cs:
+                    continue
+                ex = Adw.ExpanderRow(title=day, subtitle=esc(", ".join(c["name"] for c in cs)))
+                for c in cs:
+                    r = Adw.ActionRow(title=esc(c["name"]), subtitle=esc(f"{c['start']}–{c.get('end', '')}"
+                                                                          + (f" · {c['room']}" if c.get("room") else "")))
+                    b = Gtk.Button(label="Remove", valign=Gtk.Align.CENTER)
+                    b.update_property([Gtk.AccessibleProperty.LABEL], [f"Remove {c['name']} on {day}"])
+                    b.connect("clicked", lambda _b, c=c: self.remove("classes", c))
+                    r.add_suffix(b)
+                    ex.add_row(r)
+                gw.add(ex)
+            add = Adw.ActionRow(title="Add a class", subtitle="Its name, day, times and room")
+            b = Gtk.Button(label="Add…", valign=Gtk.Align.CENTER)
+            b.add_css_class("suggested-action")
+            b.connect("clicked", lambda *_: self.class_dialog())
+            add.add_suffix(b)
+            gw.add(add)
+            before = Adw.ComboRow(title="Note before each class")
+            opts = [0, 5, 10, 15, 30]
+            before.set_model(Gtk.StringList.new(["Off", "5 minutes before", "10 minutes before",
+                                                  "15 minutes before", "30 minutes before"]))
+            before.set_selected(opts.index(int(d.get("remind_before", 10))) if int(d.get("remind_before", 10)) in opts else 2)
+
+            def set_before(row, _p):
+                dd = load()
+                dd["remind_before"] = opts[row.get_selected()]
+                save(dd)
+            before.connect("notify::selected", set_before)
+            gw.add(before)
+            # reminders
+            gr = Adw.PreferencesGroup(title="Reminders", description="Or just type “remind me to … at 5pm” in Prime Search (Super+Space)")
+            page.add(gr)
+            open_ = sorted((r for r in d["reminders"] if not r.get("done")), key=lambda r: r["at"])
+            for rm in open_:
+                r = Adw.ActionRow(title=esc(rm["text"]), subtitle=esc(when_words_out(dt.datetime.fromisoformat(rm["at"]))))
+                b = Gtk.Button(label="Remove", valign=Gtk.Align.CENTER)
+                b.connect("clicked", lambda _b, rm=rm: self.remove("reminders", rm))
+                r.add_suffix(b)
+                gr.add(r)
+            add = Adw.ActionRow(title="Add a reminder", subtitle="What, and when")
+            b = Gtk.Button(label="Add…", valign=Gtk.Align.CENTER)
+            b.add_css_class("suggested-action")
+            b.connect("clicked", lambda *_: self.reminder_dialog())
+            add.add_suffix(b)
+            gr.add(add)
+
+        def remove(self, kind, item):
+            d = load()
+            d[kind] = [x for x in d[kind] if x != item]
+            save(d)
+            self.toast("Removed")
+            self.build()
+
+        def dialog(self, title, rows, button, on_ok):
+            dlg = Adw.Window(transient_for=self, modal=True, title=title)
+            dlg.set_default_size(440, -1)
+            tv = Adw.ToolbarView()
+            tv.add_top_bar(Adw.HeaderBar())
+            pg = Adw.PreferencesPage()
+            g = Adw.PreferencesGroup()
+            for r in rows:
+                g.add(r)
+            pg.add(g)
+            box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+            box.append(pg)
+            bt = Gtk.Button(label=button, halign=Gtk.Align.END, margin_end=16, margin_bottom=16)
+            bt.add_css_class("suggested-action")
+            box.append(bt)
+            tv.set_content(box)
+            dlg.set_content(tv)
+
+            def go(*_a):
+                good, msg = on_ok()
+                self.toast(msg)
+                if good:
+                    dlg.close()
+                    self.build()
+            bt.connect("clicked", go)
+            dlg.present()
+
+        def class_dialog(self):
+            name = Adw.EntryRow(title="Class (Maths, History…)")
+            day = Adw.ComboRow(title="Day")
+            day.set_model(Gtk.StringList.new(DAYS))
+            day.set_selected(min(now().weekday(), 4))
+            start = Adw.EntryRow(title="Starts (9:00 or 2pm)")
+            end = Adw.EntryRow(title="Ends")
+            room = Adw.EntryRow(title="Room (optional)")
+
+            def ok_():
+                n = name.get_text().strip()
+                s, e = parse_clock(start.get_text()), parse_clock(end.get_text() or start.get_text())
+                if not n:
+                    return False, "Give the class a name"
+                if s is None or e is None:
+                    return False, "Type the times like 9:00, 14:30 or 2pm"
+                d = load()
+                d["classes"].append({"name": n, "day": day.get_selected(), "start": f"{s[0]:02d}:{s[1]:02d}",
+                                     "end": f"{e[0]:02d}:{e[1]:02d}", "room": room.get_text().strip()})
+                save(d)
+                return True, f"{n} added on {DAYS[day.get_selected()]}s"
+            self.dialog("Add a class", [name, day, start, end, room], "Add", ok_)
+
+        def reminder_dialog(self):
+            what = Adw.EntryRow(title="Remind me to…")
+            when = Adw.EntryRow(title="When (at 5pm, in 20 minutes, tomorrow at 9…)")
+            self.dialog("Add a reminder", [what, when], "Add", lambda: add_reminder(what.get_text(), when.get_text()))
+
+    Adw.init()
+    app = Adw.Application(application_id="org.primelinux.Timetable",
+                          flags=Gio.ApplicationFlags.NON_UNIQUE if screenshot else Gio.ApplicationFlags.DEFAULT_FLAGS)
+
+    def activate(a):
+        Adw.StyleManager.get_default().set_color_scheme(Adw.ColorScheme.FORCE_DARK)
+        css = os.path.join(HOME, ".config/prime/theme/adw.css")
+        if os.path.exists(css):
+            p = Gtk.CssProvider()
+            p.load_from_path(css)
+            Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(), p, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+        w = a.get_active_window() or Win(a)
+        w.present()
+        if screenshot:
+            def snap():
+                p = Gtk.WidgetPaintable.new(w)
+                sn = Gtk.Snapshot()
+                p.snapshot(sn, w.get_width(), w.get_height())
+                node = sn.to_node()
+                if node is None:
+                    return True                 # not drawn yet
+                w.get_renderer().render_texture(node, None).save_to_png(screenshot)
+                a.quit()
+                return False
+            GLib.timeout_add(900, snap)
+    app.connect("activate", activate)
+    return app.run([sys.argv[0]])
+
+
+def main(argv: list) -> int:
+    if argv[:1] == ["--tick"]:
+        d = load()
+        msgs = due(d, now())
+        for t, b in msgs:
+            notify(t, b)
+        if msgs or any(r.get("done") for r in d["reminders"]):
+            save(d)
+        return 0
+    if argv[:1] == ["--next"]:
+        c = next_class(load(), now())
+        if c:
+            print(describe(c))
+        return 0
+    if argv[:1] == ["--today"]:
+        for c in classes_on(load(), now().weekday()):
+            print(describe(c))
+        return 0
+    if argv[:1] == ["--remind"] and len(argv) >= 3:
+        good, msg = add_reminder(argv[1], " ".join(argv[2:]))
+        print(msg)
+        return 0 if good else 1
+    if argv[:1] == ["--list"]:
+        d = load()
+        for i, day in enumerate(DAYS):
+            for c in classes_on(d, i):
+                print(f"{day}\t{describe(c)}")
+        for r in d["reminders"]:
+            print(f"reminder\t{r['at']}\t{'done' if r.get('done') else 'open'}\t{r['text']}")
+        return 0
+    if argv[:1] in (["-h"], ["--help"]):
+        print(__doc__)
+        return 0
+    if argv[:1] == ["--screenshot"] and len(argv) > 1:
+        return gui(argv[1])
+    return gui()
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

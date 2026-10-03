@@ -397,6 +397,38 @@ def sound_cards() -> list:
     return out
 
 
+def cameras() -> list:
+    """[(device, name)] for each camera (one per camera: its first capture node)."""
+    base = f"{SYS}/sys/class/video4linux"
+    out = []
+    try:
+        names = sorted(os.listdir(base), key=lambda n: int(re.sub(r"\D", "", n) or 0))
+    except OSError:
+        return []
+    for d in names:
+        idx = read(os.path.join(base, d, "index"))
+        if idx not in ("", "0"):
+            continue                       # extra nodes of the same camera (metadata)
+        out.append((f"/dev/{d}", read(os.path.join(base, d, "name")) or "Camera"))
+    return out
+
+
+def camera_users() -> list:
+    """Names of the apps using a camera right now (the ones this account can see)."""
+    users = set()
+    for pid in os.listdir(f"{SYS}/proc") if os.path.isdir(f"{SYS}/proc") else []:
+        if not pid.isdigit():
+            continue
+        fd = f"{SYS}/proc/{pid}/fd"
+        try:
+            links = [os.readlink(os.path.join(fd, f)) for f in os.listdir(fd)]
+        except OSError:
+            continue
+        if any(re.fullmatch(r"/dev/video\d+", l) for l in links):
+            users.add(read(f"{SYS}/proc/{pid}/comm") or pid)
+    return sorted(users)
+
+
 def nm_fields(line: str) -> list:
     """nmcli -t splits on ':' and escapes ':' and '\\' inside values."""
     return [f.replace("\\:", ":").replace("\\\\", "\\") for f in re.split(r"(?<!\\):", line)]
@@ -558,6 +590,7 @@ PAGES = [
     ("notifications", "Notifications", "preferences-system-notifications-symbolic", "do not disturb alerts banners"),
     ("power", "Power & Battery", "battery-full-symbolic", "battery sleep performance power saver keep awake laptop"),
     ("lock", "Lock & Sleep", "system-lock-screen-symbolic", "lock screen sleep suspend idle timeout screen off dim screensaver keep awake password"),
+    ("camera", "Camera & Microphone", "camera-web-symbolic", "camera webcam microphone mic test check call video meeting zoom teams meet discord"),
     ("mouse", "Mouse & Touchpad", "input-mouse-symbolic", "pointer speed acceleration scrolling natural tap click left handed trackpad"),
     ("keyboard", "Keyboard", "input-keyboard-symbolic", "layout language repeat shortcuts keys typing"),
     ("processor", "Processor", "cpu-symbolic", "cpu cores speed temperature usage activity performance"),
@@ -570,7 +603,7 @@ PAGES = [
     ("updates", "Updates", "software-update-available-symbolic", "update upgrade automatic nightly undo rollback snapshot"),
     ("security", "Privacy & Security", "security-high-symbolic", "firewall ssh remote login password encryption permissions"),
     ("printers", "Printers", "printer-symbolic", "print printer paper ink add default test page queue cancel"),
-    ("datetime", "Date & Time", "preferences-system-time-symbolic", "clock time zone timezone date ntp"),
+    ("datetime", "Date & Time", "preferences-system-time-symbolic", "clock time zone timezone date ntp timetable schedule classes lessons reminders"),
     ("region", "Language & Region", "preferences-desktop-locale-symbolic", "language locale region format"),
     ("accounts", "Users & Accounts", "system-users-symbolic", "account name password user login"),
     ("accessibility", "Accessibility", "preferences-desktop-accessibility-symbolic", "text size larger motion animations zoom magnifier magnify bigger screen reader"),
@@ -1495,6 +1528,49 @@ def gui(page: str = "", screenshots: str = "", selftest: bool = False) -> int:
         opener(g3, "Lock, sleep, restart or shut down", "", ["prime-power-menu"])
         return page
 
+    def p_camera(win):
+        page = Adw.PreferencesPage()
+        g = group(page, "Camera", "Check it before a call or a lesson")
+        cams = cameras()
+        for dev, name in cams:
+            info(g, name, "Ready", "camera-web-symbolic")
+        if not cams:
+            info(g, "No camera found", "A USB camera shows up here as soon as it's plugged in")
+        users = camera_users()
+        live(win, g, "Using the camera now", lambda: ", ".join(camera_users()) or "Nothing")
+        app = next((a for a in ("snapshot", "cheese") if has(a)), "")
+        if cams and app:
+            opener(g, "Test the camera", "See yourself — the light next to the camera comes on", [app], "Test")
+        elif cams:
+            missing(g, "The camera test app (Update everything adds it)")
+        gm = group(page, "Microphone", "Hear yourself the way others will")
+        ins, in_default = audio_devices("Sources")
+        if ins:
+            choice(win, gm, "Microphone", "", [(n, i) for i, n in ins], in_default,
+                   lambda i: done(ok("wpctl", "set-default", i), "Microphone changed"))
+        mv = sh("wpctl", "get-volume", "@DEFAULT_AUDIO_SOURCE@")
+        if "[MUTED]" in mv:
+            def mic_on():
+                win.toast("Microphone on" if ok("wpctl", "set-mute", "@DEFAULT_AUDIO_SOURCE@", "0") else "That didn't work")
+                win.refresh()
+            buttons_row(gm, "The microphone is off", "Nobody can hear you",
+                        [("Switch on", mic_on, "suggested")], "microphone-disabled-symbolic")
+        clip = os.path.join(os.environ.get("XDG_RUNTIME_DIR") or "/tmp", "prime-mic-test.wav")
+
+        def mic_test():
+            def work():
+                good, why = act("sh", "-c", f"timeout 5 pw-record '{clip}'; pw-play '{clip}'; rm -f '{clip}'", timeout=30)
+                return good or "Terminated" in why or why == "", why
+            background(win, work, "That's how you sound", "The microphone test didn't work", refresh=False)
+            win.toast("Recording for 5 seconds — say something…")
+        if has("pw-record"):
+            buttons_row(gm, "Test the microphone", "Records 5 seconds, then plays it back",
+                        [("Record", mic_test, "")], "audio-input-microphone-symbolic")
+        goto(win, gm, "More sound settings", "Volume, speakers and each app", "sound")
+        if users:
+            g.set_description("Check it before a call or a lesson. The camera is in use right now")
+        return page
+
     def p_mouse(win):
         page = Adw.PreferencesPage()
         st = managed()
@@ -1821,6 +1897,11 @@ def gui(page: str = "", screenshots: str = "", selftest: bool = False) -> int:
             choice(win, g, "Change time zone", "Asks for your password", [(z.replace("_", " "), z) for z in zones],
                    props.get("Timezone", ""),
                    lambda z: done(ok("timedatectl", "set-timezone", z, timeout=120), f"Time zone: {z}"))
+        g2 = group(page, "Timetable & reminders", "Your classes for the week, with a note before each one")
+        nxt = sh("prime-timetable", "--next")
+        info(g2, "Next today", nxt or "No more classes today")
+        opener(g2, "Open Timetable", "Add your classes and reminders — or type “remind me to … at 5pm” in Prime Search",
+               ["prime-timetable"], "Open")
         return page
 
     def p_region(win):
@@ -1947,7 +2028,7 @@ def gui(page: str = "", screenshots: str = "", selftest: bool = False) -> int:
                 "appearance": p_appearance, "dock": p_dock, "topbar": p_topbar, "windows": p_windows,
                 "notifications": p_notifications, "power": p_power, "lock": p_lock, "startup": p_startup,
                 "troubleshoot": p_troubleshoot,
-                "mouse": p_mouse, "keyboard": p_keyboard, "processor": p_processor, "graphics": p_graphics,
+                "camera": p_camera, "mouse": p_mouse, "keyboard": p_keyboard, "processor": p_processor, "graphics": p_graphics,
                 "storage": p_storage, "gaming": p_gaming, "assistant": p_assistant, "apps": p_apps,
                 "updates": p_updates, "security": p_security, "printers": p_printers, "datetime": p_datetime, "region": p_region,
                 "accounts": p_accounts, "accessibility": p_accessibility, "about": p_about}

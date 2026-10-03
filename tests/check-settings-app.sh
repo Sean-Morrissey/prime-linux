@@ -255,7 +255,7 @@ if "$PY" -c "import gi; gi.require_version('Gtk','4.0'); gi.require_version('Adw
     HOME="$H" PATH="$FK:$PATH" PRIME_SETTINGS_DRY=1 timeout 120 xvfb-run -a "$PY" "$APP" --selftest > "$T/st2" 2>&1
     ck "every page builds with Wi-Fi, VPNs, sound devices and printers present" "grep -q '^0 failure' '$T/st2'"
     grep -q '^0 failure' "$T/st2" || grep -E 'FAIL|Error|Traceback' "$T/st2" | head -20
-    ck "all 29 pages build, search finds Mouse & Touchpad" "grep -q '^0 failure' '$T/st' && [ \$(grep -c '  PASS  ' '$T/st') -ge 30 ]"
+    ck "all 30 pages build, search finds Mouse & Touchpad" "grep -q '^0 failure' '$T/st' && [ \$(grep -c '  PASS  ' '$T/st') -ge 30 ]"
     grep -q '^0 failure' "$T/st" || grep -E 'FAIL|Error|Traceback' "$T/st" | head -20
 else
     echo "  SKIP  page build (no GTK 4 / libadwaita / Xvfb here)"

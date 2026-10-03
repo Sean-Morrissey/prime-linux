@@ -150,6 +150,8 @@ dnsmasq
 file-roller
 gnome-calculator
 gnome-calendar
+# Settings → Camera & Microphone: test the camera
+snapshot
 gnome-keyring
 gpu-screen-recorder
 gtk4

@@ -202,6 +202,36 @@ for pid, words in PAGE_WORDS.items():
 
 BY_ID = {i[0]: i for i in INTENTS}
 
+# "remind me to call mum at 5pm", "remind me at 5 to call mum", "remind me in 20 minutes to …":
+# the words are kept, so the action's id carries them (remind:<what>|<when>)
+WHEN_START = r"(?:in|at|on|by|tomorrow|today|tonight|monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tue|tues|wed|thu|thurs|fri|sat|sun|\d)"
+REMIND = [re.compile(r"^\s*(?:please\s+)?remind me\s+(?:to\s+|about\s+)?(?P<what>.+?)\s+(?P<when>" + WHEN_START + r"\b.*)$", re.I),
+          re.compile(r"^\s*(?:please\s+)?remind me\s+(?P<when>" + WHEN_START + r"\b.*?)\s+(?:to|about)\s+(?P<what>.+)$", re.I)]
+
+
+def _timetable():
+    import importlib.machinery
+    import importlib.util
+    loader = importlib.machinery.SourceFileLoader("prime_timetable", os.path.join(BIN, "prime-timetable"))
+    mod = importlib.util.module_from_spec(importlib.util.spec_from_loader("prime_timetable", loader))
+    loader.exec_module(mod)
+    return mod
+
+
+def reminder(query: str):
+    """(what, when words, when) for a "remind me …" request whose time can be read, else None."""
+    if not query.lower().lstrip().startswith(("remind me", "please remind me")):
+        return None
+    tt = _timetable()
+    for rx in REMIND:
+        m = rx.match(query)
+        if m:
+            what, when_w = m.group("what").strip(" .!"), m.group("when").strip(" .!")
+            when = tt.parse_when(when_w)
+            if what and when:
+                return what, when_w, when
+    return None
+
 
 def words_of(text: str) -> tuple:
     t = text.lower().replace("wi-fi", "wifi").replace("’", "'")
@@ -223,6 +253,10 @@ def _hit(group: set, text: str, toks: list) -> set:
 
 def match(query: str, limit: int = 5) -> list:
     """[(score, id, title)] best first. Score 1.0: every meaningful word understood."""
+    r = reminder(query)
+    if r:
+        what, when_w, when = r
+        return [(1.0, f"remind:{what}|{when_w}", f"Remind me: {what} — {_timetable().when_words_out(when)}")]
     text, toks = words_of(query)
     meaningful = [w for w in toks if w not in FILLER and w not in SOFT] or [w for w in toks if w not in FILLER]
     if not meaningful:
@@ -255,7 +289,23 @@ def available(iid: str) -> bool:
     return os.access(c, os.X_OK) if os.path.isabs(c) else shutil.which(c) is not None
 
 
+def run_reminder(iid: str) -> int:
+    what, _, when_w = iid[len("remind:"):].partition("|")
+    cmd = [B("prime-timetable"), "--remind", what, when_w]
+    if os.environ.get("PRIME_DO_DRY"):
+        print("DO", " ".join(cmd))
+        return 0
+    r = subprocess.run(cmd, capture_output=True, text=True, timeout=20)
+    msg = (r.stdout or r.stderr).strip() or "Reminder added"
+    print(msg)
+    if shutil.which("notify-send"):
+        subprocess.run(["notify-send", "-a", "Prime", "-t", "3500", msg], stderr=subprocess.DEVNULL)
+    return r.returncode
+
+
 def run(iid: str) -> int:
+    if iid.startswith("remind:"):
+        return run_reminder(iid)
     _id, title, _g, _a, cmd, done = BY_ID[iid]
     if os.environ.get("PRIME_DO_DRY"):
         print("DO", " ".join(cmd))
@@ -293,7 +343,7 @@ def main(argv: list) -> int:
             print(f"{iid}\t{title}\t{s}")
         return 0
     if argv[0] == "--id":
-        if len(argv) < 2 or argv[1] not in BY_ID:
+        if len(argv) < 2 or (argv[1] not in BY_ID and not argv[1].startswith("remind:")):
             print("no such action", file=sys.stderr)
             return 2
         return run(argv[1])

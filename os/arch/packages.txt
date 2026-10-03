@@ -87,6 +87,8 @@ nemo
 gnome-text-editor
 gnome-calculator
 gnome-calendar
+# Settings → Camera & Microphone: test the camera
+snapshot
 file-roller
 loupe
 papers

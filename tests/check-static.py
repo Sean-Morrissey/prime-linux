@@ -252,6 +252,26 @@ ck("the bar has a keyboard shortcut (Super+Alt+B)", [] if re.search(r"SUPER ALT,
 ck("every shortcut is described (Super+/ lists it)",
    [l.strip() for p in HYPR for l in open(p) if re.match(r"^bind[a-z]*\s*=", l) and not re.match(r"^bind[a-z]*d[a-z]*\s*=", l)])
 
+# ── Hyprland parses every title-bar button ─────────────────────────────────────
+# hyprbars-button is one comma-separated list (colour, size, symbol, command[, colour]),
+# so a colour written with commas — rgba(255, 255, 255, 0.10) — splits into pieces and
+# Hyprland rejects the line with "invalid bgcolor", filling the screen with config
+# errors. Colours here must be comma-free: rgb(rrggbb), rgba(rrggbbaa) or 0xaarrggbb.
+COLOUR = re.compile(r"^(rgb\([0-9a-fA-F]{6}\)|rgba\([0-9a-fA-F]{8}\)|0x[0-9a-fA-F]{8})$")
+btn = []
+pl_raw = open(f"{LAYER}/default/hypr/plugins.conf").read()
+for line in pl_raw.splitlines():
+    m = re.match(r"^\s*hyprbars-button\s*=\s*(.*)$", line)
+    if not m:
+        continue
+    parts = [f.strip() for f in m.group(1).split(",")]
+    if not COLOUR.match(parts[0]):
+        btn.append(f"button colour {parts[0]!r} must be comma-free "
+                   f"(rgb(rrggbb), rgba(rrggbbaa) or 0xaarrggbb): {line.strip()}")
+    if len(parts) > 4 and not COLOUR.match(parts[-1]):
+        btn.append(f"button symbol colour {parts[-1]!r} must be comma-free: {line.strip()}")
+ck("Hyprland can parse every title-bar button (colours carry no commas)", btn)
+
 # ── state never in colour alone ────────────────────────────────────────────────
 col = []
 pl = open(f"{LAYER}/default/hypr/plugins.conf").read()

@@ -18,14 +18,14 @@ When it asks for your password, type it (nothing shows while you type) and press
 Enter.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/sean-morrissey/prime-linux/main/boot.sh | bash
+curl -fsSL https://raw.githubusercontent.com/sean-morrissey/prime-linux/stable/boot.sh | bash
 ```
 
 That is the whole install. Want to see what it would do first, without changing
 anything? Add `-s -- --dry-run`:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/sean-morrissey/prime-linux/main/boot.sh | bash -s -- --dry-run
+curl -fsSL https://raw.githubusercontent.com/sean-morrissey/prime-linux/stable/boot.sh | bash -s -- --dry-run
 ```
 
 ### What happens next

@@ -23,7 +23,7 @@ set -euo pipefail
 
 main() {
     local repo="${PRIME_REPO:-https://github.com/sean-morrissey/prime-linux.git}"
-    local ref="${PRIME_REF:-${PRIME_BRANCH:-main}}"
+    local ref="${PRIME_REF:-${PRIME_BRANCH:-stable}}"
     local dest="$HOME/.local/share/prime-linux"
     local A=$'\e[38;2;248;113;113m' B=$'\e[1m' R=$'\e[0m'
     printf '\n  %s%sPrime Linux%s — getting the installer\n\n' "$B" "$A" "$R"

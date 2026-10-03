@@ -39,7 +39,7 @@ password, type it and press Enter. Nothing appears while you type: that's normal
 Paste this one line:
 
 ```
-curl -fsSL https://raw.githubusercontent.com/sean-morrissey/prime-linux/main/boot.sh | bash
+curl -fsSL https://raw.githubusercontent.com/sean-morrissey/prime-linux/stable/boot.sh | bash
 ```
 
 If it stops half-way, paste the same line again: it carries on from where it stopped.

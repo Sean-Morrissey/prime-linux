@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+. "$(dirname "${BASH_SOURCE[0]}")/sandbox.sh"   # never the real home or session (tests/sandbox.sh)
 # tests/check-file-history.sh — File History (snapshots of the home disk) with fake
 # findmnt/btrfs/snapper/systemctl: switched on only where it can work, never changes
 # someone's own snapper settings, each account sees its own home, and a chosen moment

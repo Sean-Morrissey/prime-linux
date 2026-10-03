@@ -20,8 +20,7 @@ A tag is `v2026.10.0`, annotated, with the changelog section as its message.
 | **edge** | `main` | testers, the team | every merged PR |
 | **dev** | any feature branch | developers | anything |
 
-`boot.sh` installs `PRIME_REF` (default `main` until the first stable release,
-then `stable`). Switching channel on an installed machine:
+`boot.sh` installs `PRIME_REF` (default `stable`, checked against the release key). Switching channel on an installed machine:
 `git -C ~/.local/share/prime-linux switch stable` — `prime-update` follows the
 checked-out branch. (A `prime-channel` menu row is a small follow-up for the
 Updates owner.)
@@ -129,10 +128,13 @@ Arch/CachyOS machine — pacman itself uses it — so checking needs nothing ext
   that ships its own key file, or a damaged key file are all refused, and the
   computer stays exactly as it was ("didn't install the new Prime Linux: it
   isn't signed by Prime's release key").
-- **Where trust starts.** At install time (trust on first use): the key file a
-  computer is installed with decides every later update, and a new key can only
-  arrive inside an update the old key signed. Publish the key's fingerprint in
-  the README and the release notes so a careful installer can compare.
+- **Where trust starts.** At install time. `boot.sh` pins the release key's
+  fingerprint and checks the download before running anything: on `stable` the
+  checked-out commit must carry a `v*` tag signed by that key, or nothing is
+  installed. After that, the key file a computer was installed with decides every
+  later update, and a new key can only arrive inside an update the old key signed.
+
+  Prime's release key: **`9E04 CC6D CD67 F5DC 95FE  CB86 54BB D887 7226 7D63`**
 - **Other channels.** `main`, `edge` and feature branches are for testers and
   follow the branch unsigned (`PRIME_REQUIRE_SIGNED=1` checks them too).
 - **Before the first key.** `release-keys.asc` ships empty; until a key is added
@@ -156,6 +158,7 @@ git push origin v2026.10.0 && git switch stable && git merge --ff-only v2026.10.
 ```
 
 Rotating the key: add the new public key to `release-keys.asc` in a release
-signed by the old one; drop the old key one release later.
+signed by the old one, and change `PRIME_RELEASE_FPR` in `boot.sh` in that same
+release (new installs then expect the new key); drop the old key one release later.
 `tests/check-release-signing.sh` holds all of this (forged, unsigned, untagged,
 self-keyed and damaged-key updates are refused).

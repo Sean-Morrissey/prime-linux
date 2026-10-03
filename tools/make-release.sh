@@ -85,7 +85,7 @@ gate "remote login (SSH) safety"            bash tests/check-ssh.sh
 gate "no trace of this machine"                bash tests/check-portable.sh
 gate "stable installs only signed releases"    bash tests/check-release-signing.sh
 gate "title bars rebuild themselves"           bash tests/check-titlebars.sh
-gate "nightly updater, installer, security"    bash backends/arch/test-system-update.sh
+gate "nightly updater, installer, security"    bash tests/check-system-update.sh
 gate "clean install + uninstall (container)"   bash tests/install-in-container.sh
 gate "every pack on and off (container)"       env PRIME_GPU=amd bash tests/packs-in-container.sh
 

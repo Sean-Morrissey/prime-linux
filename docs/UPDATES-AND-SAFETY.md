@@ -122,9 +122,5 @@ The boot loader is read from the `LoaderInfo` EFI variable (works without root).
 
 ## Tests
 
-- `bash backends/arch/test-system-update.sh` — 103 sandbox checks, no root, fake
+- `bash tests/check-system-update.sh` — 103 sandbox checks, no root, fake
   pacman/snapper/systemctl (the updater refuses test mode if any resolves to the real one).
-- `bash backends/arch/test-system-in-container.sh` — 26 checks in a clean Arch
-  container as user *alex*; `FULL=1` adds a real update through the updater (29).
-- The older bootc-style supervisor in `backends/arch/` keeps its P0 fixes (idle units,
-  rollback loop bounded): `test-autoupdate.sh` 40, `test-idle.sh` 9, `test-boot-health.sh` 7.

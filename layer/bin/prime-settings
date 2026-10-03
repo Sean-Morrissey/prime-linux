@@ -249,16 +249,13 @@ def parse_caps(text):
     return autonomy, caps
 
 
-def ensure_caps():
-    if not os.path.exists(CAPS):
-        os.makedirs(CFG, exist_ok=True)
-        write_caps("suggest")
-
-
 def read_caps():
-    ensure_caps()
+    """The permission file, or — before anyone has set one — the "ask me first"
+    defaults. Reading never writes: the file appears only when someone chooses."""
     try:
         return parse_caps(open(CAPS).read())
+    except FileNotFoundError:
+        return parse_caps(caps_text("suggest"))
     except OSError:
         return "suggest", {}
 
@@ -276,8 +273,8 @@ def preset_level(cap, template_level, autonomy):
     return template_level
 
 
-def write_caps(autonomy):
-    """Rewrite the permission file from the template for one autonomy level."""
+def caps_text(autonomy):
+    """The permission file for one autonomy level, built from the template."""
     if autonomy not in AUTONOMY:
         raise Refuse(f"unknown level '{autonomy}' — use one of: {', '.join(AUTONOMY)}")
     try:
@@ -308,10 +305,16 @@ def write_caps(autonomy):
            "# Only YOU change it (Welcome, or: prime-settings autonomy <level>). Prime's",
            "# toolbox has no way to write it, and destructive.* / secrets.* always ask.",
            ""]
+    return "\n".join(hdr + out) + "\n"
+
+
+def write_caps(autonomy):
+    """Rewrite the permission file from the template for one autonomy level."""
+    text = caps_text(autonomy)
     os.makedirs(CFG, exist_ok=True)
     tmp = CAPS + ".tmp"
     with open(tmp, "w") as f:
-        f.write("\n".join(hdr + out) + "\n")
+        f.write(text)
     os.replace(tmp, CAPS)
 
 

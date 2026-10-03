@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+. "$(dirname "${BASH_SOURCE[0]}")/sandbox.sh"   # never the real home or session (tests/sandbox.sh)
 # tests/check-prime-do.sh — Prime does everyday requests without AI (prime-do), Prime Search
 # shows them first, the Ask box tries them before the model, and a screenshot never
 # asks anything before it is saved (prime-snip). Throwaway HOME, fake capture tools.

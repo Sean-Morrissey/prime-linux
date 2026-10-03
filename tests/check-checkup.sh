@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+. "$(dirname "${BASH_SOURCE[0]}")/sandbox.sh"   # never the real home or session (tests/sandbox.sh)
 # tests/check-checkup.sh — the daily checkup (prime-doctor --daily, prime-checkup.timer):
 # a full disk, failed services and desktop version jumps are reported in words, and a
 # problem you've already been told about isn't repeated every day. Fake pacman,

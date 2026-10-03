@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+. "$(dirname "${BASH_SOURCE[0]}")/sandbox.sh"   # never the real home or session (tests/sandbox.sh)
 # tests/check-menus.sh — the Prime menu and the right-click menus, driven through a
 # stand-in rofi that records what it was given and answers like rofi does. No
 # display, no install: everything runs in a throwaway HOME.

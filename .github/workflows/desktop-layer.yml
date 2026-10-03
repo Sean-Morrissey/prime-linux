@@ -54,7 +54,7 @@ jobs:
       - name: Remote login (SSH) safety
         run: bash tests/check-ssh.sh
       - name: Nightly updater, system installer, security report
-        run: bash backends/arch/test-system-update.sh
+        run: bash tests/check-system-update.sh
       - name: Owner's machine leaks
         env:
           PRIME_AUTHOR_RE: ${{ secrets.PRIME_AUTHOR_RE }}   # the owner's name/handles, kept out of the public repo

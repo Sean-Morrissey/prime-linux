@@ -8,8 +8,6 @@
       "pins": [
         "nemo",
         "org.gnome.Software",
-        "firefox",
-        "chromium",
         "steam"
       ],
       "items": [
@@ -57,7 +55,7 @@
       "items": [
         {
           "id": "set.all",
-          "label": "All settings — Wi-Fi, sound, display, mouse, gaming, storage…",
+          "label": "All settings",
           "hint": "Super+I",
           "kind": "run",
           "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-system-settings"
@@ -71,17 +69,10 @@
         },
         {
           "id": "set.theme",
-          "label": "Theme — wallpaper, accent colour, text size",
+          "label": "Wallpaper, colour and text size",
           "hint": "Super+Shift+W",
           "kind": "run",
           "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-theme"
-        },
-        {
-          "id": "set.text",
-          "label": "Text size",
-          "hint": "one size for the whole desktop",
-          "kind": "run",
-          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-theme --text"
         },
         {
           "id": "set.saver",
@@ -126,13 +117,6 @@
           "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-keyboard"
         },
         {
-          "id": "set.power",
-          "label": "Power mode",
-          "hint": "battery saver · balanced · performance",
-          "kind": "run",
-          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-power-profile"
-        },
-        {
           "id": "set.printers",
           "label": "Printers",
           "hint": "add a printer, see what's printing",
@@ -152,26 +136,6 @@
           "hint": "browser and file manager",
           "kind": "run",
           "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-default-apps"
-        },
-        {
-          "id": "set.store",
-          "label": "App Store",
-          "kind": "run",
-          "cmd": "exec gnome-software"
-        },
-        {
-          "id": "set.addons",
-          "label": "Packs & add-ons",
-          "hint": "optional extras, e.g. the AI assistant",
-          "kind": "run",
-          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-addon pick"
-        },
-        {
-          "id": "set.hyprconf",
-          "label": "Advanced window & keyboard settings",
-          "hint": "your own settings file, opens in Text Editor",
-          "kind": "run",
-          "cmd": "exec gnome-text-editor ~/.config/hypr/hyprland.conf"
         },
         {
           "id": "set.autonomy",
@@ -314,7 +278,7 @@
     },
     {
       "id": "style",
-      "label": "Style & repair",
+      "label": "Fix & restore",
       "icon": "󰸉",
       "items": [
         {
@@ -337,39 +301,6 @@
           "hint": "undo — back to a copy saved before an update",
           "kind": "run",
           "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-desktop-backup restore"
-        },
-        {
-          "id": "style.save",
-          "label": "Save desktop settings now",
-          "hint": "a copy is also saved before every update",
-          "kind": "run",
-          "cmd": "~/.local/share/prime-linux/layer/bin/prime-desktop-backup save manual && notify-send -a Prime 'Desktop settings saved'"
-        },
-        {
-          "id": "style.restartbars",
-          "label": "Restart the bar",
-          "hint": "Super+W",
-          "kind": "run",
-          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-bar restart"
-        },
-        {
-          "id": "style.anim",
-          "label": "Animations on / off",
-          "kind": "run",
-          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-toggle-animations"
-        },
-        {
-          "id": "style.reload",
-          "label": "Reload window settings",
-          "kind": "run",
-          "cmd": "hyprctl reload && notify-send -a Prime 'Window settings reloaded'"
-        },
-        {
-          "id": "style.help",
-          "label": "Get help",
-          "hint": "a report to send to whoever helps you",
-          "kind": "run",
-          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-help"
         }
       ]
     },

@@ -218,8 +218,10 @@ def read_pins(installed: set) -> list:
     if pins is None:
         # nobody has pinned anything yet: Prime's suggestions, topped up to a full row
         # with the everyday apps (files, browser, terminal, store, settings)
-        pins = [p for p in _menu_pins() if p in installed]
-        pins += [p for p in sensible_defaults(installed) if p not in pins]
+        # the everyday apps first (files, one browser — the default —, terminal,
+        # store, settings), then Prime's suggestions, to a full row
+        pins = sensible_defaults(installed)
+        pins += [p for p in _menu_pins() if p in installed and p not in pins]
         pins = pins[:COLUMNS]
     seen, out = set(), []
     for p in pins:
@@ -246,7 +248,8 @@ def toggle_pin(did: str, installed: set) -> list:
 
 
 def user_name() -> str:
-    """The name from ~/.config/prime/identity.yaml (`name: …`), else $USER."""
+    """The name from ~/.config/prime/identity.yaml (`name: …`), else the account's full
+    name, else the login name written like a name ("alex" → "Alex")."""
     try:
         for line in open(IDENTITY, encoding="utf-8"):
             m = re.match(r"""^name:\s*["']?(.*?)["']?\s*$""", line)
@@ -254,7 +257,13 @@ def user_name() -> str:
                 return m.group(1).strip()
     except OSError:
         pass
-    return os.environ.get("USER") or os.path.basename(HOME) or "You"
+    try:
+        import pwd
+        full = pwd.getpwuid(os.getuid()).pw_gecos.split(",")[0].strip()
+    except (KeyError, ImportError):
+        full = ""
+    name = full or os.environ.get("USER") or os.path.basename(HOME) or "You"
+    return name.title() if name.islower() and name.replace(" ", "").isalpha() else name
 
 
 def enter_action(query: str, apps: list) -> tuple:
@@ -495,7 +504,7 @@ class Start:
         foot.pack_start(who, True, True, 0)
         self.footer_buttons = []
         for icon, label, cmd in (
-            ("preferences-system-symbolic", "Settings", [os.path.join(BIN, "prime-system-settings")]),
+            ("emblem-system-symbolic", "Settings", [os.path.join(BIN, "prime-system-settings")]),
             ("system-lock-screen-symbolic", "Lock", ["loginctl", "lock-session"]),
             ("system-shutdown-symbolic", "Power", [os.path.join(BIN, "prime-power-menu")]),
         ):
@@ -785,7 +794,7 @@ def selftest() -> int:
     open(IDENTITY, "w").write('version: 1\nname: "Alex Example"\ncourses: []\n')
     check("name from identity.yaml", user_name() == "Alex Example", user_name())
     os.unlink(IDENTITY)
-    check("name falls back to $USER", user_name() == (os.environ.get("USER") or os.path.basename(HOME) or "You"))
+    check("without identity.yaml the name is the account's, written like a name", bool(user_name()) and not user_name().islower())
 
     if apps:
         name = apps[0][0]

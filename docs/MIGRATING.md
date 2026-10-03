@@ -56,7 +56,7 @@ can still do it — or redo it — any time.
    It asks once, saves everything, then shows four steps. At the end it says
    where the report is.
 
-4. **Log out and back in** (or press Super+W to restart the bar). Your
+4. **Log out and back in** (or press Super+H, which restarts anything that stopped). Your
    shortcuts are in **Super+/**, your bar items are on Prime's bar, your screens
    are arranged as before.
 

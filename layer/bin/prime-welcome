@@ -2,9 +2,9 @@
 """prime-welcome — the first thing a new Prime Linux user sees.
 
 A short, friendly window (GTK 4 / libadwaita): the three keys worth knowing, pick
-a look, what the computer is for (→ packs), how updates happen, optionally
-connect an AI assistant, how much Prime may do on its own, done. Every step can
-be skipped; nothing needs an AI or the internet. Run it again any time from the
+a look, what the computer is for (→ packs), optionally connect an AI assistant
+(and, once one is connected, how much it may do on its own), done. Updates stay
+automatic unless changed in Settings. Nothing needs an AI or the internet. Run it again any time from the
 Settings → Users & Accounts → "Set up my computer again".
 
   prime-welcome                 open it
@@ -71,7 +71,8 @@ ALWAYS_ASK = "Restoring old settings and anything with passwords always ask. Pri
 def default_name():
     try:
         g = pwd.getpwuid(os.getuid()).pw_gecos.split(",")[0].strip()
-        return g or pwd.getpwuid(os.getuid()).pw_name
+        name = g or pwd.getpwuid(os.getuid()).pw_name
+        return name.title() if name.islower() and name.replace(" ", "").isalpha() else name
     except KeyError:
         return os.environ.get("USER", "")
 
@@ -301,9 +302,9 @@ def gui(screenshots=None):
     .welcome-title { font-size: 2em; font-weight: 800; }
     .step-title { font-size: 1.6em; font-weight: 700; }
     .step-sub { font-size: 1.05em; opacity: 0.8; }
-    .keycap { font-family: "JetBrainsMono Nerd Font", monospace; font-weight: 700; padding: 4px 10px;
-              border-radius: 8px; border: 1px solid alpha(currentColor, 0.25); background: alpha(currentColor, 0.06);
-              box-shadow: inset 0 -2px alpha(currentColor, 0.15); }
+    .keycap { font-weight: 600; font-size: 0.85em; min-width: 1.4em; padding: 3px 9px;
+              border-radius: 7px; border: 1px solid alpha(currentColor, 0.2); background: alpha(currentColor, 0.06);
+              box-shadow: inset 0 -1px alpha(currentColor, 0.15); }
     .swatch { min-width: 44px; min-height: 44px; border-radius: 999px; padding: 0; }
     .swatch:checked { outline: 3px solid alpha(white, 0.9); outline-offset: 3px; }
     .wall { padding: 3px; border-radius: 12px; }
@@ -330,6 +331,9 @@ def gui(screenshots=None):
             self.set_default_size(820, 680)
             self.add_css_class("prime-welcome")
             th = current_theme()
+            # Prime's own icons (the logo) ship with Prime; the accent-coloured copy in
+            # ~/.local/share/icons, when there is one, still comes first
+            Gtk.IconTheme.get_for_display(Gdk.Display.get_default()).add_search_path(os.path.join(LAYER, "icons"))
             self.a = {"name": default_name(), "accent": th["ACCENT"], "accent_name": "",
                       "wallpaper": th["WALL"], "uses": [], "updates": "automatic", "autonomy": "suggest",
                       "text_scale": "normal", "ai_connected": False}
@@ -348,7 +352,7 @@ def gui(screenshots=None):
             self.stack = Gtk.Stack(transition_type=Gtk.StackTransitionType.SLIDE_LEFT_RIGHT, vexpand=True,
                                    transition_duration=220)
             self.pages = []
-            for build in (self.p_welcome, self.p_look, self.p_uses, self.p_updates, self.p_ai, self.p_autonomy, self.p_done):
+            for build in (self.p_welcome, self.p_look, self.p_uses, self.p_ai, self.p_autonomy, self.p_done):
                 name, widget = build()
                 self.stack.add_named(widget, name)
                 self.pages.append(name)
@@ -362,13 +366,13 @@ def gui(screenshots=None):
             self.skip.connect("clicked", lambda *_: self.go(+1, skip=True))
             self.next.connect("clicked", lambda *_: self.go(+1))
             self.progress = Gtk.Label(css_classes=["dots"])
-            bar = Gtk.Box(spacing=12, margin_top=12, margin_bottom=16, margin_start=24, margin_end=24)
-            bar.append(self.back)
-            bar.append(Gtk.Box(hexpand=True))
-            bar.append(self.progress)
-            bar.append(Gtk.Box(hexpand=True))
-            bar.append(self.skip)
-            bar.append(self.next)
+            bar = Gtk.CenterBox(margin_top=12, margin_bottom=16, margin_start=24, margin_end=24)
+            ends = Gtk.Box(spacing=12)
+            ends.append(self.skip)
+            ends.append(self.next)
+            bar.set_start_widget(self.back)
+            bar.set_center_widget(self.progress)
+            bar.set_end_widget(ends)
 
             tv = Adw.ToolbarView()
             hb = Adw.HeaderBar(show_title=False)
@@ -386,18 +390,18 @@ def gui(screenshots=None):
             box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18, margin_top=8, margin_bottom=8,
                           margin_start=36, margin_end=36)
             if icon:
-                box.append(Gtk.Image(icon_name=icon, pixel_size=48, halign=Gtk.Align.START))
+                box.append(Gtk.Image(icon_name=icon, pixel_size=72, halign=Gtk.Align.START))
             t = Gtk.Label(label=title, xalign=0, wrap=True, css_classes=["step-title"])
             box.append(t)
             if sub:
                 box.append(Gtk.Label(label=sub, xalign=0, wrap=True, css_classes=["step-sub"]))
             box.append(body)
-            clamp = Adw.Clamp(maximum_size=720, child=box)
+            clamp = Adw.Clamp(maximum_size=720, child=box, valign=Gtk.Align.CENTER)
             sc = Gtk.ScrolledWindow(child=clamp, hscrollbar_policy=Gtk.PolicyType.NEVER, vexpand=True)
             return sc
 
         def keycaps(self, *keys):
-            b = Gtk.Box(spacing=6)
+            b = Gtk.Box(spacing=6, valign=Gtk.Align.CENTER)
             for i, k in enumerate(keys):
                 if i:
                     b.append(Gtk.Label(label="+"))
@@ -425,14 +429,8 @@ def gui(screenshots=None):
                 row.add_suffix(self.keycaps(*caps))
                 keys.add(row)
             body.append(keys)
-            acc = Adw.PreferencesGroup()
-            self.large = Adw.SwitchRow(title="Larger text", subtitle="Easier to read, here and on the desktop")
-            self.large.connect("notify::active", self.on_large)
-            acc.add(self.large)
-            body.append(acc)
             return "welcome", self.page("Welcome to Prime Linux",
-                                        "Hi — I'm Prime. Let's make this computer yours. It takes about two minutes, "
-                                        "and you can skip anything.", body, icon="prime-linux")
+                                        "Let's make this computer yours. It takes about a minute.", body, icon="prime-linux")
 
         def on_large(self, row, *_):
             on = row.get_active()
@@ -502,6 +500,11 @@ def gui(screenshots=None):
                 b.connect("toggled", lambda btn, p=path: btn.get_active() and self.pick_wall(p))
                 wf.append(b)
             body.append(wf)
+            acc = Adw.PreferencesGroup()
+            self.large = Adw.SwitchRow(title="Larger text", subtitle="Easier to read, here and on the desktop")
+            self.large.connect("notify::active", self.on_large)
+            acc.add(self.large)
+            body.append(acc)
             body.append(Gtk.Label(label="Your own pictures can go in Pictures → Wallpapers. Change all of this any time "
                                         "with Super+Shift+W.", xalign=0, wrap=True, css_classes=["dim-label"]))
             self.show_wall(self.a["wallpaper"])
@@ -628,6 +631,7 @@ def gui(screenshots=None):
             self.a["ai_connected"] = False
             if pid == "local":
                 threading.Thread(target=self.detect_local, daemon=True).start()
+            self.update_nav()
 
         def detect_local(self):
             for u in ("http://localhost:8080/v1", "http://localhost:11434/v1"):
@@ -749,7 +753,7 @@ def gui(screenshots=None):
             tips = Adw.PreferencesGroup(title="Good to know")
             tip_rows = [(("Super", "X"), "Start menu — or click the P at the top left"),
                         (("Super", "Space"), "Find anything"),
-                        (("Super", "Alt", "Space"), "Settings, style, updates — and \"Set up my computer again\""),
+                        (("Super", "I"), "Settings — updates, look, and \"Set up my computer again\""),
                         (("Super", "/"), "Every shortcut"),
                         (("Right-click",), "Anything on the bar for its options")]
             if self.a.get("ai_connected"):
@@ -781,6 +785,8 @@ def gui(screenshots=None):
             if cur == "done" and step > 0:
                 return self.close()
             j = max(0, min(len(self.pages) - 1, i + step))
+            if self.pages[j] == "autonomy" and not self.a["ai_connected"]:
+                j = max(0, min(len(self.pages) - 1, j + step))
             self.stack.set_transition_type(Gtk.StackTransitionType.SLIDE_LEFT if step > 0
                                            else Gtk.StackTransitionType.SLIDE_RIGHT)
             self.stack.set_visible_child_name(self.pages[j])
@@ -799,15 +805,22 @@ def gui(screenshots=None):
                 GLib.idle_add(self.fill_done, rows)
             threading.Thread(target=work, daemon=True).start()
 
+        def steps(self):
+            """The steps this person sees: the permission step only once an assistant is connected."""
+            return [p for p in self.pages if p != "done" and (p != "autonomy" or self.a["ai_connected"])]
+
         def update_nav(self):
             cur = self.stack.get_visible_child_name()
-            i = self.pages.index(cur)
             last = cur == "done"
+            steps = self.steps()
+            i = steps.index(cur) if cur in steps else len(steps) - 1
             self.back.set_visible(0 < i and not last)
-            self.skip.set_visible(cur not in ("welcome", "done"))
-            self.next.set_label("_Start using my computer" if last else ("_Finish" if cur == "autonomy" else "_Continue"))
+            # Skip only where Continue can't simply move on: a model that won't connect
+            self.skip.set_visible(cur == "ai" and getattr(self, "prov", "none") != "none" and not self.a["ai_connected"])
+            final = not last and i == len(steps) - 1 and not (cur == "ai" and getattr(self, "prov", "none") != "none")
+            self.next.set_label("_Start using my computer" if last else ("_Finish" if final else "_Continue"))
             self.next.set_sensitive(not last or self.finished)
-            self.progress.set_label("" if last else f"Step {i + 1} of {len(self.pages) - 1}")
+            self.progress.set_label("" if last else f"{i + 1} of {len(steps)}")
             self.set_default_widget(self.next)
 
         def on_close(self, *_):

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+. "$(dirname "${BASH_SOURCE[0]}")/sandbox.sh"   # never the real home or session (tests/sandbox.sh)
 # tests/check-update-rewritten.sh — the published history was started afresh (the
 # repository was recreated): "Update everything" must follow it instead of saying
 # files were edited and staying on the old version forever. A copy with real edits

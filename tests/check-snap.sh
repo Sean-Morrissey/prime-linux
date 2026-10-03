@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+. "$(dirname "${BASH_SOURCE[0]}")/sandbox.sh"   # never the real home or session (tests/sandbox.sh)
 # tests/check-snap.sh — Super+arrows snap the window to that side: out of full screen
 # first, back into place if it was floating, then moved. A stand-in hyprctl records
 # what Hyprland would be asked; nothing real is touched.

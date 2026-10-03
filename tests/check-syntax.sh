@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+. "$(dirname "${BASH_SOURCE[0]}")/sandbox.sh"   # never the real home or session (tests/sandbox.sh)
 # tests/check-syntax.sh — no-container syntax pass over every script and JSON
 # file the repo tracks: bash -n for shell, py_compile for Python, json.tool for
 # JSON. Fast; run it before the container suites.

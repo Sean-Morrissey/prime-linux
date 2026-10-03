@@ -17,9 +17,34 @@
 # `bash prime-linux/install.sh`, or point PRIME_REPO at a URL you can read
 # (PRIME_REPO=git@github.com:sean-morrissey/prime-linux.git).
 #
+# On the stable channel nothing runs until the download is checked: it must be a
+# v* release tag signed by Prime's release key (fingerprint below — compare it with
+# docs/RELEASE.md). Other channels (PRIME_REF=main) are for testers and unsigned.
+#
 # Everything is inside main(), which runs on the last line: if the download is
 # cut off half-way, bash has nothing to run instead of half a script.
 set -euo pipefail
+
+PRIME_RELEASE_FPR="${PRIME_RELEASE_FPR_TEST:-9E04CC6DCD67F5DC95FECB8654BBD88772267D63}"   # _TEST: tests only
+
+# signed_release <dir> → 0 when the checked-out commit carries a v* tag signed by that key
+signed_release() {
+    local dir="$1" ring t ok=1
+    command -v gpg >/dev/null || { echo "  gpg is missing, so the download can't be checked." >&2; return 1; }
+    ring="$(mktemp -d)"; chmod 700 "$ring"
+    if gpg --homedir "$ring" --batch --quiet --import < "$dir/layer/system/release/release-keys.asc" 2>/dev/null; then
+        for t in $(git -C "$dir" tag --points-at HEAD --list 'v*'); do
+            # VALIDSIG's last field is the signing key's primary fingerprint
+            if GNUPGHOME="$ring" git -C "$dir" -c gpg.format=openpgp verify-tag --raw "$t" 2>&1 >/dev/null \
+                    | awk '$2 == "VALIDSIG" {print $NF}' | grep -qx "$PRIME_RELEASE_FPR"; then
+                ok=0; break
+            fi
+        done
+    fi
+    gpgconf --homedir "$ring" --kill all >/dev/null 2>&1 || true
+    rm -rf "$ring"
+    return $ok
+}
 
 main() {
     local repo="${PRIME_REPO:-https://github.com/sean-morrissey/prime-linux.git}"
@@ -58,6 +83,16 @@ main() {
             fi
             sleep 3
         done
+    fi
+
+    if [ "$ref" = stable ] || [ "${PRIME_REQUIRE_SIGNED:-0}" = 1 ]; then
+        if signed_release "$dest"; then
+            echo "  Checked: a signed Prime Linux release ($(git -C "$dest" describe --tags --always))"
+        else
+            echo "This download isn't a Prime Linux release signed by Prime's release key, so nothing was installed." >&2
+            echo "  Try again in a few minutes; if it keeps happening, please open an issue on GitHub." >&2
+            exit 1
+        fi
     fi
 
     # install.sh asks questions; with "curl | bash" our stdin is the script itself,

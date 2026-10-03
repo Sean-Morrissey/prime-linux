@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+. "$(dirname "${BASH_SOURCE[0]}")/sandbox.sh"   # never the real home or session (tests/sandbox.sh)
 # tests/check-settings-app.sh — Settings (prime-system-settings): every page builds,
 # every Prime tool it opens exists, the mouse/keyboard/touchpad settings land in the
 # Prime block of hyprland.conf (and bad values are refused), the password change
@@ -13,6 +14,7 @@ ck() { if ( eval "$2" ) >/dev/null 2>&1; then echo "  PASS  $1"; else echo "  FA
 missing=""
 for c in $(grep -oE '"prime-[a-z-]+"' "$APP" | tr -d '"' | sort -u); do
     case "$c" in prime-gaming|prime-ai-setup) continue ;; esac   # pack tools, checked below
+    case "$c" in *-symbolic) [ -f "$REPO/layer/icons/hicolor/scalable/actions/$c.svg" ] || missing="$missing $c"; continue ;; esac   # Prime's own icons
     [ -x "$REPO/layer/bin/$c" ] || missing="$missing $c"
 done
 ck "every Prime tool Settings opens is in layer/bin${missing:+ (missing:$missing)}" "[ -z '$missing' ]"
@@ -21,8 +23,8 @@ ck "the pack tools it uses are in their packs" \
 ck "lists 22 pages, each with search words" \
    "[ \$(python3 '$APP' --list-pages | awk -F'\t' 'NF==3 && \$3!=\"\"' | wc -l) -ge 22 ]"
 ck "an unknown page is refused, not opened blank" "! python3 '$APP' --page nope"
-ck "mouse, keyboard, processor, graphics, storage, gaming and AI pages exist" \
-   "for p in mouse keyboard processor graphics storage gaming assistant display sound network; do python3 '$APP' --list-pages | grep -q \"^\$p	\" || exit 1; done"
+ck "mouse, keyboard, processor & graphics, storage, gaming and AI pages exist" \
+   "for p in mouse keyboard graphics storage gaming assistant display sound network; do python3 '$APP' --list-pages | grep -q \"^\$p	\" || exit 1; done"
 
 # ── the settings toolbox behind the Mouse & Keyboard pages ─────────────────
 H="$T/home"; mkdir -p "$H/.config/hypr"; : > "$H/.config/hypr/hyprland.conf"
@@ -193,8 +195,12 @@ ck "it's in the app list as Settings"        "grep -q '^Name=Settings$' '$REPO/l
 PY="${PRIME_TEST_PY:-python3}"
 if "$PY" -c "import gi; gi.require_version('Gtk','4.0'); gi.require_version('Adw','1')" 2>/dev/null && command -v xvfb-run >/dev/null; then
     HOME="$H" PRIME_SETTINGS_DRY=1 timeout 120 xvfb-run -a "$PY" "$APP" --selftest > "$T/st" 2>&1
-    ck "all 29 pages build, search finds Mouse & Touchpad" "grep -q '^0 failure' '$T/st' && [ \$(grep -c '  PASS  ' '$T/st') -ge 30 ]"
+    ck "all 28 pages build, search finds Mouse & Touchpad" "grep -q '^0 failure' '$T/st' && [ \$(grep -c '  PASS  ' '$T/st') -ge 29 ]"
     grep -q '^0 failure' "$T/st" || grep -E 'FAIL|Error|Traceback' "$T/st" | head -20
+    # looking is not changing: drawing every page (no DRY switch) must write nothing
+    mkdir -p "$T/look"
+    HOME="$T/look" timeout 150 xvfb-run -a "$PY" "$APP" --screenshots "$T/shots" >/dev/null 2>&1
+    ck "opening every page writes nothing to the home folder" "[ -z \"\$(find '$T/look' -type f ! -path '*/.cache/*')\" ]"
 else
     echo "  SKIP  page build (no GTK 4 / libadwaita / Xvfb here)"
     # CI sets PRIME_REQUIRE_GUI=1: there a skip would hide that no page was built

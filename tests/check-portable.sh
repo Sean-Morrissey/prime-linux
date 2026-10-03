@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+. "$(dirname "${BASH_SOURCE[0]}")/sandbox.sh"   # never the real home or session (tests/sandbox.sh)
 # tests/check-portable.sh — nothing a friend installs may only work on the
 # author's PC: his home folder, his name, his GPU (RX 9060 XT), his screens,
 # his sound devices, his personal add-on. Scans exactly what install.sh puts on
@@ -16,7 +17,7 @@ scan() { # scan <what> <regex> [extra grep args] — fails when any shipped file
 scan "home-folder paths (/home/<someone>)" '/home/[a-z_][a-z0-9_-]*' --exclude=prime-spotlight --exclude=prime-uninstall
 # the author's name and handles are not written in this public file: CI passes them in
 # as the PRIME_AUTHOR_RE secret; on the author's machine they come from his private
-# ~/.config/prime/author-patterns.json (see tools/capture-workspace.py)
+# ~/.config/prime/author-patterns.json (a JSON list of regexes)
 AUTHOR_FILE="${PRIME_AUTHOR_PATTERNS:-$HOME/.config/prime/author-patterns.json}"
 if [ -z "${PRIME_AUTHOR_RE:-}" ] && [ -r "$AUTHOR_FILE" ] && command -v jq >/dev/null; then
     PRIME_AUTHOR_RE="$(jq -r '[.leaks[][1] | sub("\\(\\?i\\)"; "")] | join("|")' "$AUTHOR_FILE")"

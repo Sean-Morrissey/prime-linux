@@ -13,8 +13,10 @@
 #   · system services Prime switched on (login screen, Bluetooth, printing,
 #     power modes) are switched off again
 #   · Prime's services, commands, app-list entries, web apps and update hook go
-# Your Prime settings (~/.config/prime) are moved into ~/.config-backups, and
-# your desktop-settings backups stay where they are.
+# Nothing is thrown away: every file it removes or puts back is first saved as it
+# is now (edits included) in ~/.config-backups/prime-uninstall-<time>/, your Prime
+# settings (~/.config/prime) move into ~/.config-backups, and your desktop-settings
+# backups stay where they are.
 set -u
 PRIME_HOME="$HOME/.local/share/prime-linux"
 STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/prime"
@@ -62,18 +64,29 @@ run rm -rf "$HOME/.local/share/icons/prime-webapps"
 say "Removed Prime's services, commands and app-list entries"
 
 # ── files: put back what was replaced, remove what was created ──────────────
+# Nothing of the person's is lost: before a file is removed or overwritten, the copy
+# in use now (with any edits made since Prime was installed) is saved here.
+SAVED="$HOME/.config-backups/prime-uninstall-$STAMP"
+kept=0
+keep() {   # keep <file> — save the file as it is now, under its path relative to ~
+    local f="$1" rel="${1#$HOME/}"
+    [ -f "$f" ] || return 0
+    run mkdir -p "$SAVED/$(dirname "$rel")" && run cp -a "$f" "$SAVED/$rel" && kept=1
+}
 if [ -f "$MANIFEST" ]; then
     while read -r kind rest; do
         case "$kind" in
             created)  # only if it is still Prime's (a file the user rewrote stays)
                 f="$rest"; [ -e "$f" ] || continue
-                case "$f" in */hypr/monitors.conf|*/hypr/keyboard.conf|*/hypr/hardware.conf|*/hypr/addons.conf|*/prime/addons|*/autostart/nm-applet.desktop) run rm -f "$f" ;;
-                             *) grep -q 'prime-linux' "$f" 2>/dev/null && run rm -f "$f" ;; esac ;;
+                case "$f" in */hypr/monitors.conf|*/hypr/keyboard.conf|*/hypr/hardware.conf|*/hypr/addons.conf|*/prime/addons|*/autostart/nm-applet.desktop)
+                                 keep "$f"; run rm -f "$f" ;;
+                             *) grep -q 'prime-linux' "$f" 2>/dev/null && { keep "$f"; run rm -f "$f"; } ;; esac ;;
             replaced)   # the OLDEST backup holding it is the pre-Prime version
                 f="$rest"; rel="${f#$HOME/.config/}"
                 # one backup path per line: a home folder with a space in its name stays one path
                 while IFS= read -r b; do
                     [ -n "$b" ] && [ -e "$b/$rel" ] || continue
+                    cmp -s "$b/$rel" "$f" || keep "$f"
                     run mkdir -p "$(dirname "$f")"; run cp -a "$b/$rel" "$f"; say "Restored ~/.config/$rel"; break
                 done < <(sed -n 's/^backup //p' "$MANIFEST"; printf '%s\n' "$BACKUP") ;;
         esac
@@ -82,6 +95,7 @@ elif [ -n "$BACKUP" ] && [ -d "$BACKUP" ]; then
     # installs from before the manifest existed: restore the whole backup
     run cp -a "$BACKUP"/. "$HOME/.config/" && say "Restored your previous configs from $BACKUP"
 fi
+[ $kept = 1 ] && say "The settings files you had with Prime (and any edits you made) are saved in ${SAVED/#$HOME/\~}"
 for f in "$HOME/.config/hypr/hyprland.conf" "$HOME/.config/kitty/kitty.conf"; do
     [ -f "$f" ] && grep -q 'prime-linux' "$f" && say "! $f still points at Prime Linux — delete or edit it"
 done

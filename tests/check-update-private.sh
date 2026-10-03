@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+. "$(dirname "${BASH_SOURCE[0]}")/sandbox.sh"   # never the real home or session (tests/sandbox.sh)
 # tests/check-update-private.sh — "Update everything" on a friend's machine
 # installed from the PRIVATE repo, without a GitHub login: it must not hang
 # waiting for a username nobody can type (it runs in a window), and must say

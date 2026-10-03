@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+. "$(dirname "${BASH_SOURCE[0]}")/sandbox.sh"   # never the real home or session (tests/sandbox.sh)
 # The fast suite: runs on any Linux with python3, bash and jq — no container, no
 # install, nothing touches this machine (every write goes to a throwaway HOME).
 # The GUI self-tests use the real display, or a virtual one (xvfb-run) when there

@@ -2,7 +2,7 @@
 """prime-bar — start one Prime Linux bar (what prime-bar@top / prime-bar@side run).
 
   prime-bar top | side     build the config + style, then exec waybar
-  prime-bar restart        restart both bars (Super+W)
+  prime-bar restart        restart both bars
   prime-bar --keys         every bar item in a list, for the keyboard (Super+Alt+B):
                            pick one to get its menu — the same as right-clicking it
   prime-bar --keys --list  the rows that list shows (tests)

@@ -63,7 +63,11 @@ grep -q 'BEGIN PGP PUBLIC KEY BLOCK' "$KEYS" || die "$KEYS holds no key — noth
 FPR="$(gpg --show-keys --with-colons "$KEYS" 2>/dev/null | awk -F: '/^fpr:/{print $10; exit}')"
 [ -n "$FPR" ] || die "couldn't read a fingerprint out of $KEYS"
 gpg --list-secret-keys "$FPR" >/dev/null 2>&1 || die "the private half of $FPR isn't on this computer — the release key must sign the tag"
-ok "release key $FPR, private half present"
+printf 'probe' | gpg --batch --pinentry-mode error --local-user "$FPR" --detach-sign -o /dev/null 2>/dev/null \
+    || die "gpg can't sign right now (it needs to ask for the key's passphrase).
+        Run this from a terminal you are sitting at, not over ssh or from a script runner.
+        Check with:  echo x | gpg --local-user $FPR --detach-sign -o /dev/null"
+ok "release key $FPR, private half present and able to sign"
 
 # ── 2. the gate ──────────────────────────────────────────────────────────────
 say "the gate (docs/RELEASE.md)"
@@ -118,10 +122,12 @@ fi
 
 # ── 4. sign the tag ──────────────────────────────────────────────────────────
 say "signing $VERSION"
-run git -c gpg.format=openpgp tag -s -u "$FPR" -F "$NOTES" "$VERSION"
 if [ "$DRY" = 0 ]; then
+    git -c gpg.format=openpgp tag -s -u "$FPR" -F "$NOTES" "$VERSION" || die "signing the tag failed (see gpg's message above)"
     git tag -v "$VERSION" >/dev/null 2>&1 || die "the tag didn't verify straight after signing"
     ok "annotated, signed by $FPR, message = the changelog section"
+else
+    printf '  would run: git tag -s -u %s -F <changelog section> %s\n' "$FPR" "$VERSION"
 fi
 
 # ── 5. move stable, then check it the way a user's computer will ─────────────

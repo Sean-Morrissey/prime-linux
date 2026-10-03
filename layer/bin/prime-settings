@@ -576,6 +576,7 @@ def sync_services(before, state):
         if new.get("titlebars") == "off":
             run(["hyprpm", "disable", "hyprbars"])
             run(["hyprpm", "reload", "-n"])
+            run([os.path.join(BIN, "prime-titlebars")])     # their look is switched off too
         else:
             subprocess.Popen([os.path.join(BIN, "prime-titlebars")], stdout=subprocess.DEVNULL,
                              stderr=subprocess.DEVNULL, start_new_session=True)

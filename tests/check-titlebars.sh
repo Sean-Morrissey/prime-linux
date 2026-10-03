@@ -40,4 +40,17 @@ rm -f "$T/calls"; tb
 ck "switched off in Settings: nothing is built or loaded"            "[ ! -s '$T/calls' ]"
 rm -f "$T/home/.config/prime/settings.json"
 
+SW="$T/home/.config/prime/theme/plugins.conf"
+rm -f "$T/stale" "$SW"; touch "$T/enabled" "$T/added"; tb
+ck "loaded: Hyprland reads the title bars' look"            "grep -q '^source = .*/layer/default/hypr/plugins.conf' '$SW'"
+# while a rebuild runs (after a Hyprland update) the look is switched off — no screen of errors
+printf '#!/bin/sh\n[ "$1 $2" = "plugin list" ] && [ -e "%s/loaded" ] && echo "Plugin hyprbars by Vaxry"\n[ "$1" = reload ] && cat "%s" >> "%s/during" 2>/dev/null\nexit 0\n' "$T" "$SW" "$T" > "$F/hyprctl"; chmod +x "$F/hyprctl"
+touch "$T/stale"; rm -f "$T/during"; tb
+ck "a rebuild switches the look off first, then on (no errors while it builds)" "head -1 '$T/during' | grep -q \"aren't loaded\" && tail -1 '$T/during' | grep -q '^source = '"
+ck "…and back on once the bars load"                        "grep -q '^source = ' '$SW'"
+mkdir -p "$T/home/.config/prime"; echo '{"settings":{"titlebars":"off"}}' > "$T/home/.config/prime/settings.json"; tb
+ck "title bars switched off in Settings: their look is off too" "grep -q \"aren't loaded\" '$SW'"
+rm -f "$T/home/.config/prime/settings.json"
+ck "Hyprland reads the look only through the switch file"  "grep -q '^source = ~/.config/prime/theme/plugins.conf' '$REPO/layer/default/hypr/prime.conf' && ! grep -q '^source = .*layer/default/hypr/plugins.conf' '$REPO/layer/default/hypr/prime.conf'"
+
 echo; [ $fail = 0 ] && echo "ALL PASSED" || echo "$fail FAILED"; exit $fail

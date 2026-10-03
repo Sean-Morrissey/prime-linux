@@ -24,7 +24,7 @@ python3 "$REPO/tests/check-static.py" || fail=$((fail+1))
 echo; echo "== behaviour (throwaway HOME)"
 export HOME="$T/home" PRIME_NO_GSETTINGS=1 PRIME_NO_LIVE=1; mkdir -p "$HOME/.config/hypr"
 unset HYPRLAND_INSTANCE_SIGNATURE
-ck "theme writes every generated file"        "bash $L/bin/prime-theme --apply && for f in colors.css colors.rasi fonts.rasi hyprland.conf hyprlock.conf kitty.conf swaync.css; do [ -s \$HOME/.config/prime/theme/\$f ] || { echo missing \$f; exit 1; }; done"
+ck "theme writes every generated file"        "bash $L/bin/prime-theme --apply && for f in colors.css colors.rasi fonts.rasi hyprland.conf hyprlock.conf kitty.conf swaync.css plugins.conf; do [ -s \$HOME/.config/prime/theme/\$f ] || { echo missing \$f; exit 1; }; done"
 ck "text size: default ladder"                "grep -q 'prime-font-body: *\"Inter 13\"' \$HOME/.config/prime/theme/fonts.rasi && grep -q 'prime_font_clock = 72' \$HOME/.config/prime/theme/hyprlock.conf"
 ck "text size: Larger scales every surface"   "bash $L/bin/prime-theme --set-text larger && grep -q 'prime-font-body: *\"Inter 16.9\"' \$HOME/.config/prime/theme/fonts.rasi && grep -q 'prime_font_clock = 94' \$HOME/.config/prime/theme/hyprlock.conf && grep -q 'prime_titlebar_text = 14' \$HOME/.config/prime/theme/hyprland.conf && grep -q '^TEXT=larger' \$HOME/.config/prime/theme.conf"
 ck "text size: a wrong value changes nothing" "! bash $L/bin/prime-theme --set-text huge && grep -q '^TEXT=larger' \$HOME/.config/prime/theme.conf"

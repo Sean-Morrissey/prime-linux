@@ -232,6 +232,8 @@
   "custom/updates": {
     "exec": "~/.local/share/prime-linux/layer/bin/prime-updates-count",
     "return-type": "json",
+    // nothing waiting: prime-updates-count sends no text, and the item (icon too) hides
+    "hide-empty-text": true,
     "interval": 60,
     "escape": true,
     "tooltip": true,

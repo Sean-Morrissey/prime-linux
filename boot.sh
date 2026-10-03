@@ -11,8 +11,9 @@
 #   PRIME_REPO     where to get it   (default: the GitHub repo; a local path works)
 #   PRIME_REF      branch or tag     (default: main — "stable" channel = latest tag, see docs/RELEASE.md)
 #
-# While the repository is private, `curl` can't read it: clone it yourself with
-# your GitHub login (gh repo clone sean-morrissey/prime-linux) and run
+# The repository is public, so the line above needs no GitHub account and no
+# sign-in. If it is ever made private, `curl` can't read it: clone it with your
+# GitHub login (gh repo clone sean-morrissey/prime-linux) and run
 # `bash prime-linux/install.sh`, or point PRIME_REPO at a URL you can read
 # (PRIME_REPO=git@github.com:sean-morrissey/prime-linux.git).
 #
@@ -51,7 +52,8 @@ main() {
             if [ $tries -ge 3 ]; then
                 echo "Couldn't download Prime Linux from $repo" >&2
                 echo "  · not online yet? connect to Wi-Fi from the network icon near the clock, then try again" >&2
-                echo "  · private repo? see the comment at the top of boot.sh" >&2
+                echo "  · GitHub unreachable from here? try again in a minute" >&2
+                echo "  · a private copy of the repository needs a login — see the top of boot.sh" >&2
                 exit 1
             fi
             sleep 3

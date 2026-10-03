@@ -12,53 +12,23 @@ pick and stays on the login screen as a second choice) and an internet connectio
 New to Linux? The **[user guide](docs/USER-GUIDE.md)** walks through installing
 CachyOS too.
 
-Open a terminal (press the Windows key, type `terminal`, press Enter), then follow
-**A** or **B**, depending on whether the Prime Linux repository is private or public.
-Copy each grey box, paste it into the terminal with **Ctrl+Shift+V**, and press Enter.
-When it asks for your password, type it (nothing shows while you type) and press Enter.
-
-### A. The repository is private (you were added as a collaborator)
-
-1. Accept the invitation: open the email from GitHub ("…invited you to collaborate
-   on Sean-Morrissey/prime-linux") and click **View invitation → Accept**. You need a
-   free GitHub account for this.
-2. Install GitHub's sign-in tool:
-
-   ```bash
-   sudo pacman -Syu --needed --noconfirm github-cli git
-   ```
-
-3. Sign in to GitHub from this computer:
-
-   ```bash
-   gh auth login
-   ```
-
-   Answer its questions with the arrow keys and Enter:
-   **GitHub.com** → **HTTPS** → **Yes** (authenticate Git with your GitHub
-   credentials) → **Login with a web browser**. It shows an 8-character code: press
-   Enter, sign in to GitHub in the browser that opens, and type the code there.
-4. Download Prime Linux:
-
-   ```bash
-   gh repo clone Sean-Morrissey/prime-linux ~/prime-linux
-   ```
-
-5. Install it:
-
-   ```bash
-   bash ~/prime-linux/install.sh
-   ```
-
-### B. The repository is public
-
-One line does everything:
+Open a terminal (press the Windows key, type `terminal`, press Enter). Copy the
+line below, paste it into the terminal with **Ctrl+Shift+V**, and press Enter.
+When it asks for your password, type it (nothing shows while you type) and press
+Enter.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/sean-morrissey/prime-linux/main/boot.sh | bash
 ```
 
-### Then, either way
+That is the whole install. Want to see what it would do first, without changing
+anything? Add `-s -- --dry-run`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/sean-morrissey/prime-linux/main/boot.sh | bash -s -- --dry-run
+```
+
+### What happens next
 
 - The installer shows numbered steps `[1/8] … [8/8]` and takes 5–15 minutes. It ends
   with **Prime Linux is installed**.
@@ -66,28 +36,31 @@ curl -fsSL https://raw.githubusercontent.com/sean-morrissey/prime-linux/main/boo
   log in. You get the top bar, the **P** logo (click it for the Start menu), and:
   **Super+Space** search · **Super+I** Settings · **Super+/** every
   shortcut. (*Super* is the Windows key.)
-- If anything stops half-way, run the install command again (A: step 5, B: the
-  one line): it carries on where it stopped. The log is in `~/.local/state/prime/logs/`.
+- If anything stops half-way, run the same line again: it carries on where it
+  stopped. The log is in `~/.local/state/prime/logs/`.
 - **Updates:** Settings → Updates → **Update everything**.
-- **Changed your mind?** In a terminal: `prime-uninstall` puts the computer back as it
-  was (from KDE's Konsole: `~/.local/share/prime-linux/layer/bin/prime-uninstall`).
-- The downloaded `~/prime-linux` folder (option A) can be deleted after installing;
-  Prime keeps its own copy in `~/.local/share/prime-linux`.
+- **Changed your mind?** Settings → Troubleshooting → **Remove Prime** puts the
+  computer back as it was. From a terminal it is `prime-uninstall` (from KDE's
+  Konsole: `~/.local/share/prime-linux/layer/bin/prime-uninstall`).
+
+Prime keeps its own copy in `~/.local/share/prime-linux`; there is nothing else to
+tidy up afterwards.
 
 ### For the owner: giving Prime Linux to a friend
 
-- **Private repo:** on GitHub open the repository → **Settings → Collaborators → Add
-  people**, and enter your friend's GitHub username or email. On a personal account a
-  collaborator can also push to the repo, so only invite people you trust with that.
-  Send them this README's option **A**.
-- **Public repo:** nothing to do; send them option **B**. Making the repository public is
-  your call (Settings → General → Danger Zone → Change visibility); nothing in Prime
-  does it for you.
+The repository is public, so there is nothing to set up — send your friend the one
+line above and they are done. They need no GitHub account and no sign-in.
+
+If you ever switch the repository back to private (Settings → General → Danger Zone
+→ Change visibility), `curl` stops being able to read it, and a friend would instead
+need a GitHub account, a collaborator invitation, and `gh auth login` before
+`bash ~/prime-linux/install.sh`. On a personal account a collaborator can also push,
+so only invite people you trust with that.
 
 The installer checks the computer first (internet, disk space, which desktop is
 already there), shows numbered progress, logs to `~/.local/state/prime/logs/`,
-picks up where it stopped if interrupted, and `bash install.sh --dry-run` shows
-exactly what it would do. `prime-uninstall` puts everything back.
+picks up where it stopped if interrupted, and `--dry-run` shows exactly what it
+would do. `prime-uninstall` puts everything back.
 
 - New to Linux? **[docs/USER-GUIDE.md](docs/USER-GUIDE.md)** — install to everyday use.
 - How the layer is built: [docs/PRIME-LAYER.md](docs/PRIME-LAYER.md) ·

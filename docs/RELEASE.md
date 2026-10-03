@@ -99,20 +99,19 @@ are listed in `~/.config/prime/migrations`. A new install marks all of them done
 Test it the way gate 4 says. Files in `layer/default/` don't need migrations —
 they're replaced on update.
 
-## The private-repo period
+## The repository is public
 
-Until the repository is public, `curl …/boot.sh` can't fetch anything. Testers use
+`curl -fsSL …/boot.sh | bash` works as written in the README and the user guide —
+no GitHub account, no sign-in, nothing to arrange with a tester first.
 
-```bash
-gh repo clone sean-morrissey/prime-linux /tmp/prime && bash /tmp/prime/install.sh
-```
+`install.sh` copies itself into `~/.local/share/prime-linux` with `origin` set to
+the GitHub URL, so `prime-update` works from then on. A short URL (a domain that
+redirects to the raw `boot.sh`) can come later; it must redirect to the tagged
+`stable` copy, never serve its own copy.
 
-`install.sh` copies itself into `~/.local/share/prime-linux` with `origin` set
-to the GitHub URL, so `prime-update` works for anyone whose git can read the repo
-(gh's credential helper). Going public needs nothing else: the boot.sh line in
-the README and USER-GUIDE starts working as written. A short URL
-(e.g. a domain that redirects to the raw `boot.sh`) can come later; it must
-redirect to the tagged `stable` copy, never serve its own copy.
+If the repository is ever made private again, `curl` stops being able to read it
+and testers need `gh repo clone sean-morrissey/prime-linux /tmp/prime &&
+bash /tmp/prime/install.sh` instead (git reads it through gh's credential helper).
 
 ## Signing
 

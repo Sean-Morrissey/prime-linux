@@ -249,7 +249,7 @@ def toggle_pin(did: str, installed: set) -> list:
 
 def user_name() -> str:
     """The name from ~/.config/prime/identity.yaml (`name: …`), else the account's full
-    name, else the login name written like a name ("sean" → "Sean")."""
+    name, else the login name written like a name ("alex" → "Alex")."""
     try:
         for line in open(IDENTITY, encoding="utf-8"):
             m = re.match(r"""^name:\s*["']?(.*?)["']?\s*$""", line)

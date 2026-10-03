@@ -38,7 +38,8 @@ in_home "$L/bin/prime-theme" --apply >/dev/null 2>&1
 
 echo "== toolbox"
 ck "every tool in prime-tools.json has a handler"   "in_home $S check"
-ck "permission file seeded from the template"       "in_home $S autonomy | grep -q '^suggest' && grep -q 'destructive' $H/.config/prime/capabilities.yaml"
+ck "before anyone chooses: ask first, and looking writes nothing" "in_home $S autonomy | grep -q '^suggest' && [ ! -e $H/.config/prime/capabilities.yaml ]"
+ck "choosing writes the permission file from the template" "in_home $S autonomy suggest >/dev/null && grep -q 'destructive' $H/.config/prime/capabilities.yaml"
 ck "AI change with no one to ask is declined"       "in_home $S run set_accent '{\"color\":\"green\"}' --actor ai --confirm tty | grep -q declined && [ \"\$(accent)\" = 60a5fa ]"
 ck "declines are in the audit log"                  "grep -q '\"status\": \"declined\"' $H/.config/prime/audit.jsonl"
 ck "confirmed AI change happens"                    "in_home PRIME_CONFIRM_ANSWER=yes $S run set_accent '{\"color\":\"green\"}' --actor ai | grep -q '\"ok\": true' && [ \"\$(accent)\" = 34d399 ]"

@@ -200,8 +200,9 @@ Settings → Appearance → **Edit the window & keyboard settings file** opens t
 
 Settings → **Troubleshooting** → **Remove Prime from this computer**. It asks first, and
 lets you keep or remove the apps Prime installed. Your old settings, theme and services
-come back; your files are never touched, and Prime's settings are kept in
-`~/.config-backups` in case you return. Then log out and choose your previous desktop on
+come back; your files are never touched, and everything you had with Prime — its
+settings and any config files you edited — is saved in `~/.config-backups` in case you
+return. Then log out and choose your previous desktop on
 the login screen.
 
 ## Help

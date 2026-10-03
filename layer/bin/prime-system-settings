@@ -1187,7 +1187,8 @@ def gui(page: str = "", screenshots: str = "", selftest: bool = False) -> int:
         Dialog = getattr(Adw, "AlertDialog", None) or Adw.MessageDialog
         d = Dialog(heading="Remove Prime?",
                    body="Prime's desktop, bar, dock and settings come off this account, and what was there "
-                        "before comes back. Your documents, photos and other files stay exactly as they are.\n\n"
+                        "before comes back. Your documents, photos and other files stay exactly as they are, "
+                        "and the settings you had with Prime are saved in ~/.config-backups.\n\n"
                         "The apps Prime installed can stay (other things may use them) or go too.")
         d.add_response("cancel", "Cancel")
         d.add_response("keep", "Remove Prime, keep the apps")

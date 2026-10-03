@@ -16,6 +16,10 @@ set -u
 fail=0
 ck() { if ( eval "$2" ) >/dev/null 2>&1; then echo "  PASS  $1"; else echo "  FAIL  $1"; fail=$((fail+1)); fi; }
 
+# the person's own edits since installing, which removing Prime must not destroy
+echo "# my own line, added after installing" >> ~/.config/hypr/hyprland.conf
+echo "# my own screen rule" >> ~/.config/hypr/hardware.conf
+echo "# my own terminal tweak" >> ~/.config/kitty/kitty.conf
 "$HOME/.local/share/prime-linux/layer/bin/prime-uninstall" --yes
 echo
 ck "Prime's copy is gone"                    "[ ! -e ~/.local/share/prime-linux ]"
@@ -26,6 +30,8 @@ ck "no Prime app-list entries left"          "! ls ~/.local/share/applications/p
 ck "your own nm-applet autostart is back"    "grep -q 'before-prime' ~/.config/autostart/nm-applet.desktop && ! grep -q 'hidden by Prime' ~/.config/autostart/nm-applet.desktop"
 ck "GTK theme/icons/fonts restored"          "for k in gtk-theme icon-theme font-name; do [ \"\$(gsettings get org.gnome.desktop.interface \$k)\" = \"\$(grep \"^\$k \" /tmp/gsettings-before | cut -d' ' -f2-)\" ] || exit 1; done"
 ck "Prime settings kept in backups"          "ls -d ~/.config-backups/prime-settings-*"
+ck "your edits to files it removed are saved" "grep -q 'my own line' ~/.config-backups/prime-uninstall-*/.config/hypr/hyprland.conf && grep -q 'my own screen rule' ~/.config-backups/prime-uninstall-*/.config/hypr/hardware.conf"
+ck "…and to files it put back"               "grep -q 'my own terminal tweak' ~/.config-backups/prime-uninstall-*/.config/kitty/kitty.conf"
 ck "update hook removed"                     "[ ! -e /etc/pacman.d/hooks/zz-prime-desktop-backup.hook ]"
 ck "Prime is off the login screen"           "[ ! -e /usr/share/wayland-sessions/prime.desktop ]"
 ck "login screen Prime enabled is off again" "[ ! -L /etc/systemd/system/display-manager.service ]"

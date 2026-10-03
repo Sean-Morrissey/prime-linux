@@ -95,8 +95,8 @@ Everything in this guide is also in Settings or Prime Search, so you never *need
 - **Super+I** (or Start → **Settings**) opens one window for everything about the computer, like Settings on Windows or a Mac: Wi-Fi, Bluetooth, sound, displays, appearance, notifications, power and battery, mouse and touchpad, keyboard, processor, graphics, storage, gaming, the AI assistant, apps, updates, privacy and security, date and time, language, your account and password, accessibility, and About & Help — plus **Dock** (hide or always show, size, which edge), **Top Bar**
   (12/24-hour clock, seconds, date, which items show), **Windows & Workspaces**,
   **Lock & Sleep** (when the screen locks, turns off and the computer sleeps),
-  **Startup Apps** and **Troubleshooting** (one-click fixes for sound, Wi-Fi, the bar,
-  the dock, notifications and title bars). Type in the search box to find a setting.
+  **Startup Apps** and **Troubleshooting** (one **Check and fix** button that restarts
+  whatever stopped, plus Undo). Type in the search box to find a setting.
 - **Just say it**: Super+Space, then type what you want — "wifi off", "louder", "mute", "do not disturb", "bigger text", "accent blue", "mouse settings", "take a screenshot", "something's wrong", "get a file back" — and press Enter. Prime does it straight away; no AI needed.
 - Mouse, keyboard, look, dock, bar and the other saved settings can be undone: Troubleshooting → **Undo the last change made in Settings**.
 
@@ -182,7 +182,6 @@ choose *File transfer* on the phone.
   back separately: Settings → Troubleshooting → **Restore desktop settings**.
 - **Lost or overwrote a file?** Settings → Storage → **Get a file back**: pick a moment (an hour, a day, a week ago) and your home folder opens as it was then — copy the file back. Prime keeps these automatically on CachyOS's standard disk layout.
 - **If the desktop misbehaves**: **Super+H** checks it and fixes what it can. Prime also checks by itself — at every login and once a day while you stay logged in — repairs what it safely can, and only tells you about something new: a disk getting full, a background service that stopped, or a desktop part that was updated (Undo an update goes back if it looks wrong).
-  **Super+W** restarts the bar.
 - **Lock** with Super+L. **Power off / restart** with the ⏻ icon on the bar.
 
 ## 6. Making it yours (optional)

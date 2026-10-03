@@ -743,9 +743,15 @@ def gui(page: str = "", screenshots: str = "", selftest: bool = False) -> int:
             g2 = group(page, "Connection")
             info(g2, "Cable (Ethernet)", "Connected" if wired else "Not connected")
             ip = sh("ip", "-4", "-brief", "address", "show", "scope", "global")
-            info(g2, "This computer's address on the network", " · ".join(l.split()[2].split("/")[0] for l in ip.splitlines() if len(l.split()) > 2) or "none")
+            # only real network cards: containers and VMs add bridges (docker0, br-…, virbr…) nobody asked about
+            virtual = ("docker", "br-", "veth", "virbr", "vnet", "podman", "cni", "flannel", "lxc", "tailscale", "zt", "wg", "tun", "tap")
+            real = [l.split()[2].split("/")[0] for l in ip.splitlines()
+                    if len(l.split()) > 2 and not l.split()[0].startswith(virtual)]
+            info(g2, "This computer's address on the network", " · ".join(real) or "none")
             g3 = group(page, "More")
-            opener(g3, "Advanced network settings", "VPN, fixed address, hidden networks, hotspot — opens the system's own tool, which looks different and uses more technical words",
+            opener(g3, "Wi-Fi won't connect", "Turn networking off and on again",
+                   ["sh", "-c", "nmcli networking off; sleep 2; nmcli networking on"], "Restart")
+            opener(g3, "Advanced network settings", "VPN, fixed address, hidden networks, hotspot",
                    ["nm-connection-editor"])
         else:
             missing(g, "Network settings")
@@ -993,7 +999,6 @@ def gui(page: str = "", screenshots: str = "", selftest: bool = False) -> int:
             switch(win, g2, title, sub_, key not in hidden, lambda on, key=key: set_item(key, on))
         g3 = group(page, "More")
         opener(g3, "Use the bar from the keyboard", "Every bar item and its menu (Super+Alt+B)", ["prime-bar", "--keys"])
-        opener(g3, "Restart the bar", "If it froze or vanished (Super+W)", ["prime-bar", "restart"], "Restart")
         return page
 
     def p_windows(win):
@@ -1100,22 +1105,9 @@ def gui(page: str = "", screenshots: str = "", selftest: bool = False) -> int:
 
     def p_troubleshoot(win):
         page = Adw.PreferencesPage()
-        g = group(page, "Something's not right?", "Each one fixes one thing and touches nothing else. Try the first one first")
-        opener(g, "Check and fix the desktop", "Looks at everything and repairs what it safely can (Super+H)", ["prime-doctor"], "Check")
-        g2 = group(page, "Quick fixes")
-        opener(g2, "No sound", "Restart the sound system — playing apps come back in a second",
-               ["sh", "-c", "systemctl --user restart wireplumber pipewire pipewire-pulse"], "Fix")
-        opener(g2, "Wi-Fi won't connect", "Switch networking off and on again",
-               ["sh", "-c", "nmcli networking off; sleep 2; nmcli networking on"], "Fix")
-        opener(g2, "The top bar froze or vanished", "Start it again (Super+W)", ["prime-bar", "restart"], "Fix")
-        opener(g2, "The dock is missing", "Start it again", ["sh", "-c", f"{SYSTEMCTL} --user reset-failed prime-dock; {SYSTEMCTL} --user restart prime-dock"], "Fix")
-        opener(g2, "Notifications stopped", "Start the notification centre again",
-               ["sh", "-c", f"{SYSTEMCTL} --user reset-failed swaync; {SYSTEMCTL} --user restart swaync"], "Fix")
-        opener(g2, "Window title bars are gone", "Build them again for this version (about a minute)",
-               ["prime-titlebars", "--rebuild"], "Fix")
-        opener(g2, "The screen doesn't lock by itself", "Start the idle timer again", ["prime-idle", "--restart"], "Fix")
-        opener(g2, "Performance mode doesn't work", "Turn power modes on (asks for your password)", ["prime-fix", "power-modes"], "Fix")
-        opener(g2, "Something looks wrong after a change", "Reload the window settings", [HYPRCTL, "reload"], "Fix")
+        g = group(page, "Something's not right?")
+        opener(g, "Check and fix", "Finds what stopped — sound, the bar, the dock, notifications, title bars — "
+               "and starts it again (Super+H)", ["prime-doctor"], "Check")
         g3 = group(page, "Go back")
         r = Adw.ActionRow(title="Undo the last change made in Settings", subtitle="Mouse, keyboard, look, dock, bar and the rest")
         b = Gtk.Button(label="Undo", valign=Gtk.Align.CENTER)
@@ -1123,7 +1115,6 @@ def gui(page: str = "", screenshots: str = "", selftest: bool = False) -> int:
         r.add_suffix(b)
         g3.add(r)
         opener(g3, "Restore desktop settings", "Back to a copy saved before an update", ["prime-desktop-backup", "restore"], "Restore")
-        opener(g3, "Save desktop settings now", "A copy you can restore later", ["prime-menu", "--run", "style.save"], "Save")
         opener(g3, "Undo the last update", "Go back to how the system was before it", ["prime-update", "--undo"], "Undo")
         opener(g3, "Get a file back", "File History", ["prime-file-history"], "Open")
         g5 = group(page, "Remove Prime", "Takes Prime off this account and puts back what was there before. "

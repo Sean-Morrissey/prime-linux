@@ -105,6 +105,24 @@ if [ $in_session = 1 ]; then
         fi
     done
 
+    # 3b — sound and notifications (these used to be separate "Fix" buttons in Settings)
+    if systemctl --user is-active --quiet pipewire wireplumber pipewire-pulse; then ok "Sound is running"
+    elif systemctl --user restart wireplumber pipewire pipewire-pulse 2>>"$LOG" && sleep 1 \
+            && systemctl --user is-active --quiet pipewire wireplumber; then
+        fixd "Sound had stopped — started it again (playing apps come back in a second)"
+    else bad "Sound won't start"; fi
+    if pgrep -x swaync >/dev/null; then ok "Notifications are running"
+    else
+        systemctl --user reset-failed swaync 2>/dev/null
+        if systemctl --user restart swaync 2>>"$LOG" && sleep 1 && pgrep -x swaync >/dev/null; then
+            fixd "Notifications had stopped — started them again"
+        else bad "Notifications won't start"; fi
+    fi
+    if pacman -Qq power-profiles-daemon >/dev/null 2>&1 && ! systemctl is-active --quiet power-profiles-daemon; then
+        bad "Power modes (Battery saver / Performance) are switched off"
+        action "Turn power modes on" "$BIN/prime-fix power-modes"
+    fi
+
     # 4 — the tray: whoever owns the watcher is where tray icons go
     owner=$(busctl --user list 2>/dev/null | awk '$1=="org.kde.StatusNotifierWatcher"{print $3; exit}')
     if [ "$owner" = waybar ] || [ -z "$owner" ]; then ok "Tray icons show in the bar"

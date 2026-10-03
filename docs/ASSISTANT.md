@@ -9,25 +9,26 @@ exactly what Prime can and cannot do.
 ### First login: Welcome
 
 The first time you log in, a window called **Welcome to Prime Linux** opens. It
-takes about two minutes and every step has **Skip**:
+takes about a minute and every step can be left as it is:
 
 1. **Hello** — what should Prime call you, and the three keys worth knowing:
-   **Super+Space** finds anything, **Super+I** opens Settings,
-   **Super+/** lists every shortcut (Super is the Windows-logo key). A **Larger
-   text** switch is right there.
-2. **Pick a look** — accent colours and wallpapers. The preview *and your real
-   desktop* change as you click.
+   **Super+X** opens Start, **Super+Space** finds anything, **Super+/** lists
+   every shortcut (Super is the Windows-logo key).
+2. **Pick a look** — accent colours, wallpapers and **Larger text**. The preview
+   *and your real desktop* change as you click.
 3. **What will you use this computer for?** — Gaming, Coding, Creating (video,
    3D, art), Studying, Just everyday stuff. Pick any. Prime switches on the
    matching packs; packs that install apps open a window that asks for your
    password once.
-4. **Updates** — Automatic (recommended), Ask me first, or Off.
-5. **AI assistant (optional)** — a model on this computer (llama-server,
+4. **AI assistant (optional)** — a model on this computer (llama-server,
    Ollama), one on another computer at home, OpenRouter, OpenAI, or anything that
    speaks the OpenAI API. "Find models" lists what's available. Your key is
    stored only on this computer, readable only by you.
-6. **How much may Prime do on its own?** — a slider: *Ask me first* · *Handle the
-   small stuff* · *Just do it*.
+5. **How much may Prime do on its own?** — only once an assistant is connected: a
+   slider: *Ask me first* · *Handle the small stuff* · *Just do it*.
+
+Updates are automatic (a snapshot first, never a restart); Settings → Updates
+changes that.
 7. **Done** — what was set up, plus tips.
 
 Closing the window early is fine. Run it again any time: Settings → Users & Accounts → **Set up my

@@ -20,7 +20,7 @@ row() { if [ -n "${PRIME_PANEL:-}" ]; then printf '@row %s\t%s\n' "$1" "$2"; els
 if [ "${1:-}" = --computer ]; then
     model="$(cat /sys/devices/virtual/dmi/id/sys_vendor /sys/devices/virtual/dmi/id/product_name 2>/dev/null | paste -sd' ')"
     cpu="$(LC_ALL=C lscpu 2>/dev/null | sed -n 's/^Model name: *//p' | head -1)"
-    gpu="$(lspci 2>/dev/null | grep -iE 'vga|3d|display' | sed -E 's/^[^:]*: *[^:]*: //; s/ \(rev [0-9a-f]+\)//' | paste -sd';' | sed 's/;/ · /g')"
+    gpu="$(lspci 2>/dev/null | grep -iE 'vga|3d|display' | sed -E 's/^[^:]*: *[^:]*: //; s/ \(rev [0-9a-f]+\)//; s/^.*\[([^]]+)\]$/\1/' | paste -sd';' | sed 's/;/ · /g')"
     mem="$(free -b 2>/dev/null | awk '/^Mem:/ { printf "%.0f GB (%.0f GB free)", $2/1e9, $7/1e9 }')"
     disk="$(df -B1 / 2>/dev/null | awk 'NR==2 { printf "%.0f GB (%.0f GB free)", $2/1e9, $4/1e9 }')"
     up="$(uptime -p 2>/dev/null | sed 's/^up //')"
@@ -35,6 +35,10 @@ if [ "${1:-}" = --computer ]; then
 fi
 
 ver="$(git -C "$REPO" describe --tags --always 2>/dev/null || echo unknown)"
+# v2026.10.0-9-g6cfdde4 → 2026.10.0 Beta (test build 6cfdde4)
+if [[ "$ver" =~ ^v?([0-9]{4}\.[0-9]+\.[0-9]+)(-[0-9]+-g([0-9a-f]+))?$ ]]; then
+    ver="${BASH_REMATCH[1]} Beta${BASH_REMATCH[3]:+ (test build ${BASH_REMATCH[3]})}"
+fi
 when="$(git -C "$REPO" log -1 --format=%cd --date=format:'%-d %B %Y' 2>/dev/null)"
 base="$(. /etc/os-release 2>/dev/null; echo "${NAME:-}")"
 addons=""
@@ -45,7 +49,6 @@ while read -r d; do
 done < <(enabled_addon_dirs)
 
 row "Version"       "Prime $ver${when:+ · $when}"
-row "Prime means"   "P.R.I.M.E — Please Relax I'll Manage Everything"
 [ -n "$base" ] && row "Built on" "$base"
 row "Start menu"    "Super+X, or click the P at the top left — apps, recent files, power"
 row "Search"        "Super+Space — apps, files, sums, the web"
@@ -55,6 +58,7 @@ row "Shortcuts"     "Super+/ — every shortcut, searchable"
 row "Theme"         "Super+Shift+W — wallpaper, accent colour, text size"
 row "Health check"  "Super+H — checks the desktop and repairs it"
 row "Updates"       "Click the update count in the bar, or Settings → Updates"
-row "Undo"          "Settings → About & Help → Restore desktop settings"
+row "Undo"          "Settings → Troubleshooting → Undo or Restore desktop settings"
 row "Add-ons"       "${addons:-none yet — Settings → Apps → Packs and add-ons}"
+row "License"       "Free software (GPL 3)"
 [ -n "${PRIME_PANEL:-}" ] && echo "@summary Settings → Updates keeps Prime and everything else up to date."

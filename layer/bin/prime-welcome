@@ -331,6 +331,9 @@ def gui(screenshots=None):
             self.set_default_size(820, 680)
             self.add_css_class("prime-welcome")
             th = current_theme()
+            # Prime's own icons (the logo) ship with Prime; the accent-coloured copy in
+            # ~/.local/share/icons, when there is one, still comes first
+            Gtk.IconTheme.get_for_display(Gdk.Display.get_default()).add_search_path(os.path.join(LAYER, "icons"))
             self.a = {"name": default_name(), "accent": th["ACCENT"], "accent_name": "",
                       "wallpaper": th["WALL"], "uses": [], "updates": "automatic", "autonomy": "suggest",
                       "text_scale": "normal", "ai_connected": False}

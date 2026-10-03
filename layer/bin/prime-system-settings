@@ -34,7 +34,7 @@ ACCENTS = [("Rose", "f87171"), ("Ember", "fb923c"), ("Amber", "fbbf24"), ("Emera
 TEXT_SIZES = [("Small", "small"), ("Default", "default"), ("Large", "large"), ("Larger", "larger")]
 LOOKS = [("Standard", "standard"), ("Compact", "compact"), ("Sharp", "sharp"), ("Spacious", "spacious")]
 LOOK_VALUES = {"standard": (6, 14), "compact": (3, 8), "sharp": (1, 0), "spacious": (10, 20)}   # = prime-settings
-POLICIES = [("Automatically, at night (recommended)", "automatic"), ("Ask me first", "ask"),
+POLICIES = [("Automatically at night", "automatic"), ("Ask me first", "ask"),
             ("Only security fixes", "security"), ("Never by itself", "off")]
 POWER = [("Battery saver", "power-saver"), ("Balanced", "balanced"), ("Performance", "performance")]
 AUTONOMY = [("Ask me first", "suggest"), ("Change my own settings by itself", "auto-user"),
@@ -189,6 +189,39 @@ def gpus() -> list:
             m = re.search(r"Kernel driver in use:\s*(\S+)", b)
             out.append((name, m.group(1) if m else ""))
     return out
+
+
+def friendly_gpu(name: str) -> str:
+    """lspci's "NVIDIA Corporation AD107 [GeForce RTX 4060]" → "NVIDIA GeForce RTX 4060"
+    (the name on the box, not the chip's code name; AMD's "[AMD/ATI]" tag is skipped)."""
+    vendor = ("AMD" if re.search(r"\bAMD\b|\bATI\b|Advanced Micro", name) else
+              "NVIDIA" if "NVIDIA" in name else "Intel" if "Intel" in name else "")
+    models = [b for b in re.findall(r"\[([^\]]+)\]", name) if b not in ("AMD/ATI", "AMD", "ATI")]
+    model = models[-1] if models else re.sub(r"^.*?(Corporation|Inc\.)\s*", "", name)
+    return model if not vendor or model.startswith(vendor) else f"{vendor} {model}"
+
+
+def friendly_version(desc: str) -> str:
+    """git's "v2026.10.0-9-g6cfdde4" → "2026.10.0 Beta (test build 6cfdde4)"."""
+    m = re.fullmatch(r"v?(\d{4}\.\d+\.\d+)(?:-(\d+)-g([0-9a-f]+))?", desc or "")
+    if not m:
+        return desc or "—"
+    return f"{m.group(1)} Beta" + (f" (test build {m.group(3)})" if m.group(2) else "")
+
+
+def friendly_computer() -> str:
+    """The maker and model, short: "MSI MS-7E71", "Lenovo ThinkPad X1 Carbon Gen 11"."""
+    d = "/sys/devices/virtual/dmi/id/"
+    vendor, product, version = (read(d + f) for f in ("sys_vendor", "product_name", "product_version"))
+    short = {"Micro-Star International Co., Ltd.": "MSI", "ASUSTeK COMPUTER INC.": "ASUS", "LENOVO": "Lenovo",
+             "Gigabyte Technology Co., Ltd.": "Gigabyte", "Hewlett-Packard": "HP", "Dell Inc.": "Dell",
+             "To Be Filled By O.E.M.": "", "System manufacturer": ""}
+    vendor = short.get(vendor, vendor)
+    if vendor == "Lenovo" and version and "Lenovo" not in version:
+        product = version                      # Lenovo's product_name is a part number
+    if product in ("System Product Name", "To Be Filled By O.E.M.", "Default string"):
+        product = ""
+    return " ".join(x for x in (vendor, product) if x) or "—"
 
 
 def disks() -> list:
@@ -1252,7 +1285,7 @@ def gui(page: str = "", screenshots: str = "", selftest: bool = False) -> int:
     def p_processor(win, page):
         c, l = cpu_info(), cpu_live()
         g = group(page, "Processor")
-        info(g, "Model", c["model"], "cpu-symbolic")
+        info(g, "Model", re.sub(r"\s+\d+-Core Processor$", "", c["model"]))
         info(g, "Cores", f"{c['cores']} threads at once" + (f" · boosts up to {l['max']:.1f} GHz" if l["max"] else ""))
         g1 = group(page, "Right now", "Updates every 2 seconds")
         live(win, g1, "How busy", lambda: f"{cpu_info()['busy']}% — " + {True: "very busy", False: "fine"}[cpu_info()["busy"] >= 80])
@@ -1270,15 +1303,13 @@ def gui(page: str = "", screenshots: str = "", selftest: bool = False) -> int:
         if cur:
             choice(win, g2, "Power mode", "Performance runs the processor fastest; Battery saver lasts longest", POWER, cur,
                    lambda p: done(ok("prime-power-profile", p), "Power mode changed"))
-        if l["driver"]:
-            info(g2, "How it's tuned", f"{l['driver']} · {l['governor'] or '—'}" + (f" · {l['epp'].replace('_', ' ')}" if l["epp"] else ""))
         opener(g2, "What's using it", "Every app, busiest first — quit a stuck one (Ctrl+Shift+Esc)", ["prime-activity"])
 
     def gpu_name(card: str) -> str:
         addr = os.path.basename(os.path.realpath(f"/sys/class/drm/{card}/device"))
         line = sh("lspci", "-s", addr) if has("lspci") and re.fullmatch(r"[0-9a-f:.]+", addr) else ""
         name = re.sub(r"^\S+\s+[^:]+:\s*", "", line)
-        return re.sub(r"\s*\(rev [0-9a-f]+\)$", "", name) or card
+        return friendly_gpu(re.sub(r"\s*\(rev [0-9a-f]+\)$", "", name)) if name else card
 
     def p_graphics(win):
         page = Adw.PreferencesPage()
@@ -1291,7 +1322,7 @@ def gui(page: str = "", screenshots: str = "", selftest: bool = False) -> int:
             def stat(key, card=card):
                 return next((x for x in gpu_cards() if x["card"] == card), {}).get(key)
             if "busy" in gc:
-                live(win, g, "How busy", lambda stat=stat: f"{stat('busy')}%", "video-display-symbolic")
+                live(win, g, "How busy", lambda stat=stat: f"{stat('busy')}%")
             if "vram" in gc:
                 live(win, g, "Video memory in use", lambda stat=stat: (lambda v: f"{gb(v[0])} of {gb(v[1])}")(stat("vram")))
             if "clock" in gc:
@@ -1417,14 +1448,13 @@ def gui(page: str = "", screenshots: str = "", selftest: bool = False) -> int:
 
     def p_updates(win):
         page = Adw.PreferencesPage()
-        g = group(page, "Updates")
-        info(g, "Now", sh("prime-update-policy", "describe") or "—", "software-update-available-symbolic")
-        choice(win, g, "Install updates", "A snapshot is taken first, so an update can always be undone",
+        g = group(page, "Updates", "A snapshot is taken before every update, so any update can be undone")
+        choice(win, g, "Install updates", sh("prime-update-policy", "describe"),
                POLICIES, sh("prime-update-policy", "get"),
                lambda p: done(ok("prime-update-policy", "set", p, timeout=120), "Saved", "Not changed (the password was cancelled?)"))
-        g2 = group(page, "Now")
+        g2 = group(page, "Update now")
         opener(g2, "Update everything", "The system, apps and Prime", ["prime-update"], "Update")
-        opener(g2, "What's waiting", "Nothing changes until you choose to", ["prime-update", "--check"], "Show")
+        opener(g2, "See what's waiting", "Shows the list; nothing is installed", ["prime-update", "--check"], "Show")
         opener(g2, "Undo the last update", "Go back to how things were before it", ["prime-update", "--undo"], "Undo")
         opener(g2, "System snapshots", "Every saved state of the system, newest first", ["prime-snapshots"], "Show")
         return page
@@ -1577,29 +1607,21 @@ def gui(page: str = "", screenshots: str = "", selftest: bool = False) -> int:
         page = Adw.PreferencesPage()
         g = group(page, "This computer")
         c = cpu_info()
-        model = " ".join(x for x in (read("/sys/devices/virtual/dmi/id/sys_vendor"),
-                                     read("/sys/devices/virtual/dmi/id/product_name")) if x)
-        info(g, "Computer", model or "—", "computer-symbolic")
-        info(g, "Processor", f"{c['model']} · {c['cores']} cores")
-        info(g, "Graphics", " · ".join(n for n, _ in gpus()) or "—")
+        info(g, "Name", read("/etc/hostname") or os.uname().nodename)
+        info(g, "Model", friendly_computer())
+        cores = re.search(r"^cpu cores\s*:\s*(\d+)", read("/proc/cpuinfo"), re.M)
+        info(g, "Processor", re.sub(r"\s+\d+-Core Processor$", "", c["model"])
+             + (f" · {cores.group(1)} cores" if cores else ""))
+        info(g, "Graphics", " · ".join(friendly_gpu(n) for n, _ in gpus()) or "—")
         mem = re.search(r"MemTotal:\s*(\d+)", read("/proc/meminfo"))
         info(g, "Memory", gb(int(mem.group(1)) * 1024) if mem else "—")
-        os_name = re.search(r'^PRETTY_NAME="?([^"\n]*)', read("/etc/os-release"), re.M)
-        info(g, "System", f"Prime on {os_name.group(1) if os_name else 'Linux'}")
-        ver = sh("git", "-C", os.path.dirname(LAYER), "describe", "--tags", "--always")
-        info(g, "Prime version", ver or "—")
+        g1 = group(page, "Software")
+        info(g1, "Prime", friendly_version(sh("git", "-C", os.path.dirname(LAYER), "describe", "--tags", "--always")))
+        os_name = re.search(r'^NAME="?([^"\n]*)', read("/etc/os-release"), re.M)
+        info(g1, "Built on", os_name.group(1) if os_name else "Linux")
+        info(g1, "License", "Free software (GPL 3)")
         g2 = group(page, "Help")
-        opener(g2, "Check and fix the desktop", "Repairs what it safely can (Super+H)", ["prime-doctor"], "Check")
-        opener(g2, "Get help", "A report to send to whoever helps you — no passwords, no files", ["prime-help"], "Make")
-        opener(g2, "Restore desktop settings", "Back to a copy saved before an update", ["prime-desktop-backup", "restore"], "Restore")
-        r = Adw.ActionRow(title="Undo the last change made here", subtitle="Mouse, keyboard, look and the other saved settings")
-        b = Gtk.Button(label="Undo", valign=Gtk.Align.CENTER)
-        b.connect("clicked", lambda *_: (win.toast(toolbox("undo_last", {})[1] or "Undone"), win.refresh()))
-        r.add_suffix(b)
-        g2.add(r)
-        opener(g2, "About Prime", "P.R.I.M.E — Please Relax I'll Manage Everything", ["prime-about"])
-        g3 = group(page, "Repair")
-        goto(win, g3, "Troubleshooting", "One-click fixes for sound, Wi-Fi, the bar, the dock and more", "troubleshoot")
+        goto(win, g2, "Something's not right?", "Check and fix, undo a change, or get help", "troubleshoot")
         return page
 
     BUILDERS = {"network": p_network, "bluetooth": p_bluetooth, "sound": p_sound, "display": p_display,

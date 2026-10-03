@@ -563,6 +563,20 @@ def grouped(rows: list, query: str = "") -> list:
 
 # ── icons ──────────────────────────────────────────────────────────────────────
 
+DO_ICONS = [  # prime-do id prefix → icon names, best first
+    ("page-", ("preferences-system", "emblem-system-symbolic")),
+    ("wifi", ("network-wireless", "network-wireless-symbolic")), ("airplane", ("airplane-mode-symbolic",)),
+    ("bt-", ("bluetooth", "bluetooth-symbolic")), ("mute", ("audio-volume-muted-symbolic",)),
+    ("unmute", ("audio-volume-high-symbolic",)), ("vol-up", ("audio-volume-high-symbolic",)),
+    ("vol-down", ("audio-volume-low-symbolic",)), ("sound-", ("audio-speakers-symbolic", "audio-card")),
+    ("mic-", ("audio-input-microphone-symbolic",)), ("bright-", ("display-brightness-symbolic",)),
+    ("dnd-", ("notifications-disabled-symbolic",)), ("night-", ("night-light-symbolic",)),
+    ("awake-", ("preferences-desktop-screensaver-symbolic",)), ("text-", ("format-text-larger-symbolic", "preferences-desktop-font")),
+    ("accent-", ("preferences-color", "applications-graphics-symbolic")),
+    ("snip", ("applets-screenshooter", "camera-photo-symbolic")),
+]
+
+
 def icon_for(kind: str, sub: str):
     """A Gio.Icon for a row (resolved lazily by the icon theme)."""
     theme = Gtk.IconTheme.get_default()
@@ -588,6 +602,10 @@ def icon_for(kind: str, sub: str):
     if kind == "math":
         return themed("accessories-calculator", "accessories-calculator-symbolic")
     if kind == "do":
+        # what the action is about, at a glance: Wi-Fi, sound, a Settings page…
+        for prefix, names in DO_ICONS:
+            if sub.startswith(prefix):
+                return themed(*names, "prime-linux", "emblem-system-symbolic")
         return themed("prime-linux", "system-run", "emblem-ok-symbolic")
     if kind == "setting":
         return themed("preferences-system", "emblem-system", "preferences-system-symbolic")
@@ -949,6 +967,9 @@ def copy_to_clipboard(text: str):
 
 
 def install_css():
+    theme = Gtk.IconTheme.get_default()
+    if theme:                                   # Prime's own icons ship with Prime (the logo)
+        theme.append_search_path(os.path.join(LAYER, "icons"))
     style = Gtk.CssProvider()
     style.load_from_data(css_bytes())
     Gtk.StyleContext.add_provider_for_screen(

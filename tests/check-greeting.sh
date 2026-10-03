@@ -59,6 +59,6 @@ done
 ck "an edited copy: left alone" \
    "mkdir -p $T/s3/.config/fastfetch && { cat $REPO/tests/fixtures/fastfetch-seeds/583afe3.jsonc; echo '// mine'; } > $T/s3/.config/fastfetch/config.jsonc && HOME=$T/s3 PRIME_LAYER=$L bash -eu $MIG2 && grep -q '// mine' $T/s3/.config/fastfetch/config.jsonc"
 ck "no config at all: nothing created"  "mkdir -p $T/s4 && HOME=$T/s4 PRIME_LAYER=$L bash -eu $MIG2 && [ ! -e $T/s4/.config/fastfetch ]"
-ck "About says what Prime means"              "PRIME_PANEL=1 bash $L/bin/prime-about | grep -q \"P.R.I.M.E — Please Relax I'll Manage Everything\""
+ck "About gives the version in words, not git's" "PRIME_PANEL=1 bash $L/bin/prime-about | grep -E '^@row Version' | grep -qvE -- '-g[0-9a-f]{7}\\b'"
 
 echo; [ $fail = 0 ] && echo "ALL PASSED" || echo "$fail FAILED"; exit $fail

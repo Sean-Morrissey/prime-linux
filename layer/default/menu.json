@@ -8,8 +8,6 @@
       "pins": [
         "nemo",
         "org.gnome.Software",
-        "firefox",
-        "chromium",
         "steam"
       ],
       "items": [

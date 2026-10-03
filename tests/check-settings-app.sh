@@ -165,6 +165,64 @@ a, b = load('a', sys.argv[1]), load('b', sys.argv[2])
 assert a.LOOK_VALUES == b.LOOKS and [v for _, v in a.LOOKS] == list(b.LOOKS), (a.LOOK_VALUES, b.LOOKS)
 PY"
 
+# ── Wi-Fi & Network, Sound and Printers: Prime's own pages (fake nmcli, pactl, CUPS) ──
+FK="$T/fakes"; mkdir -p "$FK"
+cat > "$FK/nmcli" <<'FAKE'
+#!/bin/sh
+case "$*" in
+  *"NAME,TYPE,ACTIVE connection show"*) printf 'Home Wi-Fi:802-11-wireless:yes\nCafe\\:Guest:802-11-wireless:no\nSchool VPN:vpn:no\nwg0:wireguard:yes\nWired 1:802-3-ethernet:no\n' ;;
+  *"radio"*) echo enabled ;;
+  *"--active"*) echo "Home Wi-Fi:802-11-wireless:wlan0" ;;
+  *"show-password"*) printf 'SSID: Prime-desk\nPassword: s3cret99\n' ;;
+esac
+FAKE
+cat > "$FK/pactl" <<'FAKE'
+#!/bin/sh
+case "$*" in
+  *"list cards"*) echo '[{"name":"alsa_card.pci-0000_03_00.1","properties":{"device.description":"Navi 48 HDMI Audio"},"active_profile":"output:hdmi-stereo","profiles":{"off":{"description":"Off","available":true},"output:hdmi-stereo":{"description":"Digital Stereo (HDMI)","available":true},"output:hdmi-surround":{"description":"Digital Surround 5.1 (HDMI)","available":false}}},{"name":"one_profile","properties":{"device.description":"Webcam mic"},"active_profile":"a","profiles":{"a":{"description":"A","available":true}}}]' ;;
+  *"list sinks"*) echo '[{"index":55,"name":"alsa_output.hdmi","description":"Screen speakers"},{"index":57,"name":"alsa_output.analog","description":"Headphones"}]' ;;
+  *"list sink-inputs"*) echo '[{"index":9,"sink":57,"properties":{"application.name":"Firefox"},"volume":{"front-left":{"value_percent":"80%"}}}]' ;;
+esac
+FAKE
+cat > "$FK/lpstat" <<'FAKE'
+#!/bin/sh
+case "$1" in
+  -p) printf 'printer Office_Laser is idle.  enabled since Fri\nprinter Old_Inkjet disabled since Thu -\n' ;;
+  -d) echo "system default destination: Office_Laser" ;;
+  -o) echo "Office_Laser-42   sam   1024   Fri 02 Oct 2026" ;;
+esac
+FAKE
+printf '#!/bin/sh\necho "ipp://Brother%%20HL-L2350._ipp._tcp.local/"\necho "ipps://Office_Laser.local:631/ipp/print"\necho "nonsense"\n' > "$FK/driverless"
+for c in wpctl bluetoothctl; do printf '#!/bin/sh\nexit 0\n' > "$FK/$c"; done
+chmod +x "$FK"/*
+# load the Settings module and run a snippet against it: mod '<python>'
+mod() { python3 -c "import importlib.machinery as M, importlib.util as U, sys
+l = M.SourceFileLoader('s', '$APP'); m = U.module_from_spec(U.spec_from_loader('s', l)); l.exec_module(m)
+$1"; }
+ck "network: saved Wi-Fi, VPNs (WireGuard too) and wired read right, a ':' in a name kept" \
+   "PATH='$FK':\$PATH mod \"c = m.nm_connections()
+assert ('Home Wi-Fi', 'wifi', True) in c and ('Cafe:Guest', 'wifi', False) in c, c
+assert ('School VPN', 'vpn', False) in c and ('wg0', 'vpn', True) in c and ('Wired 1', 'wired', False) in c, c\""
+mkdir -p "$T/vpn"; printf 'client\nremote vpn.school.edu 1194\n' > "$T/vpn/school.ovpn"
+printf '[Interface]\nPrivateKey = abc\n[Peer]\n' > "$T/vpn/wg.conf"; printf 'client\nremote x 1\n' > "$T/vpn/ovpn.conf"; echo hello > "$T/vpn/notes.conf"
+ck "a VPN file is recognised by what's in it (OpenVPN, WireGuard); anything else is refused" \
+   "mod \"assert [m.vpn_file_type('$T/vpn/' + f) for f in ('school.ovpn', 'wg.conf', 'ovpn.conf', 'notes.conf')] == ['openvpn', 'wireguard', 'openvpn', '']\""
+ck "sound: device modes (only ones that work; a one-mode device left out), where each app plays" \
+   "PATH='$FK':\$PATH mod \"cards = m.sound_cards()
+assert len(cards) == 1 and cards[0][1] == 'Navi 48 HDMI Audio' and cards[0][2] == 'output:hdmi-stereo', cards
+assert [p for p, _ in cards[0][3]] == ['off', 'output:hdmi-stereo'], cards
+assert m.sink_names()[57] == ('alsa_output.analog', 'Headphones') and m.stream_sinks() == {9: 57}\""
+ck "printers: yours, the default, what's printing, and new ones nearby (not ones already added)" \
+   "PATH='$FK':\$PATH mod \"assert m.printers() == ([('Office_Laser', True), ('Old_Inkjet', False)], 'Office_Laser'), m.printers()
+assert m.print_jobs() == [('Office_Laser-42', 'Office_Laser')]
+assert m.printers_nearby() == [('Brother_HL-L2350', 'ipp://Brother%20HL-L2350._ipp._tcp.local/')], m.printers_nearby()\""
+ck "a hidden network's password goes in on stdin, never on the command line (and isn't printed)" \
+   "out=\$(PRIME_SETTINGS_DRY=1 mod \"m.act('nmcli', '--ask', 'device', 'wifi', 'connect', 'Lab', 'hidden', 'yes', stdin='hunter22\\\\n')\") && grep -q 'ACT nmcli --ask device wifi connect Lab hidden yes (+1 line(s) on stdin)' <<<\"\$out\" && ! grep -q hunter22 <<<\"\$out\""
+ck "adding a printer checks its name and address first (nothing odd gets through)" \
+   "PRIME_PRINTER_DRY=1 bash '$REPO/layer/bin/prime-printer' add Brother_HL ipp://brother.local/ipp/print | grep -q 'RUN lpadmin -p Brother_HL -E -v ipp://brother.local/ipp/print -m everywhere' && ! PRIME_PRINTER_DRY=1 bash '$REPO/layer/bin/prime-printer' add 'x;rm' ipp://a/ && ! PRIME_PRINTER_DRY=1 bash '$REPO/layer/bin/prime-printer' add ok 'file:///etc/shadow' && ! PRIME_PRINTER_DRY=1 bash '$REPO/layer/bin/prime-printer' remove '../x'"
+ck "the everyday jobs are on Prime's own pages (the system's tools are only a last row)" \
+   "grep -q 'Join a hidden network' '$APP' && grep -q 'Add a VPN from a file' '$APP' && grep -q 'Look for printers' '$APP' && grep -q 'plays through' '$APP'"
+
 # ── password change: never on a command line, plain answers ───────────────
 cat > "$T/fakepasswd" <<'EOF'
 #!/usr/bin/env bash
@@ -193,6 +251,10 @@ ck "it's in the app list as Settings"        "grep -q '^Name=Settings$' '$REPO/l
 PY="${PRIME_TEST_PY:-python3}"
 if "$PY" -c "import gi; gi.require_version('Gtk','4.0'); gi.require_version('Adw','1')" 2>/dev/null && command -v xvfb-run >/dev/null; then
     HOME="$H" PRIME_SETTINGS_DRY=1 timeout 120 xvfb-run -a "$PY" "$APP" --selftest > "$T/st" 2>&1
+    # again with fake network, sound and printing tools, so the new rows are really built
+    HOME="$H" PATH="$FK:$PATH" PRIME_SETTINGS_DRY=1 timeout 120 xvfb-run -a "$PY" "$APP" --selftest > "$T/st2" 2>&1
+    ck "every page builds with Wi-Fi, VPNs, sound devices and printers present" "grep -q '^0 failure' '$T/st2'"
+    grep -q '^0 failure' "$T/st2" || grep -E 'FAIL|Error|Traceback' "$T/st2" | head -20
     ck "all 29 pages build, search finds Mouse & Touchpad" "grep -q '^0 failure' '$T/st' && [ \$(grep -c '  PASS  ' '$T/st') -ge 30 ]"
     grep -q '^0 failure' "$T/st" || grep -E 'FAIL|Error|Traceback' "$T/st" | head -20
 else

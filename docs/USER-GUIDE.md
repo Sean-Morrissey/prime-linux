@@ -132,6 +132,15 @@ Click the icons on the top bar:
 
 Right-click anything on the bar for more options.
 
+More in Settings:
+- **Wi-Fi & Network**: forget a saved network, join a hidden one, add your school's
+  or work's **VPN** from the file they give you (then switch it on and off there),
+  and share this computer's internet as a **hotspot** (the password is shown).
+- **Sound**: send each app to its own speakers or headphones, and choose how each
+  sound device is used (the screen's speakers over HDMI, a headset's call mode…).
+- **Printers**: *Look for printers* finds the ones on your Wi-Fi and adds one with a
+  click; make one the default, print a test page, and cancel what's printing.
+
 ### Screenshots and recordings
 | Press | |
 |---|---|

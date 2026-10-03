@@ -68,6 +68,9 @@ power-profiles-daemon
 # printing
 cups
 cups-filters
+# Settings → Wi-Fi & Network: add a school's OpenVPN file; share the internet (hotspot)
+networkmanager-openvpn
+dnsmasq
 system-config-printer
 
 # phones, USB drives, network shares, trash; saved passwords for apps

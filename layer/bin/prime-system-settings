@@ -24,6 +24,8 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
+import urllib.parse
 
 BIN = os.path.dirname(os.path.realpath(__file__))
 LAYER = os.path.realpath(os.path.join(BIN, ".."))
@@ -66,6 +68,22 @@ def ok(*args, timeout: float = 30) -> bool:
         return subprocess.run(cmd, capture_output=True, timeout=timeout).returncode == 0
     except (OSError, subprocess.TimeoutExpired):
         return False
+
+
+def act(*args, stdin: str | None = None, timeout: float = 60) -> tuple:
+    """Make a change: (worked?, what went wrong). A password goes in on stdin, never on
+    the command line. PRIME_SETTINGS_DRY prints what would run (and never the stdin)."""
+    cmd = list(args)
+    if os.environ.get("PRIME_SETTINGS_DRY"):
+        print("ACT", " ".join(cmd), f"(+{len(stdin.splitlines())} line(s) on stdin)" if stdin else "", flush=True)
+        return True, ""
+    if not shutil.which(cmd[0]) and os.access(os.path.join(BIN, cmd[0]), os.X_OK):
+        cmd[0] = os.path.join(BIN, cmd[0])
+    try:
+        r = subprocess.run(cmd, input=stdin, capture_output=True, text=True, timeout=timeout)
+        return r.returncode == 0, (r.stderr or r.stdout).strip()
+    except (OSError, subprocess.TimeoutExpired):
+        return False, "it took too long or couldn't start"
 
 
 def launch(*args):
@@ -343,6 +361,116 @@ def app_streams() -> list:
     return out
 
 
+def sink_names() -> dict:
+    """{pactl sink index: (sink name, description)} — where an app's sound can go."""
+    try:
+        data = json.loads(sh("pactl", "-f", "json", "list", "sinks") or "[]")
+    except ValueError:
+        return {}
+    return {d.get("index"): (d.get("name", ""), d.get("description") or d.get("name", "")) for d in data}
+
+
+def stream_sinks() -> dict:
+    """{app stream index: the sink index it plays through}."""
+    try:
+        data = json.loads(sh("pactl", "-f", "json", "list", "sink-inputs") or "[]")
+    except ValueError:
+        return {}
+    return {d.get("index"): d.get("sink") for d in data}
+
+
+def sound_cards() -> list:
+    """[(card name, what it is, active profile, [(profile, words)])] — the modes each sound
+    device can run in (HDMI or speakers, a headset's music or call mode, off)."""
+    try:
+        data = json.loads(sh("pactl", "-f", "json", "list", "cards") or "[]")
+    except ValueError:
+        return []
+    out = []
+    for c in data:
+        profs = [(n, p.get("description") or n) for n, p in (c.get("profiles") or {}).items()
+                 if p.get("available", True)]
+        if len(profs) < 2:
+            continue                       # nothing to choose
+        desc = (c.get("properties") or {}).get("device.description") or c.get("name", "")
+        out.append((c.get("name", ""), desc, c.get("active_profile", ""), profs))
+    return out
+
+
+def nm_fields(line: str) -> list:
+    """nmcli -t splits on ':' and escapes ':' and '\\' inside values."""
+    return [f.replace("\\:", ":").replace("\\\\", "\\") for f in re.split(r"(?<!\\):", line)]
+
+
+def nm_connections() -> list:
+    """[(name, kind, active)] for saved connections: kind is wifi, vpn, wired or other."""
+    kinds = {"802-11-wireless": "wifi", "vpn": "vpn", "wireguard": "vpn", "802-3-ethernet": "wired"}
+    out = []
+    for line in sh("nmcli", "-t", "-f", "NAME,TYPE,ACTIVE", "connection", "show").splitlines():
+        f = nm_fields(line)
+        if len(f) >= 3 and f[0]:
+            out.append((f[0], kinds.get(f[1], "other"), f[2] == "yes"))
+    return out
+
+
+def vpn_file_type(path: str) -> str:
+    """What kind of VPN file this is (nmcli import type), or "" if Prime can't tell."""
+    low = path.lower()
+    if low.endswith(".ovpn"):
+        return "openvpn"
+    if low.endswith(".conf"):
+        try:
+            text = open(path, errors="replace").read(20000)
+        except OSError:
+            return ""
+        if "[Interface]" in text and "PrivateKey" in text:
+            return "wireguard"
+        if re.search(r"^\s*(remote|client)\b", text, re.M):
+            return "openvpn"
+    return ""
+
+
+def printers() -> tuple:
+    """([(name, ready?)], default name) from CUPS."""
+    names = []
+    for l in sh("lpstat", "-p").splitlines():
+        m = re.match(r"printer (\S+) (.*)", l)
+        if m:
+            names.append((m.group(1), "disabled" not in m.group(2)))
+    default = ""
+    m = re.search(r":\s*(\S+)\s*$", sh("lpstat", "-d"))
+    if m and "no system default" not in sh("lpstat", "-d"):
+        default = m.group(1)
+    return names, default
+
+
+def print_jobs() -> list:
+    """[(job id, printer)] waiting or printing."""
+    out = []
+    for l in sh("lpstat", "-o").splitlines():
+        f = l.split()
+        if f and "-" in f[0]:
+            out.append((f[0], f[0].rsplit("-", 1)[0]))
+    return out
+
+
+def printers_nearby() -> list:
+    """[(name, address)] for printers on the network that need no driver (nearly every
+    printer made since 2012) and aren't added yet."""
+    added = {n for n, _ in printers()[0]}
+    out = []
+    for uri in sh("driverless", timeout=20).splitlines():
+        uri = uri.strip()
+        if not uri.startswith(("ipp://", "ipps://")):
+            continue
+        m = re.match(r"ipps?://([^/:.]+)", uri)
+        raw = urllib.parse.unquote(m.group(1)) if m else "Printer"
+        name = re.sub(r"[^A-Za-z0-9_-]+", "_", raw).strip("_")[:60] or "Printer"
+        if name not in added and all(name != n for n, _ in out):
+            out.append((name, uri))
+    return out
+
+
 # ── graphics cards and the processor, live ──────────────────────────────────────
 
 SYS = os.environ.get("PRIME_SYS_ROOT", "")     # tests point this at a made-up /sys
@@ -419,9 +547,9 @@ def memory() -> dict:
 # ── the pages: id, title, icon, search words ──────────────────────────────────
 
 PAGES = [
-    ("network", "Wi-Fi & Network", "network-wireless-symbolic", "wifi internet wireless ethernet cable vpn hotspot ip"),
+    ("network", "Wi-Fi & Network", "network-wireless-symbolic", "wifi internet wireless ethernet cable vpn wireguard openvpn hotspot share hidden saved forget ip"),
     ("bluetooth", "Bluetooth", "bluetooth-symbolic", "headphones mouse speaker pair devices"),
-    ("sound", "Sound", "audio-volume-high-symbolic", "volume speakers headphones microphone mute output input"),
+    ("sound", "Sound", "audio-volume-high-symbolic", "volume speakers headphones microphone mute output input hdmi headset mode per app mixer"),
     ("display", "Displays", "video-display-symbolic", "screen monitor resolution scale brightness night light refresh hz screenshot snip print capture"),
     ("appearance", "Appearance", "preferences-desktop-appearance-symbolic", "theme wallpaper background accent colour color dark text size corners animations window layout tiling tile float floating tidy"),
     ("dock", "Dock", "go-bottom-symbolic", "dock taskbar launcher pinned apps hide autohide size position bottom left right"),
@@ -441,7 +569,7 @@ PAGES = [
     ("startup", "Startup Apps", "system-run-symbolic", "startup autostart login boot open automatically background apps"),
     ("updates", "Updates", "software-update-available-symbolic", "update upgrade automatic nightly undo rollback snapshot"),
     ("security", "Privacy & Security", "security-high-symbolic", "firewall ssh remote login password encryption permissions"),
-    ("printers", "Printers", "printer-symbolic", "print printer paper ink"),
+    ("printers", "Printers", "printer-symbolic", "print printer paper ink add default test page queue cancel"),
     ("datetime", "Date & Time", "preferences-system-time-symbolic", "clock time zone timezone date ntp"),
     ("region", "Language & Region", "preferences-desktop-locale-symbolic", "language locale region format"),
     ("accounts", "Users & Accounts", "system-users-symbolic", "account name password user login"),
@@ -612,6 +740,90 @@ def gui(page: str = "", screenshots: str = "", selftest: bool = False) -> int:
         g.add(r)
         return r
 
+    def buttons_row(g, title, subtitle, buttons, icon=None):
+        """A row with one or more buttons: [(label, callback, style)] — style "", "suggested" or "destructive"."""
+        r = Adw.ActionRow(title=GLib.markup_escape_text(title), subtitle=GLib.markup_escape_text(subtitle))
+        if icon:
+            r.add_prefix(Gtk.Image.new_from_icon_name(icon))
+        for label, cb, style in buttons:
+            b = Gtk.Button(label=label, valign=Gtk.Align.CENTER)
+            if style:
+                b.add_css_class(f"{style}-action")
+            b.update_property([Gtk.AccessibleProperty.LABEL], [f"{label}: {title}"])
+            b.connect("clicked", lambda _b, cb=cb: cb())
+            r.add_suffix(b)
+        g.add(r)
+        return r
+
+    def background(win, work, yes, no="That didn't work", refresh=True):
+        """Run a slow change (connecting, adding a printer) without freezing the window;
+        say how it went, then show the page again."""
+        win.toast("Working on it…")
+
+        def run():
+            try:
+                good, why = work()
+            except Exception as e:                  # noqa: BLE001 — say it, don't crash the window
+                good, why = False, str(e)
+            def report():
+                win.toast(yes if good else f"{no}{' — ' + why[:120] if why else ''}")
+                if refresh:
+                    win.refresh()
+                return False
+            GLib.idle_add(report)
+        threading.Thread(target=run, daemon=True).start()
+
+    def form_dialog(win, title, intro, fields, button, on_ok):
+        """A small window asking for a few things: fields = [(label, is_password)];
+        on_ok(values) → (ok, message). Passwords are never shown or logged."""
+        d = Adw.Window(transient_for=win, modal=True, title=title)
+        d.set_default_size(440, -1)
+        tv = Adw.ToolbarView()
+        tv.add_top_bar(Adw.HeaderBar())
+        pg = Adw.PreferencesPage()
+        g = Adw.PreferencesGroup(description=GLib.markup_escape_text(intro))
+        rows = [Adw.PasswordEntryRow(title=lab) if pw else Adw.EntryRow(title=lab) for lab, pw in fields]
+        for r in rows:
+            g.add(r)
+        pg.add(g)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        box.append(pg)
+        bt = Gtk.Button(label=button, halign=Gtk.Align.END, margin_end=16, margin_bottom=16)
+        bt.add_css_class("suggested-action")
+        box.append(bt)
+        tv.set_content(box)
+        d.set_content(tv)
+
+        def go(*_a):
+            d.close()
+            on_ok([r.get_text() for r in rows])
+        bt.connect("clicked", go)
+        rows[-1].connect("entry-activated", go)
+        d.present()
+        return d
+
+    def pick_file(win, title, on_file):
+        """The file picker: on_file(path)."""
+        if hasattr(Gtk, "FileDialog"):
+            fd = Gtk.FileDialog(title=title)
+
+            def got(dlg, res):
+                try:
+                    f = dlg.open_finish(res)
+                except GLib.Error:
+                    return                          # cancelled
+                if f is not None and f.get_path():
+                    on_file(f.get_path())
+            fd.open(win, None, got)
+        else:
+            fc = Gtk.FileChooserNative(title=title, transient_for=win, action=Gtk.FileChooserAction.OPEN)
+
+            def resp(n, r):
+                if r == Gtk.ResponseType.ACCEPT and n.get_file():
+                    on_file(n.get_file().get_path())
+            fc.connect("response", resp)
+            fc.show()
+
     def switch(win, g, title, subtitle, current, on_change):
         r = Adw.SwitchRow(title=GLib.markup_escape_text(title), subtitle=GLib.markup_escape_text(subtitle))
         r.set_active(bool(current))
@@ -744,8 +956,77 @@ def gui(page: str = "", screenshots: str = "", selftest: bool = False) -> int:
             info(g2, "Cable (Ethernet)", "Connected" if wired else "Not connected")
             ip = sh("ip", "-4", "-brief", "address", "show", "scope", "global")
             info(g2, "This computer's address on the network", " · ".join(l.split()[2].split("/")[0] for l in ip.splitlines() if len(l.split()) > 2) or "none")
+            conns = nm_connections()
+            # saved Wi-Fi: forget the ones you don't use (and the wrong password for one)
+            gs = group(page, "Saved Wi-Fi networks", "This computer joins these by itself when they're near")
+            saved = [(n, act_) for n, k, act_ in conns if k == "wifi"]
+            for n, active in saved:
+                buttons_row(gs, n, "Connected now" if active else "Saved",
+                            [("Forget", lambda n=n: background(win, lambda: act("nmcli", "connection", "delete", "id", n),
+                                                               f"Forgot {n}", f"Couldn't forget {n}"), "")],
+                            "network-wireless-symbolic")
+            if not saved:
+                info(gs, "No saved networks yet", "Choose a network above and it's saved here")
+
+            def join_hidden(vals):
+                ssid, pw = vals[0].strip(), vals[1]
+                if not ssid:
+                    win.toast("Type the network's name first")
+                    return
+                background(win, lambda: act("nmcli", "--ask", "device", "wifi", "connect", ssid, "hidden", "yes",
+                                            stdin=(pw + "\n") if pw else "\n", timeout=60),
+                           f"Joined {ssid}", f"Couldn't join {ssid} (check the name and password)")
+            buttons_row(gs, "Join a hidden network", "One that doesn't show in the list — type its exact name",
+                        [("Join…", lambda: form_dialog(win, "Join a hidden network",
+                                                         "Type the network's name exactly as it is written (capitals count).",
+                                                         [("Network name", False), ("Password", True)], "Join", join_hidden), "")])
+
+            # VPN: a school's or work's VPN arrives as a file — add it, then switch it on and off here
+            gv = group(page, "VPN", "A private connection to your school or work. They give you a file to add")
+            vpns = [(n, act_) for n, k, act_ in conns if k == "vpn"]
+            for n, active in vpns:
+                switch(win, gv, n, "Connected" if active else "Off", active,
+                       lambda on, n=n: (background(win, lambda: act("nmcli", "connection", "up" if on else "down", "id", n, timeout=90),
+                                                   f"{n} is {'connected' if on else 'off'}", f"{n} didn't {'connect' if on else 'switch off'}"),
+                                        (True, ""))[1])
+                buttons_row(gv, f"Remove {n}", "", [("Remove", lambda n=n: background(win, lambda: act("nmcli", "connection", "delete", "id", n),
+                                                                                      f"{n} removed", f"Couldn't remove {n}"), "")])
+
+            def add_vpn(path):
+                kind = vpn_file_type(path)
+                if not kind:
+                    win.toast("That file isn't a VPN file Prime knows (.ovpn or a WireGuard .conf)")
+                    return
+                background(win, lambda: act("nmcli", "connection", "import", "type", kind, "file", path),
+                           "VPN added — switch it on above", "Couldn't add that VPN (OpenVPN needs Update everything first)")
+            buttons_row(gv, "Add a VPN from a file", "An .ovpn (OpenVPN) or .conf (WireGuard) file",
+                        [("Choose file…", lambda: pick_file(win, "Choose the VPN file", add_vpn), "")])
+
+            # hotspot: share this computer's internet with a phone or tablet
+            gh = group(page, "Hotspot", "Share this computer's internet with a phone or another computer")
+            hot = any(n == "Hotspot" and act_ for n, _k, act_ in conns)
+
+            def hotspot(on):
+                if on:
+                    def work():
+                        good, why = act("nmcli", "device", "wifi", "hotspot", timeout=40)
+                        if good:
+                            pw = re.search(r"Password:\s*(\S+)", sh("nmcli", "device", "wifi", "show-password"))
+                            GLib.idle_add(lambda: win.toast(f"Hotspot on — password: {pw.group(1)}" if pw else "Hotspot on") and False)
+                        return good, why
+                    background(win, work, "Hotspot on — the password is shown on this page",
+                               "This Wi-Fi card can't share right now (it may be connected elsewhere)")
+                else:
+                    background(win, lambda: act("nmcli", "connection", "down", "id", "Hotspot"), "Hotspot off")
+                return True, ""
+            switch(win, gh, "Hotspot", "While it's on, this computer's Wi-Fi is used for sharing", hot, hotspot)
+            if hot:
+                pw = re.search(r"Password:\s*(\S+)", sh("nmcli", "device", "wifi", "show-password"))
+                ssid = re.search(r"SSID:\s*(.+)", sh("nmcli", "device", "wifi", "show-password"))
+                info(gh, "Join it with", f"{ssid.group(1).strip() if ssid else 'Hotspot'} · password {pw.group(1) if pw else '—'}")
+
             g3 = group(page, "More")
-            opener(g3, "Advanced network settings", "VPN, fixed address, hidden networks, hotspot — opens the system's own tool, which looks different and uses more technical words",
+            opener(g3, "Advanced network settings", "A fixed address, proxy and other rare settings — opens the system's own tool, which looks different and uses more technical words",
                    ["nm-connection-editor"])
         else:
             missing(g, "Network settings")
@@ -803,16 +1084,31 @@ def gui(page: str = "", screenshots: str = "", selftest: bool = False) -> int:
         switch(win, gi_, "Microphone off", "Nobody can hear you until you switch it back", "[MUTED]" in mv,
                lambda on: done(ok("wpctl", "set-mute", "@DEFAULT_AUDIO_SOURCE@", "1" if on else "0"),
                                "Microphone off" if on else "Microphone on"))
-        ga = group(page, "Apps playing sound", "Each app's own volume")
+        ga = group(page, "Apps playing sound", "Each app's own volume, and where it plays — music on the speakers, "
+                   "a call in the headphones")
         streams = app_streams()
+        sinks, where = sink_names(), stream_sinks()
         for idx, name, vol in streams:
             slider(win, ga, name, "", 0, 150, 1, vol,
                    lambda x, idx=idx: done(ok("pactl", "set-sink-input-volume", str(idx), f"{x:.0f}%"), ""),
                    fmt=lambda x: f"{x:.0f}%")
+            if len(sinks) > 1:
+                choice(win, ga, f"{name} plays through", "", [(d, n) for n, d in sinks.values()],
+                       sinks.get(where.get(idx), ("", ""))[0],
+                       lambda sink, idx=idx, name=name: done(act("pactl", "move-sink-input", str(idx), sink)[0],
+                                                             f"{name} moved"))
         if not streams:
             info(ga, "Nothing is playing right now", "Apps show up here while they play sound")
+        cards = sound_cards()
+        if cards:
+            gc = group(page, "Sound devices", "How each one is used — for example the screen's speakers (HDMI) "
+                       "or the computer's own, or a headset's music mode or call mode (with its microphone)")
+            for card, desc, active, profs in cards:
+                choice(win, gc, desc, "", [(w, n) for n, w in profs], active,
+                       lambda prof, card=card, desc=desc: done(act("pactl", "set-card-profile", card, prof)[0],
+                                                               f"{desc} changed"))
         g3 = group(page, "More")
-        opener(g3, "Advanced mixer", "Every device, profile and stream — opens the system's own tool, which looks different and uses more technical words", ["pavucontrol"])
+        opener(g3, "Advanced mixer", "Rare settings such as balance per device — opens the system's own tool, which looks different and uses more technical words", ["pavucontrol"])
         return page
 
     def keep_or_revert(win, name, new_line, old_line):
@@ -1449,14 +1745,67 @@ def gui(page: str = "", screenshots: str = "", selftest: bool = False) -> int:
 
     def p_printers(win):
         page = Adw.PreferencesPage()
-        g = group(page, "Printers", "Most Wi-Fi printers are found by themselves")
-        names = [l.split()[1] for l in sh("lpstat", "-p").splitlines() if l.startswith("printer ")]
-        default = sh("lpstat", "-d").split(":")[-1].strip()
-        for n in names:
-            info(g, n.replace("_", " "), "Default printer" if n == default else "Ready", "printer-symbolic")
+        if not has("lpstat"):
+            missing(group(page, "Printers"), "Printing")
+            return page
+        g = group(page, "Your printers")
+        names, default = printers()
+
+        def quick(good, yes):
+            win.toast(yes if good else "That didn't work — try again")
+            win.refresh()
+        test_page = next((f for f in ("/usr/share/cups/data/testprint", "/usr/share/cups/data/default-testpage.pdf")
+                          if os.path.exists(f)), "")
+        for n, ready in names:
+            nice = n.replace("_", " ")
+            btns = []
+            if n != default:
+                btns.append(("Make default", lambda n=n, nice=nice: quick(act("lpoptions", "-d", n)[0],
+                                                                          f"{nice} is the default printer"), ""))
+            if test_page:
+                btns.append(("Test page", lambda n=n, nice=nice: background(win, lambda: act("lp", "-d", n, test_page),
+                                                                            f"Test page sent to {nice}", f"{nice} didn't take it", False), ""))
+            btns.append(("Remove", lambda n=n: launch("prime-printer", "remove", n), ""))
+            buttons_row(g, nice, ("Default printer · " if n == default else "") + ("Ready" if ready else "Paused or not answering"),
+                        btns, "printer-symbolic")
         if not names:
-            info(g, "No printers yet", "Add one below")
-        opener(g, "Add or change a printer", "Find a printer on the network or a USB cable — opens the system's own tool, which looks different and uses more technical words", ["system-config-printer"], "Open")
+            info(g, "No printers yet", "Printers on your Wi-Fi show up below")
+
+        gn = group(page, "Printers on your network", "Ones that need no driver — nearly every printer made in the last ten years. "
+                   "Adding one asks for your password")
+        state = {"shown": False}
+
+        def look():
+            def work():
+                found = printers_nearby()
+                def show():
+                    for child in list(state.get("rows", [])):
+                        gn.remove(child)
+                    state["rows"] = []
+                    for name, uri in found:
+                        state["rows"].append(buttons_row(gn, name.replace("_", " "), uri.split("/")[2] if "//" in uri else uri,
+                                                         [("Add", lambda name=name, uri=uri: launch("prime-printer", "add", name, uri), "suggested")],
+                                                         "printer-network-symbolic"))
+                    if not found:
+                        state["rows"].append(info(gn, "None found", "Check the printer is on and on the same Wi-Fi; a USB printer: plug it in and look again"))
+                    win.toast(f"Found {len(found)} printer(s)" if found else "No new printers found")
+                    return False
+                GLib.idle_add(show)
+                return True, ""
+            threading.Thread(target=work, daemon=True).start()
+            win.toast("Looking for printers…")
+        buttons_row(gn, "Look for printers", "Takes a few seconds", [("Look", look, "")])
+
+        jobs = print_jobs()
+        gq = group(page, "Printing now", "What is waiting to print")
+        for job, prn in jobs:
+            buttons_row(gq, prn.replace("_", " "), f"Job {job.rsplit('-', 1)[-1]}",
+                        [("Cancel", lambda job=job: quick(act("cancel", job)[0], "Cancelled"), "")])
+        if not jobs:
+            info(gq, "Nothing waiting to print", "")
+        g3 = group(page, "More")
+        opener(g3, "Advanced printer settings", "A USB printer that needs a driver, paper and ink options — opens the system's own tool, "
+               "which looks different and uses more technical words", ["system-config-printer"], "Open")
         return page
 
     def p_datetime(win):

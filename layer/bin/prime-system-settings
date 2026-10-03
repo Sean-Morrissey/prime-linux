@@ -419,36 +419,46 @@ def memory() -> dict:
 # ── the pages: id, title, icon, search words ──────────────────────────────────
 
 PAGES = [
+    # Connections
     ("network", "Wi-Fi & Network", "network-wireless-symbolic", "wifi internet wireless ethernet cable vpn hotspot ip"),
     ("bluetooth", "Bluetooth", "bluetooth-symbolic", "headphones mouse speaker pair devices"),
-    ("sound", "Sound", "audio-volume-high-symbolic", "volume speakers headphones microphone mute output input"),
-    ("display", "Displays", "video-display-symbolic", "screen monitor resolution scale brightness night light refresh hz screenshot snip print capture"),
+    ("printers", "Printers", "printer-symbolic", "print printer paper ink"),
+    # Desktop
     ("appearance", "Appearance", "preferences-desktop-appearance-symbolic", "theme wallpaper background accent colour color dark text size corners animations window layout tiling tile float floating tidy"),
-    ("dock", "Dock", "go-bottom-symbolic", "dock taskbar launcher pinned apps hide autohide size position bottom left right"),
-    ("topbar", "Top Bar", "go-top-symbolic", "bar top panel waybar clock time 24 hour seconds date items icons tray hide show"),
+    ("display", "Displays", "video-display-symbolic", "screen monitor resolution scale brightness night light refresh hz screenshot snip print capture"),
+    ("dock", "Dock", "prime-dock-symbolic", "dock taskbar launcher pinned apps hide autohide size position bottom left right"),
+    ("topbar", "Top Bar", "prime-topbar-symbolic", "bar top panel waybar clock time 24 hour seconds date items icons tray hide show"),
     ("windows", "Windows & Workspaces", "view-dual-symbolic", "windows workspaces desktops virtual spaces snap tiling gaps corners title bars focus mouse arrows main half"),
     ("notifications", "Notifications", "preferences-system-notifications-symbolic", "do not disturb alerts banners"),
-    ("power", "Power & Battery", "battery-full-symbolic", "battery sleep performance power saver keep awake laptop"),
-    ("lock", "Lock & Sleep", "system-lock-screen-symbolic", "lock screen sleep suspend idle timeout screen off dim screensaver keep awake password"),
+    # Devices
+    ("sound", "Sound", "audio-volume-high-symbolic", "volume speakers headphones microphone mute output input"),
     ("mouse", "Mouse & Touchpad", "input-mouse-symbolic", "pointer speed acceleration scrolling natural tap click left handed trackpad"),
     ("keyboard", "Keyboard", "input-keyboard-symbolic", "layout language repeat shortcuts keys typing"),
-    ("processor", "Processor", "cpu-symbolic", "cpu cores speed temperature usage activity performance"),
-    ("graphics", "Graphics", "video-display-symbolic", "gpu graphics card driver nvidia amd intel vram"),
+    ("power", "Power & Battery", "battery-full-symbolic", "battery sleep performance power saver keep awake laptop"),
+    ("graphics", "Processor & Graphics", "computer-symbolic", "gpu graphics card driver nvidia amd intel vram cpu cores speed temperature usage activity performance"),
     ("storage", "Storage", "drive-harddisk-symbolic", "disk space free full trash file history snapshots cleanup"),
-    ("gaming", "Gaming", "input-gaming-symbolic", "steam games performance fps overlay mangohud gamemode proton"),
-    ("assistant", "AI Assistant", "user-available-symbolic", "ai ask prime model chat assistant permissions autonomy"),
+    # Apps
     ("apps", "Apps", "view-app-grid-symbolic", "default browser file manager startup autostart packs add-ons app store"),
     ("startup", "Startup Apps", "system-run-symbolic", "startup autostart login boot open automatically background apps"),
-    ("updates", "Updates", "software-update-available-symbolic", "update upgrade automatic nightly undo rollback snapshot"),
+    ("gaming", "Gaming", "input-gaming-symbolic", "steam games performance fps overlay mangohud gamemode proton"),
+    ("assistant", "AI Assistant", "user-available-symbolic", "ai ask prime model chat assistant permissions autonomy"),
+    # System
+    ("lock", "Lock & Sleep", "system-lock-screen-symbolic", "lock screen sleep suspend idle timeout screen off dim screensaver keep awake password"),
     ("security", "Privacy & Security", "security-high-symbolic", "firewall ssh remote login password encryption permissions"),
-    ("printers", "Printers", "printer-symbolic", "print printer paper ink"),
+    ("accounts", "Users & Accounts", "system-users-symbolic", "account name password user login"),
     ("datetime", "Date & Time", "preferences-system-time-symbolic", "clock time zone timezone date ntp"),
     ("region", "Language & Region", "preferences-desktop-locale-symbolic", "language locale region format"),
-    ("accounts", "Users & Accounts", "system-users-symbolic", "account name password user login"),
     ("accessibility", "Accessibility", "preferences-desktop-accessibility-symbolic", "text size larger motion animations zoom magnifier magnify bigger screen reader"),
+    ("updates", "Updates", "software-update-available-symbolic", "update upgrade automatic nightly undo rollback snapshot"),
+    # Help
     ("troubleshoot", "Troubleshooting", "emblem-system-symbolic", "fix repair broken sound no audio wifi bar dock frozen restart reset reload title bars notifications help problem"),
     ("about", "About & Help", "help-about-symbolic", "about version computer specs help support repair health check report restore"),
 ]
+
+# the sidebar's headings: the first page of each
+SECTION_STARTS = {"network": "Connections", "appearance": "Desktop", "sound": "Devices", "apps": "Apps", "lock": "System", "troubleshoot": "Help"}
+# old page ids that still open the right page (--page, prime-do)
+PAGE_ALIASES = {"processor": "graphics"}
 
 
 def gui(page: str = "", screenshots: str = "", selftest: bool = False) -> int:
@@ -466,9 +476,15 @@ def gui(page: str = "", screenshots: str = "", selftest: bool = False) -> int:
     .bar-fill.warn { background: #f59e0b; }
     """
 
+    def prime_icons():
+        disp = Gdk.Display.get_default()
+        if disp:
+            Gtk.IconTheme.get_for_display(disp).add_search_path(os.path.join(LAYER, "icons"))
+
     class Settings(Adw.ApplicationWindow):
         def __init__(self, app):
             super().__init__(application=app, title="Settings")
+            prime_icons()
             self.set_default_size(1000, 720)
             self.toasts = Adw.ToastOverlay()
             self.split = Adw.NavigationSplitView()
@@ -479,14 +495,14 @@ def gui(page: str = "", screenshots: str = "", selftest: bool = False) -> int:
             # sidebar: search + sections
             side = Adw.ToolbarView()
             hb = Adw.HeaderBar()
-            hb.set_title_widget(Adw.WindowTitle(title="Settings", subtitle="Prime"))
+            hb.set_title_widget(Adw.WindowTitle(title="Settings", subtitle=""))
             side.add_top_bar(hb)
             box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
             self.search = Gtk.SearchEntry(placeholder_text="Find a setting")
             self.search.set_margin_start(10)
             self.search.set_margin_end(10)
             self.search.update_property([Gtk.AccessibleProperty.LABEL], ["Find a setting"])
-            self.search.connect("search-changed", lambda *_: self.list.invalidate_filter())
+            self.search.connect("search-changed", lambda *_: (self.list.invalidate_filter(), self.list.invalidate_headers()))
             self.search.connect("activate", self.open_first_match)
             box.append(self.search)
             self.list = Gtk.ListBox()
@@ -505,6 +521,7 @@ def gui(page: str = "", screenshots: str = "", selftest: bool = False) -> int:
                 self.list.append(row)
                 self.rows[pid] = row
             self.list.set_filter_func(self.matches)
+            self.list.set_header_func(self.heading)
             self.list.connect("row-activated", lambda _l, r: self.show(r.pid))
             sc = Gtk.ScrolledWindow(vexpand=True)
             sc.set_child(self.list)
@@ -521,6 +538,17 @@ def gui(page: str = "", screenshots: str = "", selftest: bool = False) -> int:
             self.live_rows = []                 # (row, fn): numbers that change, refreshed while shown
             GLib.timeout_add_seconds(2, self.tick)
             self.show(page if page in self.rows else "network")
+
+        def heading(self, row, before):
+            # a small heading over the first page of each section, hidden while searching
+            name = SECTION_STARTS.get(row.pid) if not self.search.get_text().strip() else None
+            if not name:
+                row.set_header(None)
+                return
+            lab = Gtk.Label(label=name, xalign=0, margin_start=12, margin_top=14 if before else 4, margin_bottom=4)
+            lab.add_css_class("caption-heading")
+            lab.add_css_class("dim-label")
+            row.set_header(lab)
 
         # sidebar search
         def matches(self, row) -> bool:
@@ -931,10 +959,6 @@ def gui(page: str = "", screenshots: str = "", selftest: bool = False) -> int:
                lambda h: done(ok("prime-theme", "--set-accent", h), "Accent colour changed"))
         choice(win, g, "Text size", "One size for the whole desktop", TEXT_SIZES, th.get("TEXT", "default"),
                lambda t: done(ok("prime-theme", "--set-text", t), "Text size changed"))
-        choice(win, g, "Window layout", "Tidy: the main window takes the left half and new ones share the right half; Super+arrows snap a window to a side. "
-               "Free: they float freely and snap to edges when dragged. Super+Shift+V flips one window.",
-               [("Tidy (recommended)", "tidy"), ("Free", "free")],
-               st.get("window_layout", "tidy"), lambda v: tb("window_layout", v))
         look = next((k for k, v in LOOK_VALUES.items()
                      if (int(st.get("gaps", -1)), int(st.get("rounding", -1))) == v), "")
         choice(win, g, "Window style", "Corners and the space between windows", LOOKS, look,
@@ -942,11 +966,6 @@ def gui(page: str = "", screenshots: str = "", selftest: bool = False) -> int:
         g2 = group(page, "Motion")
         switch(win, g2, "Animations", "Windows slide and fade; off is calmer and faster",
                st.get("animations", "on") != "off", lambda on: tb("animations", "on" if on else "off"))
-        g4 = group(page, "Advanced")
-        opener(g4, "Edit the window & keyboard settings file", "Your own lines win over Prime's", ["gnome-text-editor",
-               os.path.join(HOME, ".config/hypr/hyprland.conf")], "Edit")
-        g3 = group(page, "Screen saver")
-        opener(g3, "Preview the screen saver", "What shows before the screen locks", ["prime-screensaver"], "Preview")
         return page
 
     def p_dock(win):
@@ -1012,9 +1031,8 @@ def gui(page: str = "", screenshots: str = "", selftest: bool = False) -> int:
                "on the bar instead", st.get("workspace_guard", "on") != "off",
                lambda on: tb("workspace_guard", "on" if on else "off"))
         g2 = group(page, "Windows")
-        choice(win, g2, "Window layout", "Tidy: the main window takes the left half and new ones share the right half. "
-               "Free: they float freely and snap to edges when dragged.",
-               [("Tidy (recommended)", "tidy"), ("Free", "free")],
+        choice(win, g2, "Window layout", "Tidy places windows side by side; Free lets them float",
+               [("Tidy", "tidy"), ("Free", "free")],
                st.get("window_layout", "tidy"), lambda v: tb("window_layout", v))
         choice(win, g2, "New windows open", "In the Tidy layout; the main window stays on the left half",
                [("On the right half", "right"), ("As the main window", "main")],
@@ -1231,8 +1249,7 @@ def gui(page: str = "", screenshots: str = "", selftest: bool = False) -> int:
         opener(g4, "Clipboard history", "Everything you copied recently (Super+V)", ["prime-clip-picker"], "Open")
         return page
 
-    def p_processor(win):
-        page = Adw.PreferencesPage()
+    def p_processor(win, page):
         c, l = cpu_info(), cpu_live()
         g = group(page, "Processor")
         info(g, "Model", c["model"], "cpu-symbolic")
@@ -1256,7 +1273,6 @@ def gui(page: str = "", screenshots: str = "", selftest: bool = False) -> int:
         if l["driver"]:
             info(g2, "How it's tuned", f"{l['driver']} · {l['governor'] or '—'}" + (f" · {l['epp'].replace('_', ' ')}" if l["epp"] else ""))
         opener(g2, "What's using it", "Every app, busiest first — quit a stuck one (Ctrl+Shift+Esc)", ["prime-activity"])
-        return page
 
     def gpu_name(card: str) -> str:
         addr = os.path.basename(os.path.realpath(f"/sys/class/drm/{card}/device"))
@@ -1266,6 +1282,7 @@ def gui(page: str = "", screenshots: str = "", selftest: bool = False) -> int:
 
     def p_graphics(win):
         page = Adw.PreferencesPage()
+        p_processor(win, page)
         cards = gpu_cards()
         for gc in cards:
             card = gc["card"]
@@ -1589,7 +1606,7 @@ def gui(page: str = "", screenshots: str = "", selftest: bool = False) -> int:
                 "appearance": p_appearance, "dock": p_dock, "topbar": p_topbar, "windows": p_windows,
                 "notifications": p_notifications, "power": p_power, "lock": p_lock, "startup": p_startup,
                 "troubleshoot": p_troubleshoot,
-                "mouse": p_mouse, "keyboard": p_keyboard, "processor": p_processor, "graphics": p_graphics,
+                "mouse": p_mouse, "keyboard": p_keyboard, "graphics": p_graphics,
                 "storage": p_storage, "gaming": p_gaming, "assistant": p_assistant, "apps": p_apps,
                 "updates": p_updates, "security": p_security, "printers": p_printers, "datetime": p_datetime, "region": p_region,
                 "accounts": p_accounts, "accessibility": p_accessibility, "about": p_about}
@@ -1700,6 +1717,7 @@ def main(argv: list) -> int:
             print(f"{pid}\t{title}\t{words}")
         return 0
     page = argv[argv.index("--page") + 1] if "--page" in argv and argv.index("--page") + 1 < len(argv) else ""
+    page = PAGE_ALIASES.get(page, page)
     if page and page not in {p for p, *_ in PAGES}:
         print(f"no such page: {page} (see --list-pages)", file=sys.stderr)
         return 2

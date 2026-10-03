@@ -180,8 +180,8 @@ PAGE_WORDS = {
     "sound": {"sound", "audio", "speakers", "microphone"}, "display": {"display", "displays", "monitor", "monitors", "screen", "resolution", "refresh"},
     "appearance": {"appearance", "theme", "look"}, "notifications": {"notifications", "notification"},
     "power": {"power", "battery"}, "mouse": {"mouse", "touchpad", "trackpad", "pointer", "cursor"},
-    "keyboard": {"keyboard", "typing", "layout", "repeat"}, "processor": {"processor", "cpu"},
-    "graphics": {"graphics", "gpu", "nvidia", "amd", "intel", "driver", "drivers"},
+    "keyboard": {"keyboard", "typing", "layout", "repeat"},
+    "graphics": {"graphics", "gpu", "nvidia", "amd", "intel", "driver", "drivers", "processor", "cpu"},
     "storage": {"storage", "disk", "space", "drive"}, "gaming": {"gaming", "games", "steam", "game"},
     "assistant": {"ai", "assistant", "model"}, "apps": {"apps", "default", "startup", "autostart"},
     "updates": {"updates", "update"}, "security": {"security", "privacy", "firewall"},
@@ -191,8 +191,8 @@ PAGE_WORDS = {
 }
 PAGE_TITLES = {"network": "Wi-Fi & Network", "bluetooth": "Bluetooth", "sound": "Sound", "display": "Displays",
                "appearance": "Appearance", "notifications": "Notifications", "power": "Power & Battery",
-               "mouse": "Mouse & Touchpad", "keyboard": "Keyboard", "processor": "Processor",
-               "graphics": "Graphics", "storage": "Storage", "gaming": "Gaming", "assistant": "AI Assistant",
+               "mouse": "Mouse & Touchpad", "keyboard": "Keyboard",
+               "graphics": "Processor & Graphics", "storage": "Storage", "gaming": "Gaming", "assistant": "AI Assistant",
                "apps": "Apps", "updates": "Updates", "security": "Privacy & Security", "datetime": "Date & Time",
                "region": "Language & Region", "accounts": "Users & Accounts", "accessibility": "Accessibility",
                "about": "About & Help"}

@@ -63,11 +63,9 @@ grep -q 'BEGIN PGP PUBLIC KEY BLOCK' "$KEYS" || die "$KEYS holds no key — noth
 FPR="$(gpg --show-keys --with-colons "$KEYS" 2>/dev/null | awk -F: '/^fpr:/{print $10; exit}')"
 [ -n "$FPR" ] || die "couldn't read a fingerprint out of $KEYS"
 gpg --list-secret-keys "$FPR" >/dev/null 2>&1 || die "the private half of $FPR isn't on this computer — the release key must sign the tag"
-printf 'probe' | gpg --batch --pinentry-mode error --local-user "$FPR" --detach-sign -o /dev/null 2>/dev/null \
-    || die "gpg can't sign right now (it needs to ask for the key's passphrase).
-        Run this from a terminal you are sitting at, not over ssh or from a script runner.
-        Check with:  echo x | gpg --local-user $FPR --detach-sign -o /dev/null"
-ok "release key $FPR, private half present and able to sign"
+[ -t 0 ] || die "signing has to ask for the key's passphrase, so run this from a terminal
+        you are sitting at — not over a pipe, a script runner or an editor task."
+ok "release key $FPR, private half present"
 
 # ── 2. the gate ──────────────────────────────────────────────────────────────
 say "the gate (docs/RELEASE.md)"
@@ -123,7 +121,13 @@ fi
 # ── 4. sign the tag ──────────────────────────────────────────────────────────
 say "signing $VERSION"
 if [ "$DRY" = 0 ]; then
-    git -c gpg.format=openpgp tag -s -u "$FPR" -F "$NOTES" "$VERSION" || die "signing the tag failed (see gpg's message above)"
+    if ! git -c gpg.format=openpgp tag -s -u "$FPR" -F "$NOTES" "$VERSION"; then
+        printf '        gpg could not sign. If it said "No pinentry", the passphrase program
+        this desktop picks is not working; name one that does, then try again:
+            echo "pinentry-program /usr/bin/pinentry-curses" >> ~/.gnupg/gpg-agent.conf
+            gpgconf --kill gpg-agent\n' >&2
+        die "signing the tag failed"
+    fi
     git tag -v "$VERSION" >/dev/null 2>&1 || die "the tag didn't verify straight after signing"
     ok "annotated, signed by $FPR, message = the changelog section"
 else

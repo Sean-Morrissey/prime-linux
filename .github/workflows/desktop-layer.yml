@@ -83,6 +83,8 @@ jobs:
         run: bash tests/check-update-rewritten.sh
       - name: Repair screens give words and buttons, never commands to type
         run: bash tests/check-plain-fixes.sh
+      - name: Timetable and reminders, the camera check, encryption advice in Welcome
+        run: bash tests/check-timetable.sh
       - name: shellcheck (warning level) on every shell script
         run: bash tests/check-shellcheck.sh
 

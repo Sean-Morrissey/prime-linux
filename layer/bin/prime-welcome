@@ -68,6 +68,60 @@ ALWAYS_ASK = "Restoring old settings and anything with passwords always ask. Pri
 
 
 # ── answers → the computer (no window needed) ────────────────────────────────
+def disk_encrypted() -> bool:
+    """Is the system disk encrypted? (PRIME_FAKE_ENCRYPTED=yes|no for tests.)"""
+    fake = os.environ.get("PRIME_FAKE_ENCRYPTED")
+    if fake:
+        return fake == "yes"
+    try:
+        src = subprocess.run(["findmnt", "-no", "SOURCE", "/"], capture_output=True, text=True, timeout=5).stdout.strip()
+        src = re.sub(r"\[.*", "", src)
+        types = subprocess.run(["lsblk", "-sno", "TYPE", src], capture_output=True, text=True, timeout=5).stdout.split()
+        return "crypt" in types
+    except (OSError, subprocess.TimeoutExpired):
+        return True                         # can't tell: don't nag
+
+
+def is_laptop() -> bool:
+    """A computer with its own battery (PRIME_FAKE_LAPTOP=yes|no for tests)."""
+    fake = os.environ.get("PRIME_FAKE_LAPTOP")
+    if fake:
+        return fake == "yes"
+    base = "/sys/class/power_supply"
+    try:
+        for d in os.listdir(base):
+            def rd(f):
+                try:
+                    return open(os.path.join(base, d, f)).read().strip()
+                except OSError:
+                    return ""
+            if rd("type") == "Battery" and rd("scope") != "Device":
+                return True
+    except OSError:
+        pass
+    return False
+
+
+def encryption_advice() -> list:
+    """[(title, words)] for the Welcome step — empty when the disk is already encrypted."""
+    if disk_encrypted():
+        return []
+    rows = [("What encryption does",
+             "Everything on the disk is scrambled until you type your password when the computer starts. "
+             "A lost or stolen " + ("laptop" if is_laptop() else "computer") + " then gives nobody your files.")]
+    if is_laptop():
+        rows.append(("Why it matters on a laptop", "Laptops travel to lessons, buses and libraries — and get left behind. "
+                     "Without encryption, anyone who takes the disk out can read it."))
+    else:
+        rows.append(("On a desktop at home", "It matters less, so it's fine to keep it as it is."))
+    rows += [("Now is the cheapest time", "Encryption can only be chosen when installing. Right after setup there's "
+              "nothing to lose; later you'd copy your files somewhere first."),
+             ("How", "Start the computer from the install USB again. In the installer's disk step, tick "
+              "\u201cEncrypt system\u201d and choose a password you won't forget — without it nobody, not even you, "
+              "can read the files. Then add Prime again the same way.")]
+    return rows
+
+
 def default_name():
     try:
         g = pwd.getpwuid(os.getuid()).pw_gecos.split(",")[0].strip()
@@ -348,7 +402,11 @@ def gui(screenshots=None):
             self.stack = Gtk.Stack(transition_type=Gtk.StackTransitionType.SLIDE_LEFT_RIGHT, vexpand=True,
                                    transition_duration=220)
             self.pages = []
-            for build in (self.p_welcome, self.p_look, self.p_uses, self.p_updates, self.p_ai, self.p_autonomy, self.p_done):
+            self.advice = encryption_advice()
+            steps = [self.p_welcome, self.p_look, self.p_uses, self.p_updates]
+            if self.advice:                    # only when the disk isn't encrypted
+                steps.append(self.p_privacy)
+            for build in steps + [self.p_ai, self.p_autonomy, self.p_done]:
                 name, widget = build()
                 self.stack.add_named(widget, name)
                 self.pages.append(name)
@@ -578,6 +636,20 @@ def gui(screenshots=None):
                 grp.add(row)
                 self.upd[key] = rb
             return "updates", self.page("How should updates happen?", None, grp)
+
+        # ── 4b keeping files safe (only shown when the disk isn't encrypted)
+        def p_privacy(self):
+            grp = Adw.PreferencesGroup()
+            for title, words in self.advice:
+                r = Adw.ActionRow(title=title, subtitle=words)
+                r.set_subtitle_lines(0)
+                grp.add(r)
+            laptop = is_laptop()
+            return "privacy", self.page("Keep your files safe if this laptop is lost" if laptop
+                                        else "Your disk isn't encrypted",
+                                        "Nothing to do now if you'd rather not — Continue keeps things as they are. "
+                                        "Settings → Privacy & Security says this again any time.",
+                                        grp, icon="security-high-symbolic")
 
         # ── 5 assistant
         def p_ai(self):

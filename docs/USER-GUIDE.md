@@ -25,6 +25,11 @@ install CachyOS first, the normal way.
      a second option on the login screen, in case you ever want it.)
    - **Bootloader**: leave the default (Limine). **File system**: leave the
      default (btrfs) — it's what lets you undo a bad update from the boot menu.
+   - **Encryption** (on the disk step, tick **Encrypt system**): strongly
+     recommended for a laptop. Without your password, a lost or stolen laptop
+     gives nobody your files. You type the password when the computer starts.
+     Choose one you won't forget: without it nobody, not even you, can read the
+     disk. It can only be chosen now, while installing.
    - Create your user and password. Remember the password: Prime asks for it once.
 5. Restart, take the USB stick out, and log in.
 
@@ -131,6 +136,29 @@ Click the icons on the top bar:
   change the volume. The volume and brightness keys show a little popup.
 
 Right-click anything on the bar for more options.
+
+More in Settings:
+- **Wi-Fi & Network**: forget a saved network, join a hidden one, add your school's
+  or work's **VPN** from the file they give you (then switch it on and off there),
+  and share this computer's internet as a **hotspot** (the password is shown).
+- **Sound**: send each app to its own speakers or headphones, and choose how each
+  sound device is used (the screen's speakers over HDMI, a headset's call mode…).
+- **Printers**: *Look for printers* finds the ones on your Wi-Fi and adds one with a
+  click; make one the default, print a test page, and cancel what's printing.
+
+### Timetable and reminders
+- Open **Timetable** (Start menu, or Settings → Date & Time): add your classes for the
+  week — name, day, times, room. Prime sends a note 10 minutes before each one (or
+  5, 15, 30, or off).
+- Reminders: add them there, or just type in Prime Search (Super+Space):
+  *remind me to hand in the essay at 3pm*, *remind me in 20 minutes to take the pizza
+  out*, *remind me tomorrow at 9 to bring my PE kit*. No AI needed. If the computer
+  was asleep, the reminder comes as soon as it wakes.
+
+### Camera and microphone
+Settings → **Camera & Microphone**: see your cameras and whether an app is using one
+right now, test the camera, and record five seconds from the microphone to hear how
+you sound — handy before a call or an online lesson.
 
 ### Screenshots and recordings
 | Press | |

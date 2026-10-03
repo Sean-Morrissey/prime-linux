@@ -144,9 +144,14 @@ btrfs-assistant
 celluloid
 cups
 cups-filters
+# Settings → Wi-Fi & Network: add a school's OpenVPN file; share the internet (hotspot)
+networkmanager-openvpn
+dnsmasq
 file-roller
 gnome-calculator
 gnome-calendar
+# Settings → Camera & Microphone: test the camera
+snapshot
 gnome-keyring
 gpu-screen-recorder
 gtk4

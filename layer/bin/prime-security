@@ -290,7 +290,7 @@ disk_status() {
   if lsblk -sno TYPE "$(findmnt -no SOURCE / 2>/dev/null | sed 's/\[.*//')" 2>/dev/null | grep -qx crypt; then
     row ok "The disk is encrypted — a lost or stolen computer doesn't give away your files"
   else
-    row info "The disk is not encrypted. Fine for a desktop at home; for a laptop, encryption can only be chosen when installing"
+    row info "The disk is not encrypted. Fine for a desktop at home; for a laptop that leaves the house, install again from the USB and tick Encrypt system (it can only be chosen when installing)"
   fi
 }
 

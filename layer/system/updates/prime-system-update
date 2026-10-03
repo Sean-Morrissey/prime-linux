@@ -275,11 +275,14 @@ snapshots_tsv() { # level<TAB>message<TAB>what to do, in words<TAB>prime-fix nam
     printf 'warn\tThis disk (%s) cannot take system snapshots — updates cannot be undone from the boot menu\tOnly a reinstall with btrfs adds this; updates still run with every other safety check\t\n' "${fs:-unknown}"
     return
   fi
-  if ! command -v snapper >/dev/null; then
-    printf 'bad\tThis computer can keep a copy of the system before each update, but it isn'"'"'t set up\tSet up snapshots\tsnapshots\n'; return
-  fi
-  if [ ! -e /etc/snapper/configs/root ]; then
-    printf 'bad\tSystem snapshots aren'"'"'t switched on for the system disk\tSet up snapshots\tsnapshots\n'; return
+  # through has_snapper_root, so a test's facts file decides — not whatever this machine has
+  if ! has_snapper_root; then
+    if fact_override snapper_root >/dev/null || ! command -v snapper >/dev/null; then
+      printf 'bad\tThis computer can keep a copy of the system before each update, but it isn'"'"'t set up\tSet up snapshots\tsnapshots\n'
+    else
+      printf 'bad\tSystem snapshots aren'"'"'t switched on for the system disk\tSet up snapshots\tsnapshots\n'
+    fi
+    return
   fi
   printf 'ok\tSystem snapshots are on (snapper)\t\t\n'
   if pacman -Qq snap-pac >/dev/null 2>&1; then printf 'ok\tEvery package change takes a snapshot first (snap-pac)\t\t\n'

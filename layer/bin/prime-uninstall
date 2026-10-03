@@ -46,7 +46,7 @@ if [ $YES = 0 ] && [ $DRY = 0 ]; then read -rp "Continue? [y/N] " ok; [ "${ok,,}
 
 # ── the desktop session's pieces ─────────────────────────────────────────────
 run systemctl --user stop prime-session.target 'prime-bar@top' 'prime-bar@side' prime-dock prime-cliphist-text \
-    prime-cliphist-image prime-clip-persist prime-osd prime-battery-alert 2>/dev/null
+    prime-cliphist-image prime-clip-persist prime-osd prime-battery-alert prime-timetable.timer 2>/dev/null
 for u in "$HOME"/.config/systemd/user/prime-* "$HOME"/.config/systemd/user/swaync.service.d; do
     [ -L "$u" ] && [[ "$(readlink "$u")" == "$PRIME_HOME"/* ]] && run rm -f "$u"
 done

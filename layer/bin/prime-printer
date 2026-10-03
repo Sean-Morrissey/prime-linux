@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# prime-printer — the two printer changes that need administrator rights, for
+# Settings → Printers. Runs in a Prime window, which asks for the password. Only
+# a printer name and a network address are accepted, and both are checked first.
+#
+#   prime-printer add <name> <ipp://… or ipps://… address>   add a printer (no driver needed)
+#   prime-printer remove <name>                              remove a printer
+set -u
+BIN="$(dirname "$(readlink -f "$0")")"
+name_ok() { [[ "${1:-}" =~ ^[A-Za-z0-9_-]{1,60}$ ]]; }
+uri_ok()  { [[ "${1:-}" =~ ^ipps?://[A-Za-z0-9._~%:@/?=\&+-]+$ ]]; }
+
+if [ -z "${PRIME_PANEL:-}" ] && [ -z "${PRIME_PRINTER_DRY:-}" ]; then
+    case "${1:-}" in add) t="Adding a printer" ;; remove) t="Removing a printer" ;; *) t="Printers" ;; esac
+    exec "$BIN/prime-panel" --title "$t" -- "$0" "$@"
+fi
+run() { if [ -n "${PRIME_PRINTER_DRY:-}" ]; then echo "RUN $*"; else sudo -A "$@"; fi; }
+export PRIME_ASKPASS_REASON="Prime needs your password to change the printers."
+
+case "${1:-}" in
+    add)
+        name_ok "${2:-}" && uri_ok "${3:-}" || { echo "@bad That printer's name or address doesn't look right — nothing was changed."; exit 2; }
+        echo "@step Adding ${2//_/ }"
+        if run lpadmin -p "$2" -E -v "$3" -m everywhere; then
+            echo "@ok ${2//_/ } is ready — Settings → Printers can print a test page"
+            echo "@summary ${2//_/ } added."
+        else
+            echo "@bad The printer didn't answer. Check it's on and on the same Wi-Fi, then try again."
+            exit 1
+        fi ;;
+    remove)
+        name_ok "${2:-}" || { echo "@bad That isn't a printer name — nothing was changed."; exit 2; }
+        if run lpadmin -x "$2"; then echo "@ok ${2//_/ } removed"; echo "@summary ${2//_/ } removed."
+        else echo "@bad ${2//_/ } couldn't be removed."; exit 1; fi ;;
+    *)  sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
+esac

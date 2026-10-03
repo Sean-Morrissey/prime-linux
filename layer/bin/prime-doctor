@@ -117,10 +117,14 @@ if [ $in_session = 1 ]; then
     # builds them, one build at a time, so a login build and this check never collide
     if [ "$(jq -r '.settings.titlebars // "on"' "$HOME/.config/prime/settings.json" 2>/dev/null)" = off ]; then
         ok "Window title bars are off (Settings → Windows & Workspaces)"
-    elif hyprctl plugin list 2>/dev/null | grep -q hyprbars; then ok "Window title bars loaded"
+    elif hyprctl plugin list 2>/dev/null | grep -q hyprbars; then
+        "$BIN/prime-titlebars" >/dev/null 2>&1      # loaded: makes sure their look is switched on (quick)
+        ok "Window title bars loaded"
     else
         hyprpm reload -n >>"$LOG" 2>&1
-        if hyprctl plugin list 2>/dev/null | grep -q hyprbars; then fixd "Window title bars were off — turned them on"
+        if hyprctl plugin list 2>/dev/null | grep -q hyprbars; then
+            "$BIN/prime-titlebars" >/dev/null 2>&1
+            fixd "Window title bars were off — turned them on"
         elif [ $QUIET = 1 ]; then
             # the window manager was updated overnight: rebuild for the new version in the background
             setsid -f "$BIN/prime-titlebars" --rebuild >/dev/null 2>&1 </dev/null

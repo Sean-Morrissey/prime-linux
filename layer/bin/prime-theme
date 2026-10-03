@@ -81,6 +81,9 @@ EOF
     prime-font-mono-s:   "JetBrainsMono Nerd Font $(size 10)";
 }
 EOF
+  # the title bars' look is switched on by prime-titlebars once the plugin is loaded;
+  # until then this file must exist (Hyprland reads it) and say nothing
+  [ -s "$OUT/plugins.conf" ] || echo "# window title bars aren't loaded right now (prime-titlebars)" > "$OUT/plugins.conf"
   cat > "$OUT/hyprland.conf" <<EOF
 # written by prime-theme
 \$accent = rgb($a)

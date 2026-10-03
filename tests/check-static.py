@@ -258,6 +258,12 @@ pl = open(f"{LAYER}/default/hypr/plugins.conf").read()
 for m in re.finditer(r"^\s*hyprbars-button\s*=\s*([^,]+),\s*([^,]+),\s*([^,]*),", pl, re.M):
     if not m.group(3).strip():
         col.append(f"title-bar button {m.group(1).strip()} has no symbol")
+# a title-bar button's settings are split on commas: a colour written with commas
+# (rgba(255, 255, 255, 0.1)) breaks the line into pieces and Hyprland reports an error
+for m in re.finditer(r"^\s*hyprbars-button\s*=\s*(.*)$", pl, re.M):
+    first = m.group(1).split(",")[0].strip()
+    if "(" in first and ")" not in first:
+        col.append(f"title-bar button colour has commas: {first}… — write it as rgba(rrggbbaa)")
 lock = open(f"{LAYER}/default/hypr/hyprlock.conf").read()
 if "prime-lock-status" not in lock:
     col.append("lock screen doesn't say Caps Lock in words")

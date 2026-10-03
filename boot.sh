@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Prime Linux — the one-line install on a fresh CachyOS:
 #
-#   curl -fsSL https://raw.githubusercontent.com/sean-morrissey/prime-linux/main/boot.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/sean-morrissey/prime-linux/stable/boot.sh | bash
 #
 # It fetches Prime Linux into ~/.local/share/prime-linux with git, then runs
 # install.sh from there. Anything after "bash -s --" is passed to install.sh:
@@ -9,7 +9,7 @@
 #
 # Settings (environment):
 #   PRIME_REPO     where to get it   (default: the GitHub repo; a local path works)
-#   PRIME_REF      branch or tag     (default: main — "stable" channel = latest tag, see docs/RELEASE.md)
+#   PRIME_REF      branch or tag     (default: stable — the latest signed release; main is the test channel)
 #
 # The repository is public, so the line above needs no GitHub account and no
 # sign-in. If it is ever made private, `curl` can't read it: clone it with your

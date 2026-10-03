@@ -1,8 +1,0 @@
-[Unit]
-Description=Report the last prime-pc update cycle (desktop notice + ledger)
-
-[Service]
-Type=oneshot
-Environment=WAYLAND_DISPLAY=wayland-1
-Environment=DISPLAY=:0
-ExecStart=%h/.hermes/scripts/prime-pc-notify.sh

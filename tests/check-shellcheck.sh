@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+. "$(dirname "${BASH_SOURCE[0]}")/sandbox.sh"   # never the real home or session (tests/sandbox.sh)
 # tests/check-shellcheck.sh — every shell script in the repo passes shellcheck at
 # warning level. CI installed shellcheck but nothing ran it, so only `bash -n`
 # guarded the scripts that run as root or touch people's files.

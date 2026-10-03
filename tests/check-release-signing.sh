@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+. "$(dirname "${BASH_SOURCE[0]}")/sandbox.sh"   # never the real home or session (tests/sandbox.sh)
 # tests/check-release-signing.sh — on the stable channel an update is installed only
 # when it is a v* tag signed by a release key the INSTALLED copy already trusts.
 # Builds a throwaway "GitHub" repo and an installed copy, then tries forgeries.

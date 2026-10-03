@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+. "$(dirname "${BASH_SOURCE[0]}")/sandbox.sh"   # never the real home or session (tests/sandbox.sh)
 # tests/check-help.sh — "Get help" makes a report a helper can use, and it never
 # carries the home folder's path or anything secret-looking. Throwaway HOME.
 set -u

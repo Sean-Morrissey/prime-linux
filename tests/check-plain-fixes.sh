@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+. "$(dirname "${BASH_SOURCE[0]}")/sandbox.sh"   # never the real home or session (tests/sandbox.sh)
 # tests/check-plain-fixes.sh — what the repair and safety screens tell a person to do
 # is words or a button, never a command to type. Runs the checks that feed the health
 # check (Super+H) and Settings → Privacy & Security, and reads the messages in the

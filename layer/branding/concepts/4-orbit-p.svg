@@ -1,4 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
-<!-- Prime Linux logo concept — D: orbit P (ring + stem). Original artwork, CC0. -->
-<defs><mask id="m"><rect width="256" height="256" fill="#fff"/><path d="M75 26 H75 A27.0 27.0 0 0 1 102 53 V205 A27.0 27.0 0 0 1 75 232 H75 A27.0 27.0 0 0 1 48 205 V53 A27.0 27.0 0 0 1 75 26 Z" fill="#000"/></mask></defs><path fill="#f87171" fill-rule="evenodd" mask="url(#m)" d="M72 104 a68 68 0 1 0 136 0 a68 68 0 1 0 -136 0 Z M106 104 a34 34 0 1 0 68 0 a34 34 0 1 0 -68 0 Z"/><path fill="#f87171" d="M75 36 H75 A17.0 17.0 0 0 1 92 53 V205 A17.0 17.0 0 0 1 75 222 H75 A17.0 17.0 0 0 1 58 205 V53 A17.0 17.0 0 0 1 75 36 Z"/>
-</svg>

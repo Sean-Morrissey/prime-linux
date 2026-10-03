@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+. "$(dirname "${BASH_SOURCE[0]}")/sandbox.sh"   # never the real home or session (tests/sandbox.sh)
 # tests/check-gpu-detect.sh — install.sh's hardware.conf picks the GPU that runs the
 # desktop (the one that drew the boot screen), and only writes NVIDIA's settings when
 # NVIDIA's own driver is installed. Fake sysfs trees; nothing on this machine is read.

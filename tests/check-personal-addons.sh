@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+. "$(dirname "${BASH_SOURCE[0]}")/sandbox.sh"   # never the real home or session (tests/sandbox.sh)
 # tests/check-personal-addons.sh — personal add-ons (~/.config/prime/addons.d/<name>/)
 # load everywhere a shipped add-on does: prime-addon, prime-bar, prime-menu,
 # prime-context, prime-snip, prime-keys. No container, no root; a throwaway HOME,

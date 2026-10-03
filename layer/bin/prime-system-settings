@@ -50,7 +50,7 @@ def has(cmd: str) -> bool:
 def sh(*args, timeout: float = 4) -> str:
     """Run a command, return its output ('' if it isn't there or fails)."""
     cmd = list(args)
-    if not shutil.which(cmd[0]) and os.access(os.path.join(BIN, cmd[0]), os.X_OK):
+    if os.access(os.path.join(BIN, cmd[0]), os.X_OK):     # Prime's own tools: always this copy's
         cmd[0] = os.path.join(BIN, cmd[0])
     try:
         return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout).stdout.strip()
@@ -60,7 +60,7 @@ def sh(*args, timeout: float = 4) -> str:
 
 def ok(*args, timeout: float = 30) -> bool:
     cmd = list(args)
-    if not shutil.which(cmd[0]) and os.access(os.path.join(BIN, cmd[0]), os.X_OK):
+    if os.access(os.path.join(BIN, cmd[0]), os.X_OK):     # Prime's own tools: always this copy's
         cmd[0] = os.path.join(BIN, cmd[0])
     try:
         return subprocess.run(cmd, capture_output=True, timeout=timeout).returncode == 0
@@ -71,7 +71,7 @@ def ok(*args, timeout: float = 30) -> bool:
 def launch(*args):
     """Open another window (a Prime tool or an app), fully detached."""
     cmd = list(args)
-    if not shutil.which(cmd[0]) and os.access(os.path.join(BIN, cmd[0]), os.X_OK):
+    if os.access(os.path.join(BIN, cmd[0]), os.X_OK):     # Prime's own tools: always this copy's
         cmd[0] = os.path.join(BIN, cmd[0])
     if os.environ.get("PRIME_SETTINGS_DRY"):
         print("LAUNCH", " ".join(cmd), flush=True)

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+. "$(dirname "${BASH_SOURCE[0]}")/sandbox.sh"   # never the real home or session (tests/sandbox.sh)
 # tests/check-ssh.sh — remote login (SSH) is never switched on by Prime, and an
 # SSH that is on, open to every network and taking passwords is reported as a
 # problem (the login health check shows it) and narrowed to the home network

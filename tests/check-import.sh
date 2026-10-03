@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+. "$(dirname "${BASH_SOURCE[0]}")/sandbox.sh"   # never the real home or session (tests/sandbox.sh)
 # tests/check-import.sh — prime-import on a realistic hand-built desktop
 # (tests/fixtures/legacy-desktop, synthetic): dry run changes nothing, apply
 # brings everything over (no secrets, no clashing keys, every bind described),

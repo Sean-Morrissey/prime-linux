@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+. "$(dirname "${BASH_SOURCE[0]}")/sandbox.sh"   # never the real home or session (tests/sandbox.sh)
 # tests/check-greeting.sh — the terminal greeting: the PRIME wordmark and what it stands for
 # (Please Relax I'll Manage Everything). No install needed: throwaway HOMEs only.
 set -u

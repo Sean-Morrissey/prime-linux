@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+. "$(dirname "${BASH_SOURCE[0]}")/sandbox.sh"   # never the real home or session (tests/sandbox.sh)
 # tests/check-settings-app.sh — Settings (prime-system-settings): every page builds,
 # every Prime tool it opens exists, the mouse/keyboard/touchpad settings land in the
 # Prime block of hyprland.conf (and bad values are refused), the password change
@@ -196,6 +197,10 @@ if "$PY" -c "import gi; gi.require_version('Gtk','4.0'); gi.require_version('Adw
     HOME="$H" PRIME_SETTINGS_DRY=1 timeout 120 xvfb-run -a "$PY" "$APP" --selftest > "$T/st" 2>&1
     ck "all 28 pages build, search finds Mouse & Touchpad" "grep -q '^0 failure' '$T/st' && [ \$(grep -c '  PASS  ' '$T/st') -ge 29 ]"
     grep -q '^0 failure' "$T/st" || grep -E 'FAIL|Error|Traceback' "$T/st" | head -20
+    # looking is not changing: drawing every page (no DRY switch) must write nothing
+    mkdir -p "$T/look"
+    HOME="$T/look" timeout 150 xvfb-run -a "$PY" "$APP" --screenshots "$T/shots" >/dev/null 2>&1
+    ck "opening every page writes nothing to the home folder" "[ -z \"\$(find '$T/look' -type f ! -path '*/.cache/*')\" ]"
 else
     echo "  SKIP  page build (no GTK 4 / libadwaita / Xvfb here)"
     # CI sets PRIME_REQUIRE_GUI=1: there a skip would hide that no page was built

@@ -82,15 +82,8 @@ from the same values, because only Hyprland can draw them).
 
 - **Install script** (CachyOS + `install.sh`): unchanged; the first *Update everything*
   adds the **Prime** session to the login screen (`layer/system/wayland-sessions`).
-- **ISO** (`os/cachyos/`): the payload's `skel/` is now the layer's own seed (a
-  `hyprland.conf` that loads Prime) instead of the captured pre-layer desktop, plus
-  `prime-first-login`, which at an account's first login runs `install.sh
-  --no-packages` from the staged copy in a Prime window. `prime-target-setup` installs
-  the Prime session + that step and seeds each new account. The ISO's package list
-  now carries everything the layer needs. **Still open:** the buildset must stage the
-  repository at `/usr/share/prime-linux` in the image, and the ISO install path is
-  blocked upstream anyway (`cachyos-calamares-next` links boost-python 1.91; the
-  repos ship 1.92), so this path is untested end to end.
+- **ISO**: a bootable installer image was explored and is parked (CachyOS's own
+  installer can't currently be rebuilt). It lives in the repository's history.
 
 ## Roadmap — what makes it "Prime sets it up for you"
 
@@ -111,6 +104,6 @@ Order matters: each step uses the one before.
    written to an audit log, and undoable through the desktop backups.
 4. **Security defaults.** Firewall on (ufw/firewalld, LAN-friendly profile),
    automatic security updates via step 2, signed releases of the layer.
-5. **First-run interview** (`docs/INTERVIEW.md`, `backends/arch/prime-setup`)
+5. **First-run interview**
    as the front door: picks packs, theme, autonomy level and update policy, so
    someone who has never used Linux answers questions instead of editing files.

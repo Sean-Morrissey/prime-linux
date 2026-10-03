@@ -1,4 +1,12 @@
 #!/usr/bin/env bash
+# This test installs and removes Prime for real, so it runs only on a throwaway machine
+# (the containers of tests/install-in-container.sh and packs-in-container.sh, or CI) —
+# never on someone's own account. (Run there, it once put back a months-old desktop.)
+if [ ! -f /.dockerenv ] && [ ! -f /run/.containerenv ] && [ "${GITHUB_ACTIONS:-}" != true ] \
+        && [ "${PRIME_TEST_THROWAWAY:-}" != 1 ]; then
+    echo "  SKIP  installs and removes Prime for real: runs in tests/install-in-container.sh or on CI"
+    exit 0
+fi
 # Pack checks, run inside a fresh install (by packs-in-container.sh, or by hand in a
 # throwaway account). Enables every pack non-interactively, checks what each one
 # adds, then disables it again and checks it's all gone.

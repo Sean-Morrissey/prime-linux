@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+. "$(dirname "${BASH_SOURCE[0]}")/sandbox.sh"   # never the real home or session (tests/sandbox.sh)
 # Sandbox tests for Prime's real updater (layer/system/updates/prime-system-update),
 # its installer (layer/system/install-system.sh), the update-policy CLI and the
 # pacman backup hook. Nothing here needs root or touches this machine: every
@@ -6,10 +7,10 @@
 # runuser…) is a fake on PATH — and the updater itself refuses to run in test
 # mode if any of them would resolve to the real one.
 #
-# Run: bash backends/arch/test-system-update.sh
+# Run: bash tests/check-system-update.sh
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-LAYER="$(cd "$HERE/../../layer" && pwd)"
+LAYER="$(cd "$HERE/../layer" && pwd)"
 ENGINE="$LAYER/system/updates/prime-system-update"
 T="$(mktemp -d "${TMPDIR:-/tmp}/prime-sysupd-test.XXXXXX")"
 trap 'rm -rf "$T"' EXIT

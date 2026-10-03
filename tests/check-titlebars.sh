@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+. "$(dirname "${BASH_SOURCE[0]}")/sandbox.sh"   # never the real home or session (tests/sandbox.sh)
 # tests/check-titlebars.sh — window title bars come back by themselves after a Hyprland
 # update: at login, a build that no longer loads is rebuilt without anyone asking.
 # Stand-ins for hyprpm, hyprctl and notify-send; nothing is built or downloaded.

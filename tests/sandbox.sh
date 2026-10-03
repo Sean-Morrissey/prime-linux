@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # tests/sandbox.sh — sourced first by every tests/check-*.sh.
 #
 # The tests run Prime's installer, uninstaller, theme and settings tools. Run on a

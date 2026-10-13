@@ -8,6 +8,8 @@ hypridle
 hyprpaper
 hyprpolkitagent
 hyprpm
+pcmanfm-qt
+udiskie
 xdg-desktop-portal-hyprland
 xdg-desktop-portal-gtk
 uwsm

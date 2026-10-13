@@ -47,6 +47,20 @@
           "hint": "what's using the computer right now",
           "kind": "run",
           "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-activity"
+        },
+        {
+          "id": "apps.trash",
+          "label": "Trash",
+          "hint": "files you deleted — put them back, or empty it",
+          "kind": "run",
+          "cmd": "exec gio open trash:///"
+        },
+        {
+          "id": "apps.drives",
+          "label": "Removable drives",
+          "hint": "USB sticks and external disks",
+          "kind": "run",
+          "cmd": "exec gio open computer:///"
         }
       ]
     },

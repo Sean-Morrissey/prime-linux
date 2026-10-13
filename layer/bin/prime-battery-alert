@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# prime:summary=warns once when the battery gets low (15%) and again when it's nearly empty
 # prime-battery-alert — warns once when the battery gets low (15%) and again
 # when it's nearly empty (5%), unless the charger is plugged in. Runs as the
 # prime-battery-alert user service; exits straight away on computers with no

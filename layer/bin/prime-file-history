@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# prime:summary=your own files, as they were an hour, a day or a week ago
 # prime-file-history — your own files, as they were an hour, a day or a week ago.
 #
 # System snapshots (before every update) cover the system, not home folders, and

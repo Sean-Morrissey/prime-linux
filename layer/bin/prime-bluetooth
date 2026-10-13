@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# prime:summary=connect your headphones, mouse, speaker… in one click
 # prime-bluetooth — connect your headphones, mouse, speaker… in one click
 # (click the Bluetooth icon on the bar). Devices you've paired before are
 # listed; choose one to connect or disconnect it. "Pair a new device" opens

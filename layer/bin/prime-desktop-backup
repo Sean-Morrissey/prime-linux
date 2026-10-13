@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# prime:summary=save / restore the whole desktop's settings
 # prime-desktop-backup — save / restore the whole desktop's settings.
 #
 # System snapshots (snapper) cover /, not your home folder, so a bad bar or

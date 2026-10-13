@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# prime:summary=check the desktop and repair what it safely can
 # prime-doctor — check the desktop and repair what it safely can.
 #
 #   prime-doctor          full report (Super+H, Settings → About & Help);

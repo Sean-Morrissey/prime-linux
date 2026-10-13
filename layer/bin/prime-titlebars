@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# prime:summary=make sure the window title bars (the hyprbars plugin) are built
 # prime-titlebars — make sure the window title bars (the hyprbars plugin) are
 # built for the Hyprland that's running, then load them.
 #

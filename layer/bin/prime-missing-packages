@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# prime:summary=which of Prime's packages (os/arch/packages.txt) this computer still needs
 # prime-missing-packages — which of Prime's packages (os/arch/packages.txt)
 # this computer still needs, one per line. Nothing printed = all there.
 #

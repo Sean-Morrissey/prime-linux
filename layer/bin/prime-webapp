@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# prime:summary=turn a website into an app: its own window, icon and entry in the app list
 # prime-webapp — turn a website into an app: its own window, icon and entry in
 # the app list (WhatsApp, YouTube, Gmail, ChatGPT…).
 #

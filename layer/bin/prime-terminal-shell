@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# prime:summary=what a new Prime terminal (kitty) runs: the P.R.I.M.E greeting
 # prime-terminal-shell — what a new Prime terminal (kitty) runs: the P.R.I.M.E
 # greeting (fastfetch, ~/.config/fastfetch/config.jsonc), then your own shell.
 #

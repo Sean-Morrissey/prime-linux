@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# prime:summary=safe defaults, and a plain-language report on them
 # prime-security — safe defaults, and a plain-language report on them.
 #
 #   prime-security                  the report (same as: status)

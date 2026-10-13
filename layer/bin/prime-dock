@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# prime:summary=the dock: your pinned apps and everything that's open
 # prime-dock — the dock: your pinned apps and everything that's open, at the bottom of
 # the screen, out of the way until you move the pointer to the bottom edge (like a Mac).
 # A click opens or switches to an app; the grid button opens Start; right-click an app

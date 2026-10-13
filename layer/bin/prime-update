@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# prime:summary=update everything: Prime Linux itself, the system
 # prime-update — update everything: Prime Linux itself, the system (with a
 # safety snapshot first), apps from the AUR (asks first), App Store apps, and
 # the window title bars. Explains every step, and every failure, in plain words.

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# prime:summary=start one Prime Linux bar (what prime-bar@top / prime-bar@side run)
 """prime-bar — start one Prime Linux bar (what prime-bar@top / prime-bar@side run).
 
   prime-bar top | side     build the config + style, then exec waybar

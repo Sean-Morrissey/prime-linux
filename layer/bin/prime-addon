@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# prime:summary=packs and optional extras for Prime Linux
 # prime-addon — packs and optional extras for Prime Linux.
 #
 #   prime-addon                    list packs and add-ons, and whether they're on

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# prime:summary=the saved states of the system (taken before every update)
 # prime-snapshots — the saved states of the system (taken before every update),
 # shown in a Prime window. To go back to one, restart and pick the earlier state
 # in the start-up menu; Prime keeps the one from before the last change there.

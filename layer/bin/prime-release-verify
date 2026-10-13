@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# prime:summary=is this update really a Prime release?
 # prime-release-verify — is this update really a Prime release?
 #
 #   prime-release-verify <repo> <commit>   exit 0: it may be installed

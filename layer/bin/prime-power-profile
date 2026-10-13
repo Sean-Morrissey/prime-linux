@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# prime:summary=battery saver, balanced or performance
 # prime-power-profile — battery saver, balanced or performance (click the
 # battery on the bar, or Menu → Toggles → Power mode).
 #

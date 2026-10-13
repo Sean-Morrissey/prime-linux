@@ -1,4 +1,5 @@
 #!/usr/bin/python3
+# prime:summary=the start menu on the P logo (click the logo, or Super+X)
 """Prime Start — the start menu on the P logo (click the logo, or Super+X).
 
 A frosted card that drops out of the top-left corner, under the bar, on the

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# prime:summary=read or change what Prime does about updates by itself
 # prime-update-policy — read or change what Prime does about updates by itself.
 #
 #   prime-update-policy get           prints: automatic | ask | security | off

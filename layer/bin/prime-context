@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# prime:summary=the right-click menu for everything on the bar and the desktop
 # prime-context — the right-click menu for everything on the bar and the desktop.
 #
 #   Each element answers a right-click with its own actions (mute, open the

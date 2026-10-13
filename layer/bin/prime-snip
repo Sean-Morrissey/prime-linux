@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# prime:summary=Snipping-Tool style capture
 # prime-snip — Snipping-Tool style capture.
 #
 #   prime-snip [area|full|screen|window] [--ask] [--no-menu] [--action <label>]

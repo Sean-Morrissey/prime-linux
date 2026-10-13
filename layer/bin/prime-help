@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# prime:summary="Get help": one report to send to whoever helps you
 # prime-help — "Get help": one report to send to whoever helps you.
 #
 #   prime-help            make the report, save it in your home folder, copy it

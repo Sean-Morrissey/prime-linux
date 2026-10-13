@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# prime:summary=the Prime menu: one key, one list, the whole desktop
 # prime-menu — the Prime menu: one key, one list, the whole desktop.
 #
 #   prime-menu                  the menu (sections)

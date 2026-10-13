@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# prime:summary=GPU load for the bar: percentage, temperature in the tooltip
 # GPU load for the bar: percentage, temperature in the tooltip.
 # Finds the card itself (AMD via sysfs, NVIDIA via nvidia-smi, Intel shows
 # temperature only). Prints nothing when there is no readable GPU, which hides

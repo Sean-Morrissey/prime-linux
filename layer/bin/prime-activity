@@ -1,4 +1,5 @@
 #!/usr/bin/python3
+# prime:summary=what is using the computer right now (click CPU, memory or GPU in the bar)
 """Prime Activity — what is using the computer right now (click CPU, memory or
 GPU in the bar). The busiest apps first, with how much of the processor and
 memory each one is using, in words as well as numbers; select one and press

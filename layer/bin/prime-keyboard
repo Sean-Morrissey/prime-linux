@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# prime:summary=keyboard layouts (languages)
 # prime-keyboard — keyboard layouts (languages).
 #
 #   prime-keyboard            add or remove layouts from a searchable list

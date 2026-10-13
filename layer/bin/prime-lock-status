@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# prime:summary=one line of state for the lock screen, in words
 # prime-lock-status — one line of state for the lock screen, in words (the
 # password field also changes colour, but colour alone is not enough).
 for led in /sys/class/leds/*capslock*/brightness; do

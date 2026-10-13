@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# prime:summary=change this account's password without a terminal
 # prime-passwd — change this account's password without a terminal.
 #
 #   prime-passwd       reads three lines on stdin: the current password, the new one,

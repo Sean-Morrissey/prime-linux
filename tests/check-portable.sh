@@ -4,9 +4,27 @@
 # his sound devices, his personal add-on. Scans exactly what install.sh puts on
 # a machine: install.sh, boot.sh, layer/ and the package list.
 set -u
-cd "$(dirname "$(readlink -f "$0")")/.." || exit 1
+# With no argument this gates its own repo, as it always has. With a directory
+# argument it gates any other tree that gets installed onto a machine — the
+# harvested desktop bundle, say — so one rule decides what "portable" means
+# instead of each checkout inventing its own.
+#   check-portable.sh                      this repo
+#   check-portable.sh ~/Projects/prime-desktop
+ROOT="${1:-}"
+if [ -n "$ROOT" ]; then
+    cd "$ROOT" || exit 1
+else
+    cd "$(dirname "$(readlink -f "$0")")/.." || exit 1
+fi
 fail=0
-SHIPPED=(install.sh boot.sh layer os/arch)
+# Only the paths that exist here: a bundle has no layer/ or os/arch, a repo has
+# no top-level hypr/ or waybar/.
+SHIPPED=()
+for p in install.sh boot.sh layer os/arch hypr waybar prime rofi kitty swaync fish; do
+    [ -e "$p" ] && SHIPPED+=("$p")
+done
+[ "${#SHIPPED[@]}" -gt 0 ] || { echo "nothing shippable found in $(pwd)" >&2; exit 2; }
+echo "  ..  scanning: ${SHIPPED[*]}"
 scan() { # scan <what> <regex> [extra grep args] — fails when any shipped file matches
     local hits
     hits="$(grep -rnIiE "$2" "${SHIPPED[@]}" --exclude-dir=previews "${@:3}" 2>/dev/null)"

@@ -1,4 +1,5 @@
 #!/usr/bin/python3
+# prime:summary=any MPRIS player (Spotify, a browser tab, VLC, mpv…)
 """Now-playing controls for the bar — any MPRIS player (Spotify, a browser
 tab, VLC, mpv…). The whole group hides itself when nothing is playing.
 

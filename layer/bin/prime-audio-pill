@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# prime:summary=Audio volume for the system cluster: level glyph + percentage
 # Audio volume for the system cluster: level glyph + percentage.
 # Clean monochrome readout (the CSS colours it); class drives the muted tint,
 # and a muted output also SAYS "Muted" — the tint is never the only signal.

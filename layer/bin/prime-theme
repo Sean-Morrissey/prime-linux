@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# prime:summary=one switch for the whole desktop look (Super+Shift+W)
 # prime-theme — one switch for the whole desktop look (Super+Shift+W).
 #
 # Step 1 picks a wallpaper (thumbnails), step 2 an accent colour. The choice is

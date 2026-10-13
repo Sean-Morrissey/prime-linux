@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# prime:summary=what Prime is, which version, and where to find things
 # prime-about — what Prime is, which version, and where to find things.
 # Opens in a Prime window; in a terminal it prints the same rows.
 #

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# prime:summary=take Prime Linux off this account and put back what was there
 # prime-uninstall — take Prime Linux off this account and put back what was there.
 #
 #   prime-uninstall              asks first, then undoes the install

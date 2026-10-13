@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# prime:summary=the "Update settings" screen
 # prime-updates-settings — the "Update settings" screen, and the update status
 # lines other parts of Prime show.
 #

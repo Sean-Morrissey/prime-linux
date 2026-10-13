@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# prime:summary=whatever browser the user chose as default
 # Super+B — whatever browser the user chose as default (Settings → Default apps,
 # or `xdg-settings set default-web-browser firefox.desktop`).
 d="$(xdg-settings get default-web-browser 2>/dev/null)"

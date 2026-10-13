@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# prime:summary=package-update counter for the bar (custom/updates)
 # prime-updates-count — package-update counter for the bar (custom/updates).
 #
 # Always prints one valid JSON line (an empty result would hide the module).

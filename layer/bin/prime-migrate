@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# prime:summary=bring an existing install up to date with layout changes
 # prime-migrate — bring an existing install up to date with layout changes.
 #
 #   prime-migrate              run every migration this account hasn't run yet

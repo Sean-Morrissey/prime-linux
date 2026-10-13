@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# prime:summary=kept for add-ons and your own menu rows written before Prime's own windows
 # prime-float <command…> — kept for add-ons and your own menu rows written before
 # Prime's own windows existed. Nothing in Prime calls it any more: tasks run in a
 # Prime window (prime-panel), and the two terminal apps it used to open have

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# prime:summary=pick the default browser and file manager from a list of what's installed
 # prime-default-apps — pick the default browser and file manager from a list
 # of what's installed (Settings → Default apps).
 set -u

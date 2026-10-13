@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# prime:summary=searchable keyboard-shortcut cheat sheet (Super+/)
 # prime-keys — searchable keyboard-shortcut cheat sheet (Super+/).
 #
 # Read live from Hyprland (`hyprctl binds`), so it always matches what the keys

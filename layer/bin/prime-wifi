@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# prime:summary=Wi-Fi from the bar (click the network icon): see the networks around you
 # prime-wifi — Wi-Fi from the bar (click the network icon): see the networks
 # around you, join one, turn Wi-Fi on or off. A password is asked for in a
 # Prime box; everything is said in words (signal "strong", "secured"), so

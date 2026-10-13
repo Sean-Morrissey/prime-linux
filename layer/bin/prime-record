@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# prime:summary=record the screen to a video file
 # prime-record — record the screen to a video file.
 #
 #   prime-record area [--sound]     drag a box, record that   (Super+Shift+R)

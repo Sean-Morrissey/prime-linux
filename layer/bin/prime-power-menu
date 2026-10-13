@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# prime:summary=the bar's power button: lock, suspend, restart, shut down, log out
 # prime-power-menu — the bar's power button: lock, suspend, restart, shut down,
 # log out. Anything that ends the session asks Yes/No first; nothing is killed
 # by force, so apps get to save.

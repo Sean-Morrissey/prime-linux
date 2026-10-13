@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# prime:summary=lock the screen: the Prime screen saver first
 # prime-lock — lock the screen: the Prime screen saver first, then the password
 # screen at the first key or movement (what hypridle and the Lock buttons run).
 #

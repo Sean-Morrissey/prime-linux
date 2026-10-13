@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# prime:summary="New text file here" (Windows' New → Text Document)
 # prime-new-file <dir> — "New text file here" (Windows' New → Text Document).
 set -u
 dir="${1:-$HOME/Desktop}"

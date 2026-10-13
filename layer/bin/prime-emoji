@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# prime:summary=the emoji picker (Super+Ctrl+E)
 # prime-emoji — the emoji picker (Super+Ctrl+E). Type to search ("heart",
 # "thumbs"), Enter types the emoji into the app you were in and copies it too.
 set -u

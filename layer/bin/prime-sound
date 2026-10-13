@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# prime:summary=choose where sound comes out
 # prime-sound — choose where sound comes out (speakers, headphones, HDMI…) and
 # which microphone is used (click the volume icon on the bar). The full mixer
 # (per-app volume) is one row further down.

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# prime:summary=Animations on/off for this session (a slow machine, or screen recording)
 # Animations on/off for this session (a slow machine, or screen recording).
 if [ "$(hyprctl getoption animations:enabled -j | jq .int)" = 1 ]; then
     hyprctl keyword animations:enabled false >/dev/null && notify-send -a Prime "Animations off"

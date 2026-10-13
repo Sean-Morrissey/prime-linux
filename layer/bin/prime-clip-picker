@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# prime:summary=clipboard history
 # Super+V — clipboard history. Pick an entry and it goes back on the
 # clipboard; paste with Ctrl+V. (rofi can't type into other windows on Wayland.)
 #

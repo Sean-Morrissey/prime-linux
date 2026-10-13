@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# prime:summary=the first thing a new Prime Linux user sees
 """prime-welcome — the first thing a new Prime Linux user sees.
 
 A short, friendly window (GTK 4 / libadwaita): the three keys worth knowing, pick

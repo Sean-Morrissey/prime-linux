@@ -88,7 +88,9 @@ You need a free GitHub account, and an invitation from the owner.
    ```
 
 If step 5 stops half-way, paste the step 5 line again: it carries on from where
-it stopped. Updates later use the same GitHub sign-in, so don't sign out
+it stopped. Once it has finished, updates come from **Update everything**, not
+from step 5: the `~/prime-linux` copy doesn't update itself, so the installer
+there won't put its older version over a newer one. Updates later use the same GitHub sign-in, so don't sign out
 (`gh auth logout`) on this computer.
 
 ### If the project is public

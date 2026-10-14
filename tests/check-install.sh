@@ -29,7 +29,9 @@ ck "dry run changes nothing"                "h=\$(mktemp -d) && HOME=\$h XDG_STA
 echo "-- the desktop config"
 ck "Hyprland accepts the whole config"      "Hyprland --verify-config -c ~/.config/hypr/hyprland.conf"
 ck "every bind has a description"           "! grep -hE '^bind[a-z]* =' $L/default/hypr/*.conf $L/addons/*/hypr.conf | grep -vE '^bind[a-z]*d[a-z]* ='"
-ck "no key is bound twice"                  "[ -z \"\$(awk 'FNR==1{insub=0} /^submap[ \t]*=[ \t]*reset/{insub=0; next} /^submap[ \t]*=/{insub=1; next} insub{next} /^bind[a-z]* =/{print}' $L/default/hypr/*.conf | cut -d, -f1,2 | sed 's/^[^=]*= *//; s/ *, */,/' | sort | uniq -d)\" ]"
+# a mouse-drag bind (m) and a release bind (r) on the same key are two different
+# binds (Super+drag moves a window; letting go snaps it), so they count apart
+ck "no key is bound twice"                  "[ -z \"\$(awk 'FNR==1{insub=0} /^submap[ \t]*=[ \t]*reset/{insub=0; next} /^submap[ \t]*=/{insub=1; next} insub{next} /^bind[a-z]* =/{f=\$1; sub(/^bind/,\"\",f); k=(f ~ /m/ ? \"m\" : \"\") (f ~ /r/ ? \"r\" : \"\"); print k \" \" \$0}' $L/default/hypr/*.conf | sed 's/ bind[a-z]* *= */ /' | cut -d, -f1,2 | sed 's/ *, */,/' | sort | uniq -d)\" ]"
 ck "new binds: record, colour, emoji, switches" "for k in prime-record prime-colour prime-emoji 'prime-toggle nightlight' 'prime-toggle idle' 'prime-toggle dnd' 'prime-keyboard next' 'prime-osd volume up'; do grep -q \"\$k\" $L/default/hypr/bindings.conf || exit 1; done"
 ck "top bar config builds"                  "$L/bin/prime-bar --print top | jq -e '.\"modules-right\" | length > 5'"
 ck "bar has battery, recording, switches, keyboard" "$L/bin/prime-bar --print top | jq -e '(.\"group/status\".modules | index(\"battery\")) and (.\"modules-right\" | index(\"custom/recording\") and index(\"custom/toggles\") and index(\"custom/keyboard\"))'"

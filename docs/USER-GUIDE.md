@@ -154,9 +154,35 @@ Everything in this guide is also in Settings or Spotlight, so you never *need* a
 - **Just say it**: Super+Space, then type what you want — "wifi off", "louder", "mute", "do not disturb", "bigger text", "accent blue", "mouse settings", "take a screenshot", "something's wrong", "get a file back" — and press Enter. Prime does it straight away; no AI needed.
 - Mouse, keyboard, look and the other saved settings can be undone: About & Help → **Undo the last change made here**.
 
+### The desktop
+- **Icons on the desktop**: anything in your **Desktop** folder shows up there —
+  files, folders, and shortcuts to apps. Drag a file onto it like you would on
+  Windows or a Mac.
+- **Right-click the desktop** for New folder, Paste, and Desktop Preferences
+  (icon size, sorting, the wallpaper).
+- **Deleted a file by mistake?** It went to the **Trash** — Start → Trash, or type
+  "trash" into Super+Space. Put it back from there, or empty it when you're sure.
+
+### Plugging things in
+- **A USB stick or external drive** mounts by itself when you plug it in, and a
+  notification says so. Start → **Removable drives** lists everything plugged in.
+  Eject it from the file manager before pulling it out.
+- **A printer**: Settings → **Printers**. Printers on your Wi-Fi are found for you
+  and need no driver — true of nearly every printer made in the last ten years.
+  Adding one asks for your password.
+
+### Your week
+- **Timetable** (Start → Timetable) holds your classes and your reminders, and
+  tells you before each one. Add a reminder by typing it into Super+Space the way
+  you'd say it: *"remind me to call mum at 5pm"*, *"remind me in 20 minutes to
+  take the pizza out"*, *"remind me at 9 to bring my PE kit"*.
+- It is kept on this computer, in your own account, and nowhere else. No AI reads it.
+
 ### Windows and workspaces
 - New windows float and open in the middle of the screen, like on a Mac or Windows.
   Drag one by its title bar; **Super+F** makes it fill the screen.
+- **Snap a window to half the screen**: drag it against the left or right edge and
+  let go. Drag it to the top edge to fill the screen. (Hold Super while dragging.)
 - Prefer them side by side? Settings → Appearance → **Window layout → Tidy** (or type
   "tidy windows" in Super+Space). **Super+Shift+V** flips one window either way.
 - **Super+1 … Super+9** switch between workspaces (separate desktops).

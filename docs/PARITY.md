@@ -104,7 +104,12 @@ The ones still missing are listed at the bottom with an owner.
 | Fingerprint / FIDO2 | `setup-security-*` | — | missing → Security owner |
 | Firewall | ufw | — | missing → Security owner (roadmap item 4) |
 | Passwords for apps (keyring) | gnome-keyring | gnome-keyring + libsecret | built |
-| Phones / USB drives / network shares | gvfs-mtp/smb, udiskie | gvfs, gvfs-mtp, gvfs-smb, udisks2 in Nemo | built |
+| Phones / USB drives / network shares | gvfs-mtp/smb, udiskie | gvfs, gvfs-mtp, gvfs-smb, udisks2 + udiskie (automount and a notification on insert) | built |
+| Icons on the desktop, right-click the desktop | none — Hyprland draws a wallpaper, not a desktop | pcmanfm-qt --desktop (a layer-shell surface under the windows); it owns the wallpaper | better |
+| Trash a file and get it back | none | gvfs trash, reachable from the menu | better |
+| Printers | none | Settings → Printers; driverless printers on the network are found for you, `prime-printer` does the two steps needing a password | better |
+| Snap a window to half the screen | none | drag to a screen edge (`prime-snap`) | better |
+| Classes and reminders | none | `prime-timetable`, with reminders added in plain words from Spotlight | better |
 | PDF / images / video / archives | evince, imv, mpv | Papers, Loupe, Celluloid, File Roller (GUI-first) | built |
 
 ## Keeping it working

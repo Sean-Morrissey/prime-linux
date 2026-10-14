@@ -107,7 +107,7 @@
         {
           "id": "set.displays",
           "label": "Displays",
-          "hint": "arrange screens, resolution, refresh rate",
+          "hint": "arrange screens, resolution, refresh rate, and scale (make everything bigger)",
           "kind": "run",
           "cmd": "exec nwg-displays"
         },

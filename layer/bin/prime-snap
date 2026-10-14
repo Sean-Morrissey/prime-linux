@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+# prime:summary=snap a window to half the screen by dragging it to an edge
+# prime-snap — snap the active window against a screen edge, the way dragging a
+# window to the side of the screen works on Windows.
+#
+#   prime-snap drop          decide from where the pointer is (what the drag-release
+#                            bind calls); does nothing unless the pointer is in an edge
+#   prime-snap left|right    that half of the screen
+#   prime-snap up            fill the screen
+#   prime-snap --dry ...     print the geometry it would apply, change nothing
+#
+# Hyprland tiles by default, so a tiled window has no geometry of its own to set.
+# Snapping therefore floats the window first — which is also what the user means:
+# "put this one window here" is a floating request.
+#
+# The usable area is the monitor minus its reserved strips, so a snapped window
+# sits under the bar rather than behind it, and minus gaps_out so it lines up with
+# everything else on screen.
+set -uo pipefail
+
+EDGE=24      # how close to an edge counts as a snap, in pixels
+GAP=12       # keep in step with gaps_out in looknfeel.conf
+
+DRY=0
+[ "${1:-}" = "--dry" ] && { DRY=1; shift; }
+WHAT="${1:-drop}"
+
+command -v hyprctl >/dev/null 2>&1 || { echo "prime-snap: needs hyprctl" >&2; exit 1; }
+
+read -r CX CY < <(hyprctl cursorpos 2>/dev/null | tr -d ' ' | tr ',' ' ')
+[ -n "${CX:-}" ] || { echo "prime-snap: no cursor position" >&2; exit 1; }
+
+# Monitor under the pointer, with its reserved strips (bar, dock) taken off.
+geom="$(hyprctl monitors -j 2>/dev/null | CX="$CX" CY="$CY" python3 -c '
+import json, os, sys
+cx, cy = int(os.environ["CX"]), int(os.environ["CY"])
+try:
+    mons = json.load(sys.stdin)
+except Exception:
+    sys.exit(1)
+for m in mons:
+    x, y, w, h = m["x"], m["y"], m["width"], m["height"]
+    if x <= cx < x + w and y <= cy < y + h:
+        rl, rt, rr, rb = (m.get("reserved") or [0, 0, 0, 0])
+        print(x + rl, y + rt, w - rl - rr, h - rt - rb)
+        break
+')"
+[ -n "$geom" ] || { echo "prime-snap: no monitor under the pointer" >&2; exit 1; }
+read -r MX MY MW MH <<<"$geom"
+
+if [ "$WHAT" = "drop" ]; then
+    if   [ "$CX" -le $((MX + EDGE)) ];            then WHAT=left
+    elif [ "$CX" -ge $((MX + MW - EDGE)) ];       then WHAT=right
+    elif [ "$CY" -le $((MY + EDGE)) ];            then WHAT=up
+    else exit 0   # released away from an edge: leave the window where it was put
+    fi
+fi
+
+half=$(( (MW - GAP * 3) / 2 ))
+full_h=$(( MH - GAP * 2 ))
+case "$WHAT" in
+    left)  W=$half;              H=$full_h; X=$((MX + GAP));            Y=$((MY + GAP)) ;;
+    right) W=$half;              H=$full_h; X=$((MX + MW - GAP - half)); Y=$((MY + GAP)) ;;
+    up)    W=$((MW - GAP * 2));  H=$full_h; X=$((MX + GAP));            Y=$((MY + GAP)) ;;
+    *) echo "prime-snap: use left, right, up or drop" >&2; exit 2 ;;
+esac
+
+if [ "$DRY" = 1 ]; then
+    echo "cursor $CX,$CY on monitor ${MX},${MY} ${MW}x${MH} -> $WHAT ${W}x${H} at ${X},${Y}"
+    exit 0
+fi
+
+hyprctl --batch "\
+dispatch setfloating active ; \
+dispatch resizewindowpixel exact $W $H,activewindow ; \
+dispatch movewindowpixel exact $X $Y,activewindow" >/dev/null 2>&1

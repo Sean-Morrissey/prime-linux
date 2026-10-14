@@ -134,7 +134,12 @@ cmd_prime() {
     say "copying this checkout in (as boot.sh would clone it)"
     git -C "$REPO" bundle create "$WORK/prime.bundle" HEAD >/dev/null 2>&1 || die "git bundle failed"
     scp_vm "$WORK/prime.bundle" alex@127.0.0.1:/tmp/prime.bundle
-    ssh_vm 'rm -rf ~/prime-linux && git --version >/dev/null 2>&1 || sudo pacman -S --needed --noconfirm git >/dev/null' || die "no git in VM"
+    # -Syu, not -S: the base disk carries the package database from the day it was
+    # built, so asking for one package off a stale database sends pacman after
+    # versions the mirrors have already replaced — it 404s on an unrelated
+    # dependency and the run dies before Prime is even copied in. Refreshing is
+    # also what a real machine looks like when someone installs Prime on it.
+    ssh_vm 'rm -rf ~/prime-linux; git --version >/dev/null 2>&1 || sudo pacman -Syu --needed --noconfirm git >/dev/null' || die "no git in VM"
     # README "private repo" steps, word for word, except that `gh repo clone
     # Sean-Morrissey/prime-linux` (which needs a GitHub login) is this bundle
     ssh_vm 'git clone -q /tmp/prime.bundle ~/prime-linux'

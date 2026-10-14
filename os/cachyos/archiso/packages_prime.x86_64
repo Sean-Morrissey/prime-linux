@@ -170,3 +170,10 @@ ufw
 upower
 wf-recorder
 wtype
+
+# Settings → Wi-Fi & Network: add a school's OpenVPN file; share the internet (hotspot)
+networkmanager-openvpn
+dnsmasq
+
+# Settings → Camera & Microphone: test the camera
+snapshot

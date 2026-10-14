@@ -25,6 +25,11 @@ install CachyOS first, the normal way.
      a second option on the login screen, in case you ever want it.)
    - **Bootloader**: leave the default (Limine). **File system**: leave the
      default (btrfs) — it's what lets you undo a bad update from the boot menu.
+   - **Encryption** (on the disk step, tick **Encrypt system**): strongly
+     recommended for a laptop. Without your password, a lost or stolen laptop
+     gives nobody your files. You type the password when the computer starts.
+     Choose one you won't forget: without it nobody, not even you, can read the
+     disk. It can only be chosen now, while installing.
    - Create your user and password. Remember the password: Prime asks for it once.
 5. Restart, take the USB stick out, and log in.
 

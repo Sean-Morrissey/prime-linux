@@ -435,6 +435,24 @@ elif [ $DRY = 0 ] && [ -f "$OLD_HYPR" ] && ! grep -q prime-linux "$OLD_HYPR" \
     fi
 fi
 
+# ── a personal add-on that is here but switched off ──────────────────────────
+# The import above runs once (state/import/last.json), so on a REinstall it is
+# skipped — correctly, the add-on already exists. But the add-on being switched
+# on is recorded only in ~/.config/prime/addons, and a reinstall creates that
+# file empty. The result was a desktop that came up as plain Prime with none of
+# someone's shortcuts, bar items or services, while the add-on sat right there
+# in addons.d — nothing was lost, so nothing looked wrong. Switch it back on.
+if [ $DRY = 0 ]; then
+    for a in "$HOME"/.config/prime/addons.d/*/addon.conf; do
+        [ -f "$a" ] || continue
+        n="$(basename "$(dirname "$a")")"
+        grep -qxF "$n" "$HOME/.config/prime/addons" 2>/dev/null && continue
+        info "Your own add-on '$n' is here but switched off — switching it back on"
+        PRIME_NONINTERACTIVE=1 "$LAYER/bin/prime-addon" enable "$n" 2>&1 | sed 's/^/    /' \
+            || warn "Couldn't switch '$n' on. Do it with:  prime-addon enable $n"
+    done
+fi
+
 printf '\n  %s%sPrime Linux is installed.%s\n\n' "$B" "$A" "$R"
 if [ -n "$dm" ]; then info "Log out, pick ${B}Prime${R} on the login screen ($dm: the session menu), and log in."
 else info "Restart the computer, choose ${B}Prime${R} on the login screen, and log in."; fi

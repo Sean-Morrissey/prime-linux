@@ -171,9 +171,19 @@ INTENTS = [
      [B("prime-system-settings")], ""),
 ]
 # "accent blue", "make it purple", "blue theme"
+#
+# One request per colour, not per name. There are 23 names above but only 8
+# colours — "red", "rose" and "pink" are all #f87171 — and a row per name meant
+# Spotlight offered three results that did exactly the same thing. A group is a
+# set of synonyms, which is what this wanted all along: every name still works,
+# and the first one is what Prime says back.
+_ACCENTS: dict = {}
 for word, hexv in ACCENT_WORDS.items():
-    INTENTS.append((f"accent-{word}", f"Accent colour: {word}", [{word}, {"accent", "colour", "color", "theme", "make", "it"}],
-                    set(), [B("prime-theme"), "--set-accent", hexv], f"Accent colour is {word}"))
+    _ACCENTS.setdefault(hexv, []).append(word)
+for hexv, names in _ACCENTS.items():
+    INTENTS.append((f"accent-{names[0]}", f"Accent colour: {names[0]}",
+                    [set(names), {"accent", "colour", "color", "theme", "make", "it"}],
+                    set(), [B("prime-theme"), "--set-accent", hexv], f"Accent colour is {names[0]}"))
 
 # "mouse settings", "keyboard settings"… open that page of Settings
 PAGE_WORDS = {

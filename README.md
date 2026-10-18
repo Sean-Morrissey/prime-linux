@@ -50,6 +50,10 @@ When it asks for your password, type it (nothing shows while you type) and press
    bash ~/prime-linux/install.sh
    ```
 
+   After that, update with **Update everything** (or `prime-update`), not by
+   running `~/prime-linux/install.sh` again: that copy doesn't update itself.
+   (If you do run it again, it sees it's older and uses the installed copy.)
+
 ### B. The repository is public
 
 One line does everything:

@@ -55,6 +55,30 @@ ask_yes() {   # ask_yes "question" → 0 for yes; --yes and dry runs answer yes
 # ── preflight ────────────────────────────────────────────────────────────────
 [ "$(id -u)" -ne 0 ] || { echo "Run this as your normal user, not root (it uses sudo when it needs to)." >&2; exit 1; }
 [ -n "${HOME:-}" ] && [ "$HOME" != / ] && [ -d "$HOME" ] || { echo "HOME is not set." >&2; exit 1; }
+
+# Never take Prime back in time. The clone made for the first install
+# (~/prime-linux) doesn't update itself, so running its install.sh again weeks
+# later used to put that old copy over everything prime-update had brought since,
+# and after the repo's history was restarted prime-update couldn't climb back.
+# A source older than the installed copy hands over to the installed copy's own
+# installer. PRIME_ALLOW_DOWNGRADE=1 installs it anyway (testing an old version).
+if [ "$SRC" != "$PRIME_HOME" ] && [ -f "$PRIME_HOME/install.sh" ] && [ "${PRIME_ALLOW_DOWNGRADE:-0}" != 1 ] \
+   && have_c="$(git -C "$PRIME_HOME" rev-parse -q --verify HEAD 2>/dev/null)" \
+   && src_c="$(git -C "$SRC" rev-parse -q --verify HEAD 2>/dev/null)" && [ "$have_c" != "$src_c" ]; then
+    behind=0
+    if git -C "$PRIME_HOME" merge-base --is-ancestor "$src_c" "$have_c" 2>/dev/null; then behind=1
+    elif ! git -C "$PRIME_HOME" merge-base --is-ancestor "$have_c" "$src_c" 2>/dev/null; then
+        # not one line of history (diverged, or a restarted history): the older date loses
+        [ "$(git -C "$SRC" log -1 --format=%ct "$src_c")" -lt "$(git -C "$PRIME_HOME" log -1 --format=%ct "$have_c")" ] && behind=1
+    fi
+    if [ $behind = 1 ]; then
+        printf '\n  %s!%s %s is an older Prime Linux (%s) than the one installed (%s).\n' "$A" "$R" "${SRC/#$HOME/\~}" \
+            "$(git -C "$SRC" log -1 --format='%cs' "$src_c")" "$(git -C "$PRIME_HOME" log -1 --format='%cs' "$have_c")"
+        printf '    Using the installed one instead: the installer never takes Prime back to an older version.\n'
+        printf '    (Newest version: prime-update. Really install the older one: PRIME_ALLOW_DOWNGRADE=1 bash %s/install.sh)\n' "${SRC/#$HOME/\~}"
+        exec bash "$PRIME_HOME/install.sh" "$@"
+    fi
+fi
 command -v pacman >/dev/null || { echo "Prime Linux needs CachyOS or Arch Linux (pacman not found)." >&2; exit 1; }
 
 # a finished install is redone in full (that's an update/repair); an unfinished one resumes
@@ -433,6 +457,24 @@ elif [ $DRY = 0 ] && [ -f "$OLD_HYPR" ] && ! grep -q prime-linux "$OLD_HYPR" \
             info "Skipped. Any time later:  prime-import --from ${BACKUP/#$HOME/\~}"
         fi
     fi
+fi
+
+# ── a personal add-on that is here but switched off ──────────────────────────
+# The import above runs once (state/import/last.json), so on a REinstall it is
+# skipped — correctly, the add-on already exists. But the add-on being switched
+# on is recorded only in ~/.config/prime/addons, and a reinstall creates that
+# file empty. The result was a desktop that came up as plain Prime with none of
+# someone's shortcuts, bar items or services, while the add-on sat right there
+# in addons.d — nothing was lost, so nothing looked wrong. Switch it back on.
+if [ $DRY = 0 ]; then
+    for a in "$HOME"/.config/prime/addons.d/*/addon.conf; do
+        [ -f "$a" ] || continue
+        n="$(basename "$(dirname "$a")")"
+        grep -qxF "$n" "$HOME/.config/prime/addons" 2>/dev/null && continue
+        info "Your own add-on '$n' is here but switched off — switching it back on"
+        PRIME_NONINTERACTIVE=1 "$LAYER/bin/prime-addon" enable "$n" 2>&1 | sed 's/^/    /' \
+            || warn "Couldn't switch '$n' on. Do it with:  prime-addon enable $n"
+    done
 fi
 
 printf '\n  %s%sPrime Linux is installed.%s\n\n' "$B" "$A" "$R"

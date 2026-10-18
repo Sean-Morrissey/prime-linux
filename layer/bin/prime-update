@@ -8,6 +8,8 @@
 #   prime-update --prime    only Prime Linux itself (no system packages)
 #   prime-update --check    what is waiting — changes nothing
 #   prime-update --undo     how to go back to before the last update
+#   prime-update --set-aside  keep changes made to Prime's own files, then update
+#                             (git stash — `git stash pop` brings them back)
 #
 # The system part runs in Prime's updater (prime-system-update): downloads
 # finish before anything installs, shutdown is blocked while it installs, and
@@ -76,6 +78,41 @@ else
     warn() { printf '    %s!%s %s\n' "$Y" "$R" "$*"; }
     stop() { printf '\n%s%s%s\n' "$B" "$1" "$R"; shift; for l in "$@"; do printf '  %s\n' "$l"; done; echo; exit 1; }
 fi
+# A button in the Prime window: action <label> <command>. In a terminal there is
+# no button, so the caller says what to type instead.
+action() { [ -n "${PRIME_PANEL:-}" ] && printf '@action %s\t%s\n' "$1" "$2"; return 0; }
+
+# Why a fast-forward can't happen, in terms of what was actually done here:
+#   edited    files in Prime's own folder were changed on this computer
+#   own-work  commits were made here that GitHub hasn't been sent
+# The two need different answers: edits can be set aside safely, commits are
+# someone's work and Prime must not touch them.
+blocked_why() {
+    [ -n "$(git -C "$REPO" status --porcelain 2>/dev/null)" ] && { echo edited; return; }
+    local n
+    n="$(git -C "$REPO" rev-list --count '@{upstream}..HEAD' 2>/dev/null || echo 0)"
+    [ "${n:-0}" -gt 0 ] && { echo own-work; return; }
+    echo other
+}
+
+# `prime-update --set-aside` — what the button runs. git stash keeps the changes
+# (git stash pop brings them back), so this is undoable; then update as normal.
+set_aside_and_update() {
+    if [ -z "$(git -C "$REPO" status --porcelain 2>/dev/null)" ]; then
+        printf '  Nothing to put aside — Prime'\''s files are as they came.\n'
+    else
+        printf '\n  These files were changed on this computer:\n'
+        git -C "$REPO" status --porcelain | sed 's/^/    /'
+        if ! git -C "$REPO" stash push --include-untracked \
+                -m "prime-update put these aside $(date +%Y-%m-%d\ %H:%M)" >/dev/null 2>&1; then
+            printf '\n  Prime could not put them aside, so nothing was changed.\n'
+            printf '  Check and fix (Super+H) can look at this.\n'
+            exit 1
+        fi
+        printf '\n  Put aside and kept. To bring them back:  git -C %s stash pop\n' "$REPO"
+    fi
+    exec "$0" --prime
+}
 confirm() {   # confirm <question> <default y|n> — a Prime picker in the window, a prompt in a terminal
     local a
     if [ -n "${PRIME_PANEL:-}" ]; then
@@ -96,9 +133,10 @@ case "${1:-}" in
       confirm "Make this snapshot the permanent system now?" n && { sudo limine-snapper-restore; exit $?; }
     fi
     exit 0 ;;
+  --set-aside) set_aside_and_update ;;
   --prime) ONLY_PRIME=1 ;;
   "") ONLY_PRIME=0 ;;
-  -h|--help) sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+  -h|--help) sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
   *) echo "unknown option: $1 (try: prime-update --help)" >&2; exit 2 ;;
 esac
 [ "$ONLY_PRIME" = 1 ] && TOTAL=2
@@ -121,9 +159,43 @@ if pull_err="$(GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=/bin/false SSH_ASKPASS=/bin/fal
     elif ! verdict="$("$BIN/prime-release-verify" "$REPO" "$target" 2>&1)"; then
         warn "didn't install the new Prime Linux: it isn't signed by Prime's release key. Your computer is unchanged."
         warn "(${verdict}) If this keeps happening, use Get help in Settings → About & Help."
+    elif ! git -C "$REPO" merge-base HEAD "$target" >/dev/null 2>&1 \
+         && [ -z "$(git -C "$REPO" status --porcelain --untracked-files=no 2>/dev/null)" ] \
+         && [ "$(git -C "$REPO" log -1 --format=%ct "$target")" -gt "$(git -C "$REPO" log -1 --format=%ct HEAD)" ]; then
+        # no history in common: the repo's history was restarted on GitHub. A
+        # fast-forward can never get there, so this copy would stay on the old
+        # version for good. Nothing here is edited, and the new one is newer: move.
+        if git -C "$REPO" reset --quiet --keep "$target" 2>/dev/null; then
+            ok "updated (Prime Linux's history was restarted on GitHub; this copy now follows the new one)"
+        else
+            # Not "files were edited": this branch is only reached with a clean
+            # tree. Something else held the reset up, so say so and leave a way on.
+            warn "couldn't move this copy of Prime onto the new history — carrying on"
+            note "Everything else still updates. Check and fix (Super+H) can look at this."
+        fi
     elif ! merge_err="$(git -C "$REPO" merge --ff-only --quiet "$target" 2>&1)"; then
-        warn "couldn't update Prime Linux itself (files in $REPO were edited) — carrying on"
-        printf '%s\n' "$merge_err" >&2
+        # Say which of the two things happened, and offer the way out. Prime's
+        # rule is that anything it can't fix comes with something that does, so
+        # "it didn't work" and a line of git output is not an acceptable answer.
+        case "$(blocked_why)" in
+          edited)
+            warn "Prime's own files were changed on this computer, so the new version wasn't installed."
+            note "Prime can put those changes to one side — nothing is thrown away — and then update."
+            action "Put them aside and update" "$BIN/prime-update --set-aside"
+            [ -n "${PRIME_PANEL:-}" ] || note "To do that now:  prime-update --set-aside"
+            ;;
+          own-work)
+            warn "This computer has changes to Prime that GitHub hasn't been sent, so the new version wasn't installed."
+            note "Send them first, then update again. Putting those aside is not something Prime should do for you."
+            [ -n "${PRIME_PANEL:-}" ] || note "To send them:  git -C $REPO push"
+            ;;
+          *)
+            warn "couldn't install the new Prime Linux this time — carrying on"
+            note "Everything else still updates. Check and fix (Super+H) can look at this."
+            ;;
+        esac
+        # git's own words stay out of the everyday path; a terminal still gets them
+        [ -n "${PRIME_PANEL:-}" ] || printf '    (%s)\n' "$(head -1 <<<"$merge_err")" >&2
     else
         after="$(git -C "$REPO" rev-parse --short HEAD)"
         if [ "$before" = "$after" ]; then ok "already up to date"

@@ -86,8 +86,45 @@ layer/addons/<name>/
   waybar-top.json     bar modules to insert: {"insert": {"modules-right": {"after": "...", "modules": [...]}}, "modules": {...}}
   waybar.css          styles for those modules (only @accent comes from the theme)
   elements.json       right-click menu rows (see layer/addons/ai)
+  do.json             extra plain-words requests for prime-do (below)
   *.desktop           app-list entries; @LAYER@ is replaced with the install path
 ```
+
+### do.json — widening what Prime does without AI
+
+`prime-do` is the no-AI half of Prime: a fixed list of requests matched by their
+words, which Spotlight shows under **Do it** and the Ask box runs before it ever
+reaches a model. An add-on widens that list with a `do.json`:
+
+```json
+{"commands": [
+  {"id":    "vault",
+   "title": "Open the notes vault",
+   "words": [["vault", "obsidian", "notes"], ["open", "show"]],
+   "not":   ["close"],
+   "cmd":   ["obsidian"],
+   "says":  "Opening your vault"}
+]}
+```
+
+`words` is the groups of synonyms that must **all** be present — the same rule as
+the built-ins, so a score of 1.0 still means every word was understood and the
+request becomes the Top Hit. A multi-word synonym (`"do not disturb"`) counts
+when the phrase appears. Omit `says` for anything that opens a window of its
+own: `prime-do` then detaches instead of waiting for it to exit.
+
+Only **enabled** add-ons are read, so switching one off takes its requests with
+it. Ids become `<add-on>:<id>`, and a built-in always wins a tie, so an add-on
+can neither replace nor outrank `wifi-off`. `cmd` must be a list — a plain
+string would invite a shell, and nothing here needs one. Anything malformed is
+skipped rather than raised: Spotlight runs `prime-do` on every keystroke, so one
+bad file must never take the search box down with it.
+
+This is the supported way to add requests. Editing the list inside
+`layer/bin/prime-do` by hand leaves the checkout dirty and makes `prime-update`
+fail its fast-forward merge; a personal `do.json` in
+`~/.config/prime/addons.d/<name>/` is never shipped and never touched by an
+update.
 
 ### Personal add-ons
 

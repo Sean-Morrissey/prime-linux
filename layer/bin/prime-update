@@ -132,6 +132,20 @@ if pull_err="$(GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=/bin/false SSH_ASKPASS=/bin/fal
     elif ! verdict="$("$BIN/prime-release-verify" "$REPO" "$target" 2>&1)"; then
         warn "didn't install the new Prime Linux: it isn't signed by Prime's release key. Your computer is unchanged."
         warn "(${verdict}) If this keeps happening, use Get help in Settings → About & Help."
+    elif ! git -C "$REPO" merge-base HEAD "$target" >/dev/null 2>&1 \
+         && [ -z "$(git -C "$REPO" status --porcelain --untracked-files=no 2>/dev/null)" ] \
+         && [ "$(git -C "$REPO" log -1 --format=%ct "$target")" -gt "$(git -C "$REPO" log -1 --format=%ct HEAD)" ]; then
+        # no history in common: the repo's history was restarted on GitHub. A
+        # fast-forward can never get there, so this copy would stay on the old
+        # version for good. Nothing here is edited, and the new one is newer: move.
+        if git -C "$REPO" reset --quiet --keep "$target" 2>/dev/null; then
+            ok "updated (Prime Linux's history was restarted on GitHub; this copy now follows the new one)"
+        else
+            # Not "files were edited": this branch is only reached with a clean
+            # tree. Something else held the reset up, so say so and leave a way on.
+            warn "couldn't move this copy of Prime onto the new history — carrying on"
+            note "Everything else still updates. Check and fix (Super+H) can look at this."
+        fi
     elif ! merge_err="$(git -C "$REPO" merge --ff-only --quiet "$target" 2>&1)"; then
         # Say which of the two things happened, and offer the way out. Prime's
         # rule is that anything it can't fix comes with something that does, so

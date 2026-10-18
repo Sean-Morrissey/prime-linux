@@ -61,7 +61,10 @@ up() { env -u WAYLAND_DISPLAY -u DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE PRIME_NO
         timeout 120 bash "$INSTALLED/layer/bin/prime-update" --prime > "$T/out" 2>&1 </dev/null; }
 echo edited >> "$INSTALLED/layer/bin/prime-about"
 up
-ck "edited files: left alone"                               "[ \"\$(git -C $INSTALLED log -1 --format=%s)\" = old ] && grep -q 'were edited' $T/out"
+ck "edited files: left alone"                               "[ \"\$(git -C $INSTALLED log -1 --format=%s)\" = old ]"
+# The wording is main's (e7ca95a), which says what happened and offers the way
+# out rather than only reporting it; assert the offer, not just the complaint.
+ck "edited files: says so, and offers the way out"          "grep -q 'were changed on this computer' $T/out && grep -q 'set-aside' $T/out"
 git -C "$INSTALLED" checkout -q -- layer/bin/prime-about
 up
 ck "unedited copy: moves to the new history"                "[ \"\$(git -C $INSTALLED log -1 --format=%s)\" = new ] && [ -f $INSTALLED/NEW ]"

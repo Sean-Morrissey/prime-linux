@@ -30,9 +30,12 @@ BIN="$LAYER/bin"
 # prime-session.target cannot start, so the session comes up with no bar and no
 # dock and nothing on screen explaining why. That is exactly what happened on
 # 2026-10-16, from a clone in a temporary directory that was later cleaned up.
+# Only when there is an installed Prime to protect: with nothing at that path
+# there is no desktop to repoint, and "run the installed one instead" would name
+# a directory that does not exist. install.sh is the way in on a fresh machine.
 # Refuse by default; contributors testing a checkout can opt in.
 INSTALLED="$(readlink -m "$HOME/.local/share/prime-linux")"
-if [ "$REPO" != "$INSTALLED" ] && [ -z "${PRIME_ALLOW_ANY_CHECKOUT:-}" ]; then
+if [ -d "$INSTALLED" ] && [ "$REPO" != "$INSTALLED" ] && [ -z "${PRIME_ALLOW_ANY_CHECKOUT:-}" ]; then
     printf 'prime-update: this is a copy of Prime, not the one your desktop runs.\n' >&2
     printf '  this copy:  %s\n' "$REPO" >&2
     printf '  installed:  %s\n' "$INSTALLED" >&2

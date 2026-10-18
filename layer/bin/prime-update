@@ -19,6 +19,30 @@ set -u
 LAYER="$(readlink -f "$(dirname "$(readlink -f "$0")")/..")"
 REPO="$(readlink -f "$LAYER/..")"
 BIN="$LAYER/bin"
+
+# ── update the installed Prime, never a copy of it ──────────────────────────
+# LAYER is worked out from this script's own location, so the symlink in
+# ~/.local/bin resolves to the installed copy and all is well. Run a *different*
+# copy — a second clone, a git worktree, a scratch directory — and step 4 below
+# ("for u in $LAYER/systemd/*; ln -sfn … ~/.config/systemd/user/") silently
+# repoints the bar, dock, clipboard history and popups at that copy. The desktop
+# then depends on a directory nobody treats as permanent: remove it and
+# prime-session.target cannot start, so the session comes up with no bar and no
+# dock and nothing on screen explaining why. That is exactly what happened on
+# 2026-10-16, from a clone in a temporary directory that was later cleaned up.
+# Refuse by default; contributors testing a checkout can opt in.
+INSTALLED="$(readlink -m "$HOME/.local/share/prime-linux")"
+if [ "$REPO" != "$INSTALLED" ] && [ -z "${PRIME_ALLOW_ANY_CHECKOUT:-}" ]; then
+    printf 'prime-update: this is a copy of Prime, not the one your desktop runs.\n' >&2
+    printf '  this copy:  %s\n' "$REPO" >&2
+    printf '  installed:  %s\n' "$INSTALLED" >&2
+    printf 'Updating from here would point your bar, dock, clipboard and popups at\n' >&2
+    printf 'this copy, and your desktop would stop working if it were ever removed.\n' >&2
+    printf '\nUpdate the installed one instead:\n  %s/layer/bin/prime-update\n' "$INSTALLED" >&2
+    printf '\nTo update this checkout anyway (it will take over your desktop):\n' >&2
+    printf '  PRIME_ALLOW_ANY_CHECKOUT=1 %s\n' "$0" >&2
+    exit 1
+fi
 ENGINE=/usr/local/lib/prime-linux/prime-system-update
 [ -x "$ENGINE" ] || ENGINE="$LAYER/system/updates/prime-system-update"
 STATE=/var/lib/prime-linux/updates

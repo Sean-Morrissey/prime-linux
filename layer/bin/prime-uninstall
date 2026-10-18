@@ -63,8 +63,18 @@ if [ -f "$MANIFEST" ]; then
         case "$kind" in
             created)  # only if it is still Prime's (a file the user rewrote stays)
                 f="$rest"; [ -e "$f" ] || continue
-                case "$f" in */hypr/monitors.conf|*/hypr/keyboard.conf|*/hypr/hardware.conf|*/hypr/addons.conf|*/prime/addons|*/autostart/nm-applet.desktop) run rm -f "$f" ;;
-                             *) grep -q 'prime-linux' "$f" 2>/dev/null && run rm -f "$f" ;; esac ;;
+                case "$f" in
+                    */prime/addons)
+                        # Which add-ons are switched on is the user's, and nothing else
+                        # records it: addons.d/ keeps the add-ons themselves, not the fact
+                        # they were on. The 'is it still Prime's' test below can't protect
+                        # this file (it holds add-on names, never the string prime-linux),
+                        # so check it by hand: an empty stub goes, a list with names stays.
+                        grep -qE '^[[:space:]]*[^#[:space:]]' "$f" 2>/dev/null || run rm -f "$f" ;;
+                    */hypr/monitors.conf|*/hypr/keyboard.conf|*/hypr/hardware.conf|*/hypr/addons.conf|*/autostart/nm-applet.desktop)
+                        run rm -f "$f" ;;
+                    *)  grep -q 'prime-linux' "$f" 2>/dev/null && run rm -f "$f" ;;
+                esac ;;
             replaced)   # the OLDEST backup holding it is the pre-Prime version
                 f="$rest"; rel="${f#$HOME/.config/}"
                 # one backup path per line: a home folder with a space in its name stays one path

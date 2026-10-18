@@ -334,9 +334,28 @@ cmd_info() {
 }
 
 cmd_check() {   # check [name] — exit 1 if anything is broken
-    local names=() n d bad=0 lvl msg p id
+    local names=() n d bad=0 lvl msg p id pa pn
     if [ -n "${1:-}" ]; then need "$1"; names=("$1"); else mapfile -t names < <(grep -v '^#' "$LIST" | grep .); fi
-    [ ${#names[@]} -gt 0 ] || { echo "No packs or add-ons are on. See them with: prime-addon"; return 0; }
+    # One of your own add-ons sitting in addons.d while switched off is nearly always
+    # a reinstall that emptied this list, not a decision: the add-on is still whole, so
+    # nothing looks broken — the shortcuts, bar items and services are just not there.
+    # A check that only looks at what is ON can never see it, so look here, and fail.
+    if [ -z "${1:-}" ]; then
+        for pa in "$PERSONAL_ADDONS"/*/addon.conf; do
+            [ -f "$pa" ] || continue
+            pn="$(basename "$(dirname "$pa")")"
+            enabled "$pn" && continue
+            if [ -n "${PRIME_PANEL:-}" ]; then
+                echo "@bad Your add-on '$pn' is here but switched off — switch it on: prime-addon enable $pn"
+            else
+                printf '\n  %s✗%s Your own add-on %s%s%s is here but switched off\n      Your shortcuts, bar items and services are in it. Switch it on: %sprime-addon enable %s%s\n' \
+                    "$_X" "$_R" "$_B" "$pn" "$_R" "$_B" "$pn" "$_R"
+            fi
+            bad=1
+        done
+    fi
+    [ ${#names[@]} -gt 0 ] || { [ $bad = 1 ] && return 1
+        echo "No packs or add-ons are on. See them with: prime-addon"; return 0; }
     for n in "${names[@]}"; do
         d="$(addon_dir "$n")" || continue
         load "$d"; plan

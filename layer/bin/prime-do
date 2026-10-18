@@ -171,9 +171,19 @@ INTENTS = [
      [B("prime-system-settings")], ""),
 ]
 # "accent blue", "make it purple", "blue theme"
+#
+# One request per colour, not per name. There are 23 names above but only 8
+# colours — "red", "rose" and "pink" are all #f87171 — and a row per name meant
+# Spotlight offered three results that did exactly the same thing. A group is a
+# set of synonyms, which is what this wanted all along: every name still works,
+# and the first one is what Prime says back.
+_ACCENTS: dict = {}
 for word, hexv in ACCENT_WORDS.items():
-    INTENTS.append((f"accent-{word}", f"Accent colour: {word}", [{word}, {"accent", "colour", "color", "theme", "make", "it"}],
-                    set(), [B("prime-theme"), "--set-accent", hexv], f"Accent colour is {word}"))
+    _ACCENTS.setdefault(hexv, []).append(word)
+for hexv, names in _ACCENTS.items():
+    INTENTS.append((f"accent-{names[0]}", f"Accent colour: {names[0]}",
+                    [set(names), {"accent", "colour", "color", "theme", "make", "it"}],
+                    set(), [B("prime-theme"), "--set-accent", hexv], f"Accent colour is {names[0]}"))
 
 # "mouse settings", "keyboard settings"… open that page of Settings
 PAGE_WORDS = {
@@ -200,6 +210,98 @@ PAGE_TITLES = {"network": "Wi-Fi & Network", "bluetooth": "Bluetooth", "sound": 
 for pid, words in PAGE_WORDS.items():
     INTENTS.append((f"page-{pid}", f"Settings → {PAGE_TITLES[pid]}", [words],
                     set(), [B("prime-system-settings"), "--page", pid], ""))
+
+
+# ── extra requests, from add-ons ─────────────────────────────────────────────
+# An add-on widens what Prime does *without* AI by shipping a do.json. This is
+# the supported way to add requests: the list above lives in Prime's own git
+# checkout, so editing it by hand makes prime-update fail its fast-forward
+# merge. Personal requests — your vault, your printer, your own scripts — go in
+# ~/.config/prime/addons.d/<add-on>/do.json, which updates never touch.
+#
+#   {"commands": [
+#     {"id":    "vault",
+#      "title": "Open the church history vault",
+#      "words": [["obsidian", "vault", "notes"], ["open", "show"]],
+#      "not":   ["close"],
+#      "cmd":   ["obsidian", "--no-sandbox"],
+#      "says":  "Opening your vault"}
+#   ]}
+#
+# "words" is the groups of synonyms that must ALL be present — the same rule as
+# the built-ins, so a score of 1.0 still means every word was understood, and
+# Spotlight still makes it the Top Hit. A multi-word synonym ("do not disturb")
+# counts when the phrase appears. Leave "says" out for anything that opens a
+# window of its own: prime-do then detaches instead of waiting for it to exit.
+#
+# Only *enabled* add-ons are read, so switching one off takes its requests with
+# it. Ids are namespaced <add-on>:<id>, so an add-on can never quietly shadow a
+# built-in like wifi-off. "cmd" must be a list — a plain string would invite a
+# shell, and nothing here needs one.
+#
+# Anything malformed is skipped, never raised: Spotlight runs prime-do on every
+# keystroke, so one bad file must not take the search box down with it.
+def _addon_row(addon: str, e) -> tuple:
+    """One do.json entry as an INTENTS row, or () when it isn't usable."""
+    if not isinstance(e, dict):
+        return ()
+    iid, title, cmd = e.get("id"), e.get("title"), e.get("cmd")
+    words, nope, says = e.get("words"), e.get("not", []), e.get("says", "")
+    if not (isinstance(iid, str) and iid.strip() and isinstance(title, str) and title.strip()):
+        return ()
+    if not (isinstance(cmd, list) and cmd and all(isinstance(a, str) for a in cmd)):
+        return ()
+    if not (isinstance(words, list) and words):
+        return ()
+    groups = []
+    for g in words:
+        g = [g] if isinstance(g, str) else g
+        if not (isinstance(g, list) and g and all(isinstance(w, str) and w.strip() for w in g)):
+            return ()
+        groups.append({w.lower().strip() for w in g})
+    nope = [nope] if isinstance(nope, str) else nope
+    if not (isinstance(nope, list) and all(isinstance(w, str) for w in nope)):
+        return ()
+    if not isinstance(says, str):
+        return ()
+    return (f"{addon}:{iid.strip()}", title.strip(), groups,
+            {w.lower().strip() for w in nope if w.strip()}, cmd, says)
+
+
+def _addon_intents() -> list:
+    import json
+    cfg = os.path.join(HOME, ".config", "prime")
+    try:
+        with open(os.path.join(cfg, "addons"), encoding="utf-8") as fh:
+            enabled = [ln.strip() for ln in fh
+                       if ln.strip() and not ln.lstrip().startswith("#")]
+    except OSError:
+        return []
+    rows = []
+    for name in enabled:
+        # "remind:" is how a reminder carries its words; an add-on must not own it
+        if name == "remind" or "/" in name or name.startswith("."):
+            continue
+        for root in (os.path.join(cfg, "addons.d"), os.path.join(LAYER, "addons")):
+            path = os.path.join(root, name, "do.json")
+            if not os.path.isfile(path):
+                continue
+            try:
+                with open(path, encoding="utf-8") as fh:
+                    entries = json.load(fh).get("commands", [])
+            except Exception:       # unreadable, not JSON, not an object: adds nothing
+                entries = []
+            if isinstance(entries, list):
+                rows += [r for r in (_addon_row(name, e) for e in entries) if r]
+            break
+    return rows
+
+
+_known = {i[0] for i in INTENTS}
+for _row in _addon_intents():
+    if _row[0] not in _known:
+        _known.add(_row[0])
+        INTENTS.append(_row)
 
 BY_ID = {i[0]: i for i in INTENTS}
 
@@ -277,9 +379,14 @@ def match(query: str, limit: int = 5) -> list:
         covered = sum(1 for w in meaningful if w in used)
         score = round(covered / len(meaningful), 2)
         if score >= 0.5:
-            out.append((score, -len(groups), iid, title))
-    out.sort(key=lambda r: (-r[0], r[1]))
-    return [(s, iid, title) for s, _g, iid, title in out[:limit]]
+            # A built-in always beats an add-on's request on a tie. An add-on id
+            # is namespaced "<add-on>:<id>", so it cannot replace wifi-off, but
+            # without this it could still *tie* at 1.0 and win on list order —
+            # and the Ask box runs the top row at 1.0 without asking anyone.
+            # (Reminders return above and never reach this sort.)
+            out.append((score, -len(groups), ":" in iid, iid, title))
+    out.sort(key=lambda r: (-r[0], r[1], r[2]))
+    return [(s, iid, title) for s, _g, _addon, iid, title in out[:limit]]
 
 
 def available(iid: str) -> bool:

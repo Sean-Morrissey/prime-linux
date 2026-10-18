@@ -1,6 +1,10 @@
 [Unit]
 Description=Volume and brightness popups (swayosd)
 PartOf=prime-session.target
+# swayosd-server needs the compositor too; without this, systemd's default limit
+# (5 starts / 10s) at RestartSec=2 means a slow boot leaves the volume and
+# brightness keys doing nothing visible until the next login.
+StartLimitIntervalSec=0
 
 [Service]
 ExecStart=/usr/bin/swayosd-server

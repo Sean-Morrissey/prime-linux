@@ -1,6 +1,11 @@
 [Unit]
 Description=Keep copied text after the app it came from closes
 PartOf=prime-session.target
+# wl-clip-persist exits 1 ("both $XDG_RUNTIME_DIR and $WAYLAND_DISPLAY must be
+# set") when the compositor isn't ready. With systemd's default limit (5 starts /
+# 10s) the retries at RestartSec=2 run out in ten seconds and the unit gives up
+# for the whole session. Keep retrying until the socket is there.
+StartLimitIntervalSec=0
 
 [Service]
 ExecStart=/usr/bin/wl-clip-persist --clipboard regular

@@ -2,6 +2,11 @@
 Description=Prime Linux bar (%i)
 PartOf=prime-session.target
 After=graphical-session.target
+# The bar exits 1 if the Wayland display isn't there yet, and again with "Error
+# reading events from display: Broken pipe" if the compositor restarts under it.
+# systemd's default limit (5 starts / 10s) turns either into a permanent give-up
+# at RestartSec=2 — a session with no bar at all, and no hint why. Keep retrying.
+StartLimitIntervalSec=0
 
 [Service]
 # a KDE daemon can grab the tray before the bar does (empty tray) — move it aside

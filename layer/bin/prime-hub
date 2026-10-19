@@ -1,0 +1,192 @@
+#!/usr/bin/env python3
+# prime:summary=Prime Hub — the app store / control center window
+"""prime-hub — the Prime Hub window (GTK4 / libadwaita).
+
+A thin front end over prime-install: browse the catalog, click Install, and the
+verified engine does the work. No install logic lives here.
+"""
+import json, os, subprocess, threading, gi
+gi.require_version("Gtk", "4.0")
+gi.require_version("Adw", "1")
+from gi.repository import Gtk, Adw, GLib, Gio, Pango
+
+HOME = os.path.expanduser("~")
+LAYER = os.path.realpath(os.path.join(os.path.dirname(os.path.realpath(__file__)), ".."))
+ENGINE = os.environ.get("PRIME_INSTALL") or os.path.join(LAYER, "bin/prime-install")
+CATALOG = os.environ.get("PRIME_CATALOG") or os.path.join(LAYER, "default/catalog/apps.json")
+STATE = os.path.join(os.environ.get("XDG_STATE_HOME", os.path.join(HOME, ".local/state")),
+                     "prime", "apps.json")
+
+SECTIONS = ["Apps", "AI / Models", "Extensions", "Widgets", "Settings", "Commands"]
+CATEGORY_ORDER = ["Browsers", "Communication", "Media & Creative", "Development",
+                  "Gaming", "Office", "AI", "Utilities", "System"]
+
+
+def load_catalog():
+    try:
+        return json.load(open(CATALOG)).get("apps", [])
+    except (OSError, ValueError):
+        return []
+
+
+def installed_ids():
+    try:
+        return set(json.load(open(STATE)).get("installed", {}).keys())
+    except (OSError, ValueError):
+        return set()
+
+
+class AppRow(Adw.ActionRow):
+    def __init__(self, app, window):
+        super().__init__()
+        self.app = app
+        self.window = window
+        self.set_title(GLib.markup_escape_text(app["name"]))
+        self.set_subtitle(GLib.markup_escape_text(app.get("summary", "")))
+        icon = Gtk.Image.new_from_icon_name(app.get("icon", "application-x-executable"))
+        icon.set_pixel_size(32)
+        icon.add_css_class("icon-dropshadow")
+        self.add_prefix(icon)
+
+        self.spinner = Gtk.Spinner()
+        self.btn = Gtk.Button()
+        self.btn.set_valign(Gtk.Align.CENTER)
+        self.btn.connect("clicked", self.on_click)
+        self.add_suffix(self.spinner)
+        self.add_suffix(self.btn)
+        self.refresh()
+
+    def refresh(self):
+        self.installed = self.app["id"] in installed_ids()
+        if self.installed:
+            self.btn.set_label("Remove")
+            self.btn.set_css_classes(["flat"])
+        else:
+            self.btn.set_label("Install")
+            self.btn.set_css_classes(["suggested-action", "pill"])
+        self.btn.set_sensitive(True)
+        self.spinner.stop()
+
+    def on_click(self, _):
+        verb = "remove" if self.installed else "install"
+        self.btn.set_sensitive(False)
+        self.spinner.start()
+        self.window.set_status(f"{verb.capitalize()}ing {self.app['name']}…")
+        threading.Thread(target=self._run, args=(verb,), daemon=True).start()
+
+    def _run(self, verb):
+        cmd = [ENGINE, "--yes"]
+        if verb == "install":
+            cmd.append("--advanced")   # GUI 'advanced' toggle would gate this; wired later
+        cmd += [verb, self.app["id"]]
+        env = dict(os.environ, PRIME_CATALOG=CATALOG)
+        r = subprocess.run(cmd, capture_output=True, text=True, env=env)
+        msg = (r.stdout + r.stderr).strip().splitlines()
+        tail = msg[-1] if msg else ("done" if r.returncode == 0 else "failed")
+        GLib.idle_add(self._done, verb, r.returncode, tail)
+
+    def _done(self, verb, code, tail):
+        self.refresh()
+        name = self.app["name"]
+        self.window.set_status(
+            f"{name}: {'installed' if (verb=='install' and code==0) else 'removed' if code==0 else 'failed'}"
+            + (f" — {tail}" if code != 0 else ""))
+        return False
+
+
+class HubWindow(Adw.ApplicationWindow):
+    def __init__(self, app):
+        super().__init__(application=app, title="Prime Hub")
+        self.set_default_size(1000, 720)
+        self.apps = load_catalog()
+        self.rows = []
+
+        split = Adw.NavigationSplitView()
+        self.set_content(split)
+
+        # ---- sidebar ----
+        sb_list = Gtk.ListBox(css_classes=["navigation-sidebar"])
+        sb_list.set_selection_mode(Gtk.SelectionMode.SINGLE)
+        for name in SECTIONS:
+            row = Gtk.ListBoxRow()
+            lbl = Gtk.Label(label=name, xalign=0, margin_top=10, margin_bottom=10,
+                            margin_start=8, margin_end=8)
+            row.set_child(lbl)
+            sb_list.append(row)
+        sb_list.connect("row-selected", self.on_section)
+        sb_head = Adw.HeaderBar()
+        sb_head.set_title_widget(Adw.WindowTitle(title="Prime Hub", subtitle="Everything, one click"))
+        sb_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        sb_box.append(sb_head); sb_box.append(sb_list)
+        split.set_sidebar(Adw.NavigationPage(child=sb_box, title="Prime Hub"))
+
+        # ---- content ----
+        self.search = Gtk.SearchEntry(placeholder_text="Search apps…", hexpand=True)
+        self.search.connect("search-changed", lambda *_: self.rebuild_apps())
+        c_head = Adw.HeaderBar()
+        c_head.set_title_widget(self.search)
+
+        self.content_stack = Gtk.ScrolledWindow(vexpand=True)
+        self.status = Gtk.Label(label="Ready", xalign=0, ellipsize=Pango.EllipsizeMode.END,
+                                margin_top=6, margin_bottom=6, margin_start=12, css_classes=["dim-label"])
+        c_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        c_box.append(c_head); c_box.append(self.content_stack); c_box.append(self.status)
+        split.set_content(Adw.NavigationPage(child=c_box, title="Apps"))
+
+        sb_list.select_row(sb_list.get_row_at_index(0))
+
+    def set_status(self, text):
+        self.status.set_text(text)
+
+    def on_section(self, _list, row):
+        if row is None:
+            return
+        name = SECTIONS[row.get_index()]
+        if name == "Apps":
+            self.rebuild_apps()
+        else:
+            self.show_placeholder(name)
+
+    def show_placeholder(self, name):
+        status = Adw.StatusPage(title=name, icon_name="emblem-system-symbolic",
+                                description="Coming in a later phase — the engine's ready, this view isn't wired yet.")
+        self.content_stack.set_child(status)
+
+    def rebuild_apps(self):
+        query = self.search.get_text().strip().lower()
+        page = Adw.PreferencesPage()
+        self.rows = []
+        inst = installed_ids()
+        by_cat = {}
+        for a in self.apps:
+            if query and not (query in a["name"].lower() or query in a.get("summary", "").lower()
+                              or query in a.get("category", "").lower()):
+                continue
+            by_cat.setdefault(a.get("category", "Other"), []).append(a)
+        cats = sorted(by_cat, key=lambda c: (CATEGORY_ORDER.index(c) if c in CATEGORY_ORDER else 99, c))
+        for cat in cats:
+            grp = Adw.PreferencesGroup(title=GLib.markup_escape_text(cat))
+            for a in sorted(by_cat[cat], key=lambda x: x["name"].lower()):
+                r = AppRow(a, self)
+                self.rows.append(r)
+                grp.add(r)
+            page.add(grp)
+        if not cats:
+            self.content_stack.set_child(
+                Adw.StatusPage(title="No matches", icon_name="system-search-symbolic"))
+        else:
+            self.content_stack.set_child(page)
+
+
+class HubApp(Adw.Application):
+    def __init__(self):
+        super().__init__(application_id="dev.prime.Hub", flags=Gio.ApplicationFlags.DEFAULT_FLAGS)
+
+    def do_activate(self):
+        win = self.props.active_window or HubWindow(self)
+        win.present()
+
+
+if __name__ == "__main__":
+    Adw.init()
+    HubApp().run(None)

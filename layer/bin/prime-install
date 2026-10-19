@@ -1,0 +1,398 @@
+#!/usr/bin/env python3
+# prime:summary=find, verify, install and track apps the Prime way (the store engine)
+"""prime-install — the Prime Hub install engine.
+
+  prime-install search <text>        catalog matches (add --json for the GUI)
+  prime-install info <id>            one app's details
+  prime-install list                 everything installed through Prime
+  prime-install install <id>...      verify -> snapshot -> install -> record
+  prime-install remove <id>...       uninstall and forget
+  prime-install update [<id>...]     update recorded apps (default: all)
+  prime-install status <id>          installed? which backend/version?
+
+Flags:
+  --dry-run     say what would happen, change nothing
+  --yes         don't prompt (automation)
+  --json        machine-readable output (search/info/list/status) — for prime-hub
+  --advanced    allow installing an AUR ref that is NOT in the vetted catalog
+                (shows the PKGBUILD and a warning first)
+
+Every install runs the same loop and writes a record to
+~/.local/state/prime/apps.json so updates stay safe and reversible. The catalog
+(layer/default/catalog/apps.json) is data — it grows without changing this file.
+"""
+import argparse, json, os, re, shutil, subprocess, sys, time
+
+HOME = os.path.expanduser("~")
+LAYER = os.path.realpath(os.path.join(os.path.dirname(os.path.realpath(__file__)), ".."))
+CATALOG = os.environ.get("PRIME_CATALOG") or os.path.join(LAYER, "default/catalog/apps.json")
+STATE_DIR = os.path.join(os.environ.get("XDG_STATE_HOME", os.path.join(HOME, ".local/state")), "prime")
+STATE = os.path.join(STATE_DIR, "apps.json")
+SNAPPER_CONFIG = os.environ.get("PRIME_SNAPPER_CONFIG", "root")
+
+A = "\033[38;2;248;113;113m"; B = "\033[1m"; D = "\033[2m"; G = "\033[32m"; Y = "\033[33m"; R = "\033[0m"
+if not sys.stdout.isatty():
+    A = B = D = G = Y = R = ""
+
+
+def say(*a):   print("   ", *a)
+def ok(s):     print(f"    {G}✓{R} {s}")
+def warn(s):   print(f"    {Y}!{R} {s}")
+def die(s, code=1):
+    print(f"\n  {A}✗ {s}{R}", file=sys.stderr); sys.exit(code)
+
+
+def have(cmd):
+    return shutil.which(cmd) is not None
+
+
+def run(cmd, dry, check=True, capture=False):
+    """Run a command. In dry-run, print and skip."""
+    if dry:
+        print(f"    {D}[dry-run]{R} {' '.join(cmd)}")
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+    r = subprocess.run(cmd, text=True,
+                       stdout=subprocess.PIPE if capture else None,
+                       stderr=subprocess.PIPE if capture else None)
+    if check and r.returncode != 0:
+        msg = (r.stderr or r.stdout or "").strip() if capture else f"exit {r.returncode}"
+        raise RuntimeError(f"{' '.join(cmd[:3])}… failed: {msg}")
+    return r
+
+
+# ---------------------------------------------------------------- catalog + state
+def load_catalog():
+    try:
+        data = json.load(open(CATALOG))
+    except (OSError, ValueError) as e:
+        die(f"catalog unreadable ({CATALOG}): {e}")
+    apps = {a["id"]: a for a in data.get("apps", [])}
+    return apps
+
+
+def load_state():
+    try:
+        return json.load(open(STATE))
+    except (OSError, ValueError):
+        return {"installed": {}}
+
+
+def save_state(state):
+    os.makedirs(STATE_DIR, exist_ok=True)
+    tmp = STATE + ".tmp"
+    json.dump(state, open(tmp, "w"), indent=1)
+    os.replace(tmp, STATE)
+
+
+# ------------------------------------------------------------------- backends
+def backend_installed(b):
+    """Is this specific backend ref already present on the system?"""
+    t, ref = b["type"], b.get("ref", "")
+    try:
+        if t == "flatpak":
+            return have("flatpak") and subprocess.run(["flatpak", "info", ref],
+                   capture_output=True).returncode == 0
+        if t in ("aur", "repo"):
+            return subprocess.run(["pacman", "-Q", ref], capture_output=True).returncode == 0
+        if t == "webapp":
+            return os.path.exists(os.path.join(
+                HOME, ".local/share/applications", f"prime-webapp-{b.get('slug', ref)}.desktop"))
+    except OSError:
+        return False
+    return False
+
+
+def backend_available(b):
+    """Can we even use this backend on this machine right now?"""
+    t = b["type"]
+    if t == "flatpak": return have("flatpak")
+    if t in ("aur",):  return have("paru") or have("yay")
+    if t == "repo":    return have("pacman")
+    if t == "webapp":  return have("prime-webapp") or os.path.exists(os.path.join(LAYER, "bin/prime-webapp"))
+    return False
+
+
+def verify(b, advanced):
+    """Return (ok: bool, method: str, note: str). Never installs."""
+    t = b["type"]
+    if t == "repo":
+        return True, "arch-keyring", "signed by the Arch package keyring"
+    if t == "flatpak":
+        if b.get("verified"):
+            return True, "flathub-verified", "verified publisher on Flathub"
+        return True, "flathub", "Flathub (OSTree GPG-signed)"
+    if t == "aur":
+        if b.get("vetted"):
+            return True, "catalog-vetted", "in Prime's vetted catalog"
+        if advanced:
+            return True, "advanced-unverified", "AUR, UNVERIFIED — you enabled advanced mode"
+        return False, "aur-unvetted", "not in the vetted catalog; re-run with --advanced to allow"
+    if t == "webapp":
+        return True, "webapp", "web app (no system packages)"
+    return False, "unknown", f"unknown backend {t}"
+
+
+def pick_backend(app, advanced):
+    """First backend that is available AND verifies, in catalog order."""
+    reasons = []
+    for b in app.get("backends", []):
+        if not backend_available(b):
+            reasons.append(f"{b['type']}: not available on this machine"); continue
+        good, method, note = verify(b, advanced)
+        if good:
+            return b, method, note
+        reasons.append(f"{b['type']}: {note}")
+    return None, None, "; ".join(reasons)
+
+
+def show_pkgbuild(ref):
+    for helper in ("paru", "yay"):
+        if have(helper):
+            print(f"\n    {D}--- PKGBUILD ({ref}) ---{R}")
+            subprocess.run([helper, "-Gp", ref])
+            print(f"    {D}--- end PKGBUILD ---{R}\n")
+            return
+
+
+def do_install_backend(b, app, dry):
+    t, ref = b["type"], b.get("ref", "")
+    if t == "flatpak":
+        run(["flatpak", "install", "-y", "--noninteractive", b.get("remote", "flathub"), ref], dry)
+    elif t == "aur":
+        helper = "paru" if have("paru") else "yay"
+        run([helper, "-S", "--needed", "--noconfirm", ref], dry)
+    elif t == "repo":
+        run(["sudo", "pacman", "-S", "--needed", "--noconfirm", ref], dry)
+    elif t == "webapp":
+        wa = shutil.which("prime-webapp") or os.path.join(LAYER, "bin/prime-webapp")
+        run([wa, app["id"], b["url"]], dry)
+    else:
+        die(f"no installer for backend {t}")
+
+
+def installed_version(b):
+    t, ref = b["type"], b.get("ref", "")
+    try:
+        if t in ("aur", "repo"):
+            r = subprocess.run(["pacman", "-Q", ref], capture_output=True, text=True)
+            if r.returncode == 0: return r.stdout.split()[1]
+        if t == "flatpak":
+            r = subprocess.run(["flatpak", "info", ref], capture_output=True, text=True)
+            m = re.search(r"Version:\s*(\S+)", r.stdout)
+            if m: return m.group(1)
+    except (OSError, IndexError):
+        pass
+    return "unknown"
+
+
+# ------------------------------------------------------------------- snapshot
+def snapshot(app_id, dry):
+    """snapper pre-snapshot; returns number or None. Non-fatal if snapper absent."""
+    if not have("snapper"):
+        warn("snapper not present — installing without a system snapshot")
+        return None
+    if dry:
+        print(f"    {D}[dry-run]{R} sudo snapper -c {SNAPPER_CONFIG} create -p -d 'prime-install {app_id}'")
+        return None
+    try:
+        r = subprocess.run(["sudo", "snapper", "-c", SNAPPER_CONFIG, "create", "-p",
+                            "-d", f"prime-install {app_id}"], capture_output=True, text=True)
+        if r.returncode == 0 and r.stdout.strip().isdigit():
+            n = int(r.stdout.strip()); ok(f"snapshot #{n} taken (rollback point)"); return n
+    except OSError:
+        pass
+    warn("couldn't take a snapshot — continuing")
+    return None
+
+
+# ------------------------------------------------------------------- commands
+def cmd_search(args, apps):
+    q = " ".join(args.terms).lower()
+    hits = [a for a in apps.values()
+            if q in a["id"].lower() or q in a["name"].lower()
+            or q in a.get("summary", "").lower() or q in a.get("category", "").lower()]
+    hits.sort(key=lambda a: a["name"].lower())
+    if args.json:
+        state = load_state()["installed"]
+        print(json.dumps([{**a, "installed": a["id"] in state} for a in hits], indent=1))
+        return 0
+    if not hits:
+        say("no matches."); return 0
+    state = load_state()["installed"]
+    for a in hits:
+        mark = f"{G}✓{R}" if a["id"] in state else " "
+        print(f"  {mark} {B}{a['name']:<22}{R} {D}{a.get('category',''):<16}{R} {a.get('summary','')}")
+    return 0
+
+
+def cmd_info(args, apps):
+    a = apps.get(args.id) or die(f"no app '{args.id}' in the catalog", 2)
+    if args.json:
+        print(json.dumps(a, indent=1)); return 0
+    print(f"\n  {B}{a['name']}{R} — {a.get('summary','')}")
+    say(f"id:       {a['id']}")
+    say(f"category: {a.get('category','')}")
+    for b in a.get("backends", []):
+        good, method, note = verify(b, args.advanced if hasattr(args, 'advanced') else False)
+        avail = "available" if backend_available(b) else "n/a here"
+        print(f"      - {b['type']:<8} {b.get('ref', b.get('url',''))}  [{avail}; {note}]")
+    return 0
+
+
+def cmd_install(args, apps):
+    advanced = args.advanced
+    for app_id in args.ids:
+        app = apps.get(app_id)
+        if not app:
+            warn(f"'{app_id}' is not in the catalog — skipping"); continue
+        print(f"\n{A}[install]{R} {B}{app['name']}{R}")
+        state = load_state()
+        if app_id in state["installed"]:
+            ok("already installed through Prime — nothing to do"); continue
+
+        b, method, note = pick_backend(app, advanced)
+        if not b:
+            warn(f"can't install safely: {note}"); continue
+        say(f"source:  {b['type']} {b.get('ref', b.get('url',''))}")
+        say(f"verify:  {note}")
+        if method == "advanced-unverified":
+            show_pkgbuild(b["ref"])
+            warn("this is UNVERIFIED community code. Read the PKGBUILD above.")
+            if not args.yes and not args.dry_run:
+                if input("    install anyway? [y/N] ").strip().lower() not in ("y", "yes"):
+                    say("skipped."); continue
+
+        if backend_installed(b):
+            ok("the package is already on the system — recording it")
+        else:
+            snap = snapshot(app_id, args.dry_run)
+            try:
+                do_install_backend(b, app, args.dry_run)
+            except RuntimeError as e:
+                warn(str(e))
+                if snap: warn(f"roll back with: sudo snapper -c {SNAPPER_CONFIG} undochange {snap}..0")
+                continue
+            # light CVE check for native packages
+            if b["type"] in ("aur", "repo") and have("arch-audit") and not args.dry_run:
+                au = subprocess.run(["arch-audit", "-q", "-u"], capture_output=True, text=True)
+                if b["ref"] in au.stdout:
+                    warn(f"arch-audit lists {b['ref']} with a known advisory — update soon")
+            ok("installed")
+
+        if args.dry_run:
+            print(f"    {D}[dry-run]{R} would record {app_id} in {STATE}"); continue
+        state = load_state()
+        state["installed"][app_id] = {
+            "id": app_id, "name": app["name"], "backend": b["type"],
+            "ref": b.get("ref", b.get("url", "")),
+            "version": installed_version(b),
+            "installed_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+            "snapshot_pre": snapshot_num if (snapshot_num := locals().get("snap")) else None,
+            "verify": {"method": method},
+        }
+        save_state(state)
+        ok(f"recorded (remove with: prime-install remove {app_id})")
+    return 0
+
+
+def cmd_remove(args, apps):
+    for app_id in args.ids:
+        state = load_state()
+        rec = state["installed"].get(app_id)
+        if not rec:
+            warn(f"'{app_id}' isn't recorded as Prime-installed — skipping"); continue
+        print(f"\n{A}[remove]{R} {B}{rec['name']}{R}")
+        t, ref = rec["backend"], rec["ref"]
+        try:
+            if t == "flatpak":
+                run(["flatpak", "uninstall", "-y", "--noninteractive", ref], args.dry_run)
+            elif t in ("aur", "repo"):
+                run(["sudo", "pacman", "-Rns", "--noconfirm", ref], args.dry_run)
+            elif t == "webapp":
+                wa = shutil.which("prime-webapp") or os.path.join(LAYER, "bin/prime-webapp")
+                run([wa, "--remove", app_id], args.dry_run, check=False)
+        except RuntimeError as e:
+            warn(str(e)); continue
+        if not args.dry_run:
+            state = load_state(); state["installed"].pop(app_id, None); save_state(state)
+        ok("removed")
+    return 0
+
+
+def cmd_list(args, apps):
+    state = load_state()["installed"]
+    if args.json:
+        print(json.dumps(list(state.values()), indent=1)); return 0
+    if not state:
+        say("nothing installed through Prime yet."); return 0
+    for rec in sorted(state.values(), key=lambda r: r["name"].lower()):
+        print(f"  {B}{rec['name']:<22}{R} {D}{rec['backend']:<8}{R} {rec.get('version','')}")
+    return 0
+
+
+def cmd_status(args, apps):
+    state = load_state()["installed"]
+    rec = state.get(args.id)
+    out = {"id": args.id, "installed": bool(rec), **(rec or {})}
+    if args.json:
+        print(json.dumps(out, indent=1))
+    else:
+        say(f"{args.id}: {'installed' if rec else 'not installed'}"
+            + (f" ({rec['backend']} {rec.get('version','')})" if rec else ""))
+    return 0
+
+
+def cmd_update(args, apps):
+    state = load_state()
+    ids = args.ids or list(state["installed"].keys())
+    if not ids:
+        say("nothing to update."); return 0
+    for app_id in ids:
+        rec = state["installed"].get(app_id)
+        if not rec:
+            warn(f"'{app_id}' not recorded — skipping"); continue
+        app = apps.get(app_id, {"name": rec["name"], "backends": [{"type": rec["backend"], "ref": rec["ref"]}]})
+        print(f"\n{A}[update]{R} {B}{rec['name']}{R}")
+        snapshot(app_id, args.dry_run)
+        b = next((x for x in app["backends"] if x["type"] == rec["backend"]), app["backends"][0])
+        try:
+            do_install_backend(b, app, args.dry_run)   # --needed/install also upgrades
+        except RuntimeError as e:
+            warn(str(e)); continue
+        if not args.dry_run:
+            state = load_state(); state["installed"][app_id]["version"] = installed_version(b)
+            save_state(state)
+        ok("up to date")
+    return 0
+
+
+def main():
+    p = argparse.ArgumentParser(add_help=False)
+    p.add_argument("--dry-run", action="store_true")
+    p.add_argument("--yes", "-y", action="store_true")
+    p.add_argument("--json", action="store_true")
+    p.add_argument("--advanced", action="store_true")
+    sub = p.add_subparsers(dest="cmd")
+    sp = sub.add_parser("search"); sp.add_argument("terms", nargs="+")
+    for name in ("info", "status"):
+        s = sub.add_parser(name); s.add_argument("id")
+    for name in ("install", "remove", "update"):
+        s = sub.add_parser(name); s.add_argument("ids", nargs="*")
+    sub.add_parser("list")
+    if len(sys.argv) == 1:
+        print(__doc__); return 2
+    args = p.parse_args()
+    apps = load_catalog()
+    fn = {"search": cmd_search, "info": cmd_info, "install": cmd_install,
+          "remove": cmd_remove, "list": cmd_list, "status": cmd_status,
+          "update": cmd_update}.get(args.cmd)
+    if not fn:
+        print(__doc__); return 2
+    try:
+        return fn(args, apps)
+    except KeyboardInterrupt:
+        return 130
+
+
+if __name__ == "__main__":
+    sys.exit(main())

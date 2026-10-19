@@ -2,6 +2,20 @@
 
 Status: draft 1 · 2026-10-19 · owner: Sean
 
+### Decisions (2026-10-19)
+1. **Safety: vetted by default, unlock to go further.** The store shows only
+   vetted catalog apps. An *Advanced* toggle reveals "install anything from AUR
+   (unverified)" with a ⚠ warning and the PKGBUILD shown first. Safe default, no
+   ceiling.
+2. **Backend: Prime decides per-app.** The catalog's ordered `backends` list
+   picks native-vs-Flatpak per app (native where deep system/GPU access helps,
+   sandboxed otherwise). User doesn't choose.
+3. **Updates: auto, nightly, snapshot first.** App/model updates ride the existing
+   nightly `prime-update` — snapshot → update Prime + all recorded apps/models →
+   record new versions. Always rollback-able.
+4. **Build order: a working app store on the laptop first** — `prime-install`
+   engine + catalog (installs for real, CLI-testable), then the GTK store on top.
+
 Prime Hub is one place to **find, install, and manage everything on a Prime
 computer** — apps, local AI models, extensions, widgets, settings and commands —
 where you *search or browse (or just ask), click once, and Prime does the rest*:
@@ -137,9 +151,23 @@ No AI configured? The box falls back to plain keyword search.
 OpenAI-compatible call, and every AI touchpoint in Prime (Ask Prime in Spotlight,
 right-click/screenshot actions, ask-to-find in the store §4.1, and anything added
 later) goes through it. Switch provider once here and the whole system follows.
-Providers: **Local model** (llama-server on `:8080`), **Claude**, **OpenAI**,
-**OpenRouter**, **Groq**, or any OpenAI-compatible endpoint. Keys live in the OS
-keyring, never in the manifest or a plain file.
+
+**Two tiers:**
+
+1. **Base Prime brain — always present.** Prime ships (installs on first run) a
+   **small, CPU-runnable local model** (≈0.5–1.5B, quantized GGUF, a few hundred
+   MB) served via llama.cpp. It needs **no GPU and no API key**, so *every* Prime
+   machine — including a GPU-less laptop — has working AI for the **base
+   functions**: maintenance/update explanations, "what does this command do",
+   ask-to-find in the store, and light Ask Prime. This is the floor; Prime's own
+   features depend only on this, never on a cloud key.
+2. **Bring-your-own, on top — optional and parallel.** The user can add better
+   brains and query them directly: **Claude**, **Gemini**, **OpenAI**,
+   **OpenRouter**, **Groq**, any OpenAI-compatible endpoint, or a **bigger local
+   model** (llama-server on `:8080`, GPU-offloaded where available). Multiple can
+   be configured at once; the user picks per-ask, and a default is chosen for
+   Prime's own base functions (falling back to the base brain if none set). Keys
+   live in the OS keyring, never in the manifest or a plain file.
 
 - **Ask Prime / Ask <provider>** — extends the existing `ai` add-on, now reading
   its provider from `prime-ai` instead of being wired to one backend.

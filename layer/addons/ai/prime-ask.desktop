@@ -2,7 +2,7 @@
 Type=Application
 Name=Ask Prime
 Comment=Ask the assistant anything
-Exec=@LAYER@/addons/ai/bin/prime-ask --box
+Exec=@LAYER@/bin/prime-chat
 Icon=prime-linux
 Categories=Utility;
 Keywords=ai;assistant;chat;help;question;

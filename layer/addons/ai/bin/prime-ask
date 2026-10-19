@@ -6,7 +6,9 @@
   prime-ask "question" --image F    include a picture (needs a vision model)
   prime-ask "question" --from WHAT  the question carries content Prime didn't write
                                     (a file, a web page, the screen): changes always ask
-  prime-ask --box                   type the question in a box first (Super+Shift+Space)
+  prime-ask --box                   type the question in a rofi box first (the
+                                    conversation window has its own box, so the
+                                    shortcuts open prime-chat directly now)
   prime-ask --tutor [--box|"q"]     Prime Tutor: teaches step by step (students)
   prime-ask --last                  show the last answer again
   prime-ask --test                  check the connection (setup uses this)
@@ -392,12 +394,26 @@ def answer(text, image=None, new=False, tutor=False, source=""):
 
 
 def window(args, tutor=False):
-    """Open the Prime answer window running this script with --answer."""
+    """Open the answer in Prime's conversation window (prime-chat), which runs
+    this script with --answer for each turn and renders the @-line output.
+
+    It used to open prime-panel — Prime's *task* window, the one updates and the
+    health check use. That shape (steps, a result, a Close button) made every
+    answer look like a finished job with nowhere to ask the next question.
+    prime-chat keeps the question box open instead. Everything else is unchanged:
+    the persona, the history and the tools all still come from --answer below.
+    Falls back to the panel if the chat window is missing."""
     question = next((a for a in args if not a.startswith("--")), "")
-    subprocess.Popen([os.path.join(LAYER, "bin/prime-panel"), "--title", "Prime Tutor" if tutor else "Ask Prime",
-                      "--subtitle", question[:200], "--",
-                      sys.executable, os.path.realpath(__file__), "--answer", *args],
-                     start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    chat = os.path.join(LAYER, "bin/prime-chat")
+    if os.access(chat, os.X_OK):
+        cmd = [chat] + (["--tutor"] if tutor else []) + ([question] if question else [])
+    else:
+        cmd = [os.path.join(LAYER, "bin/prime-panel"),
+               "--title", "Prime Tutor" if tutor else "Ask Prime",
+               "--subtitle", question[:200], "--",
+               sys.executable, os.path.realpath(__file__), "--answer", *args]
+    subprocess.Popen(cmd, start_new_session=True,
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
 def box(tutor=False):

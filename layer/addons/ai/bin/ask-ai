@@ -1,0 +1,470 @@
+#!/usr/bin/env python3
+# prime:summary=open a live session with Claude or Gemini, about anything or a snip
+"""ask-ai — ask someone other than Prime, in a live terminal session.
+
+  ask-ai claude "question"           open a Claude session, seeded with that
+  ask-ai gemini --box                type the question in a box first
+  ask-ai claude --image FILE ["q"]   ask about a picture (the snip rows use this)
+  ask-ai claude --board ["q"]        put the answer on Prime's Whiteboard
+  ask-ai --pick                      choose who to ask, then type the question
+  ask-ai --list                      who is set up, and how each is reached
+  ask-ai claude --test               check it answers; changes nothing
+  ask-ai gemini --chat ["q"]         the chat loop itself, in this terminal
+
+Picking a row opens a terminal and leaves you in a conversation — the way
+Super+G does — rather than printing one answer and closing. Providers with a
+'session' command (the claude CLI) open that; the rest open --chat, which keeps
+the same back-and-forth against an OpenRouter model.
+
+This is deliberately NOT Prime. Prime is the assistant that can change this
+computer, through its own checked toolbox, on the local model. These are
+read-only second opinions: they get the question and the picture, nothing else.
+
+Lives in the personal add-on, so prime-update never touches it.
+"""
+import base64, json, mimetypes, os, shutil, subprocess, sys, urllib.error, urllib.request
+
+HOME = os.path.expanduser("~")
+HERE = os.path.dirname(os.path.realpath(__file__))
+ADDON = os.path.realpath(os.path.join(HERE, ".."))
+# Who can be asked: the person's own list if they made one, otherwise the list
+# shipped with Prime. Theirs is never overwritten by an update.
+USER_CONF = os.path.join(HOME, ".config/prime/ask-providers.json")
+CONF = USER_CONF if os.path.exists(USER_CONF) else os.path.join(ADDON, "ask-providers.json")
+LAYER = os.path.join(HOME, ".local/share/prime-linux/layer")
+ROFI_BIN = os.path.join(LAYER, "bin/prime-rofi")
+CACHE = os.path.join(HOME, ".cache/prime")
+TIMEOUT = 300
+SELF = os.path.realpath(__file__)
+
+# Prime's Whiteboard — the live markdown+LaTeX board a student already uses with
+# Prime Tutor. --board sends an answer there instead of a terminal.
+# Optional: a whiteboard to render answers on. Prime does not ship one, so this
+# is off unless the person has one (or points WB_DIR at theirs). --board says so
+# plainly when it isn't there.
+WB_DIR = os.environ.get("PRIME_WHITEBOARD_DIR") or os.path.join(HOME, "College/whiteboard")
+WB_PY = os.path.join(WB_DIR, "wb.py")
+WB_PORT = int(os.environ.get("WB_PORT", "8777"))
+WB_URL = f"http://localhost:{WB_PORT}"
+BOARD_PROMPT = (
+    "Explain this for a student on a whiteboard. Use short markdown — a heading, "
+    "clear steps or bullets, and LaTeX for any maths ($inline$ or $$display$$). "
+    "Be concise and well structured; no preamble, just the explanation.")
+
+BOLD, DIM, CYAN, RED, OFF = "\033[1m", "\033[2m", "\033[36m", "\033[31m", "\033[0m"
+
+
+def load():
+    with open(CONF) as f:
+        c = json.load(f)
+    c["providers"] = {k: v for k, v in c.get("providers", {}).items() if not k.startswith("_")}
+    return c
+
+
+def key_for(c):
+    k = os.environ.get("OPENROUTER_API_KEY", "").strip()
+    if k:
+        return k
+    try:
+        with open(os.path.expanduser(c.get("key_file", ""))) as f:
+            return f.read().strip()
+    except OSError:
+        return ""
+
+
+def route(prov):
+    return prov.get("model") or " ".join(prov.get("session", [])) or "?"
+
+
+def tool(argv0):
+    """Menus and the snip sheet are launched by Hyprland, whose PATH need not
+    include ~/.local/bin, so look there too."""
+    p = shutil.which(argv0)
+    if p:
+        return p
+    p = os.path.join(HOME, ".local/bin", argv0)
+    return p if os.access(p, os.X_OK) else ""
+
+
+def notify(title, body=""):
+    subprocess.run(["notify-send", "-a", "Prime", title, body],
+                   stderr=subprocess.DEVNULL, check=False)
+
+
+def pick(provs):
+    """Choose who to ask, in the same list Prime uses. Grows by itself when a
+    provider is added to ask-providers.json."""
+    rows = ["%s  %s" % (p.get("icon", "󰚩"), p["label"]) for p in provs.values()]
+    try:
+        r = subprocess.run([ROFI_BIN, "-dmenu", "-i", "-no-custom", "-p", "Ask", "-theme", "spotlight"],
+                           input="\n".join(rows), capture_output=True, text=True)
+    except OSError:
+        return ""
+    chosen = r.stdout.strip()
+    for name, p in provs.items():
+        if chosen.endswith(p["label"]):
+            return name
+    return ""
+
+
+def box(label):
+    """The same one-line question box Prime uses."""
+    try:
+        r = subprocess.run([ROFI_BIN, "-dmenu", "-theme", "bar", "-p", "Ask %s" % label,
+                            "-lines", "0", "-no-custom-accept-single"],
+                           input="", capture_output=True, text=True)
+        return r.stdout.strip()
+    except OSError:
+        return ""
+
+
+def stage(image):
+    """CLIs only read inside the folders they're allowed, and run from where they
+    are started. Snips live under ~/Pictures, which is fine; anything else (a
+    /tmp path, another program's scratch file) is copied under home first or the
+    read is refused. Returns (path, cleanup_or_None)."""
+    path = os.path.realpath(image)
+    if path.startswith(HOME + os.sep):
+        return path, None
+    os.makedirs(CACHE, exist_ok=True)
+    dst = os.path.join(CACHE, "ask-image" + (os.path.splitext(path)[1] or ".png"))
+    shutil.copyfile(path, dst)
+    return dst, dst
+
+
+# ── the OpenRouter side ──────────────────────────────────────────────────────
+
+def data_uri(path):
+    kind = mimetypes.guess_type(path)[0] or "image/png"
+    with open(path, "rb") as f:
+        return "data:%s;base64,%s" % (kind, base64.b64encode(f.read()).decode())
+
+
+def complete(c, prov, messages):
+    req = urllib.request.Request(
+        c["base_url"].rstrip("/") + "/chat/completions",
+        data=json.dumps({"model": prov["model"], "messages": messages,
+                         "max_tokens": 2048}).encode(),
+        headers={"Content-Type": "application/json",
+                 "Authorization": "Bearer " + key_for(c),
+                 "HTTP-Referer": "https://github.com/Sean-Morrissey/prime-linux",
+                 "X-Title": "Prime Linux"},
+    )
+    with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
+        d = json.load(r)
+    if "choices" not in d:
+        raise RuntimeError(d.get("error", {}).get("message") or "no answer came back")
+    return d["choices"][0]["message"]["content"].strip()
+
+
+def friendly(e, label):
+    """Errors in words, with the thing to do next — Prime's rule, applied here."""
+    if isinstance(e, urllib.error.HTTPError):
+        detail = ""
+        try:
+            detail = json.load(e).get("error", {}).get("message", "")
+        except Exception:
+            pass
+        if e.code in (401, 403):
+            return ("%s wouldn't accept the key." % label,
+                    "Check ~/.config/prime/ask-openrouter.key — openrouter.ai/keys issues a new one.")
+        if e.code == 402:
+            return ("%s needs credit on the OpenRouter account." % label,
+                    "Top up at openrouter.ai/credits, or choose a free model in ask-providers.json.")
+        if e.code == 404:
+            return ("%s doesn't recognise that model." % label,
+                    "The 'model' in ask-providers.json may have been renamed — see openrouter.ai/models.")
+        if e.code == 429:
+            return ("%s is rate-limiting this key." % label, "Wait a minute and ask again.")
+        return ("%s returned an error (%s)." % (label, e.code), detail or "Try again in a moment.")
+    if isinstance(e, urllib.error.URLError):
+        return ("Couldn't reach %s." % label, "This needs the internet; Prime's own assistant works offline.")
+    if isinstance(e, subprocess.TimeoutExpired):
+        return ("%s took too long and was stopped." % label, "Ask again, or ask something smaller.")
+    if isinstance(e, OSError):
+        return ("%s couldn't be started." % label, str(e))
+    return ("Asking %s didn't work." % label, str(e))
+
+
+def chat(c, name, prov, first="", image=None):
+    """The conversation, in this terminal. Used for providers with no CLI of
+    their own, so every row behaves the same way: a session you can keep using."""
+    label = prov["label"]
+    if not key_for(c):
+        print("%sThere's no OpenRouter key, so %s can't be asked.%s" % (RED, label, OFF))
+        print("Put one in ~/.config/prime/ask-openrouter.key (openrouter.ai/keys).")
+        return 1
+    print("%s%s%s %s(%s)%s" % (BOLD, label, OFF, DIM, prov["model"], OFF))
+    print("%sA second opinion — it can't change anything on this computer."
+          "  Ctrl-D or 'exit' to close.%s\n" % (DIM, OFF))
+
+    messages, cleanup = [], None
+    try:
+        if image:
+            path, cleanup = stage(image)
+            print("%s(looking at %s)%s" % (DIM, path, OFF))
+        while True:
+            if first:
+                q, first = first, ""
+                print("%s> %s%s" % (CYAN, q, OFF))
+            else:
+                try:
+                    q = input("%s> %s" % (CYAN, OFF)).strip()
+                except EOFError:
+                    print()
+                    return 0
+                if q in ("exit", "quit"):
+                    return 0
+                if not q:
+                    continue
+            content = [{"type": "text", "text": q}]
+            if image and not messages:           # the picture goes with the first turn
+                content.append({"type": "image_url", "image_url": {"url": data_uri(path)}})
+            messages.append({"role": "user", "content": content})
+            try:
+                answer = complete(c, prov, messages)
+            except Exception as e:
+                a, b = friendly(e, label)
+                print("\n%s%s%s\n%s\n" % (RED, a, OFF, b))
+                messages.pop()
+                continue
+            messages.append({"role": "assistant", "content": answer})
+            print("\n%s\n" % answer)
+            try:
+                os.makedirs(CACHE, exist_ok=True)
+                with open(os.path.join(CACHE, "last-answer-%s.md" % name), "w") as f:
+                    f.write("# %s — %s\n\n**Asked:** %s\n\n%s\n" % (label, prov["model"], q, answer))
+            except OSError:
+                pass
+    finally:
+        if cleanup:
+            try:
+                os.unlink(cleanup)
+            except OSError:
+                pass
+
+
+# ── opening a session ────────────────────────────────────────────────────────
+
+def open_session(c, name, prov, question="", image=None):
+    """A terminal with a live conversation in it. Never returns output here."""
+    label = prov["label"]
+    # Prime's terminal is kitty; fall back to whatever is actually installed so
+    # this still works on a machine set up differently.
+    term = c.get("terminal") or next(
+        (t for t in (["kitty", "--title", "ask-ai", "-e"], ["konsole", "--qwindowtitle", "ask-ai", "-e"],
+                     ["alacritty", "-e"], ["foot", "-e"], ["xterm", "-e"]) if tool(t[0])),
+        ["kitty", "-e"])
+    if not tool(term[0]):
+        notify("Can't open a session", "%s isn't installed." % term[0])
+        return 1
+
+    # A CLI of its own when it is actually installed; otherwise the model over
+    # base_url, if the provider has one. A fresh Prime install has neither the
+    # claude nor the gemini CLI, so without this fallback those rows could only
+    # ever fail — and the person is told plainly when neither route exists.
+    use_session = bool(prov.get("session")) and bool(tool(prov["session"][0]))
+    if prov.get("session") and not use_session and not prov.get("model"):
+        notify("Can't ask %s" % label,
+               "%s isn't installed, and no model is set for it." % prov["session"][0])
+        return 1
+
+    if use_session:                              # a CLI of its own
+        exe = tool(prov["session"][0])
+        seed = question
+        if image:
+            path, _ = stage(image)               # left in place: the CLI reads it after we exit
+            seed = ("%s\n\nThe image is the file at: %s" % (question, path)).strip()
+        inner = [exe] + prov["session"][1:]
+        if seed:
+            inner.append(seed)
+    else:                                        # our own chat loop
+        inner = [SELF, name, "--chat"]
+        if image:
+            inner += ["--image", image]
+        if question:
+            inner.append(question)
+
+    cmd = [tool(term[0])] + term[1:] + inner
+    subprocess.Popen(cmd, start_new_session=True, cwd=HOME,
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    return 0
+
+
+def answer_once(c, prov, question, image=None, prepend=""):
+    """Ask once and return the text — for --board and --test, not a session."""
+    q = (prepend + "\n\n" + question).strip() if prepend else question
+    exe = tool(prov["session"][0]) if prov.get("session") else None
+    if prov.get("session") and not exe and not prov.get("model"):
+        raise RuntimeError("%s isn't installed, and no model is set for it"
+                           % prov["session"][0])
+    if exe:                                      # same rule as open_session
+        prompt = q
+        if image:
+            path, _ = stage(image)
+            prompt = "%s\n\nThe image is the file at: %s" % (q, path)
+        r = subprocess.run([exe, "-p", prompt], capture_output=True, text=True,
+                           timeout=TIMEOUT, stdin=subprocess.DEVNULL, cwd=HOME)
+        out = (r.stdout or "").strip()
+        if not out:
+            raise RuntimeError((r.stderr or "no answer").strip().split("\n")[-1])
+        return out
+    content = [{"type": "text", "text": q}]
+    if image:
+        content.append({"type": "image_url", "image_url": {"url": data_uri(image)}})
+    return complete(c, prov, [{"role": "user", "content": content}])
+
+
+def ensure_board():
+    """The board is a systemd user service; bring it up if it's down."""
+    try:
+        urllib.request.urlopen(WB_URL + "/api/health", timeout=2).read()
+        return True
+    except Exception:
+        pass
+    subprocess.run(["systemctl", "--user", "start", "prime-whiteboard.service"],
+                   stderr=subprocess.DEVNULL, check=False)
+    for _ in range(20):
+        try:
+            urllib.request.urlopen(WB_URL + "/api/health", timeout=2).read()
+            return True
+        except Exception:
+            __import__("time").sleep(0.5)
+    return False
+
+
+def to_board(label, title, md):
+    """Add a panel with the answer. wb.py reads markdown on stdin with --md -."""
+    if not os.path.exists(WB_PY):
+        return False, f"no whiteboard at {WB_DIR.replace(HOME, '~')} (set PRIME_WHITEBOARD_DIR)"
+    if not ensure_board():
+        return False, "the whiteboard server wouldn't start"
+    head = (title or "Question")[:60]
+    r = subprocess.run(["python3", WB_PY, "add", "--title", f"{label}: {head}", "--md", "-"],
+                       input=md, text=True, capture_output=True, cwd=WB_DIR)
+    if r.returncode != 0:
+        return False, (r.stderr or "wb.py failed").strip().split("\n")[-1]
+    return True, ""
+
+
+def on_board(c, name, prov, question, image=None):
+    """Ask once, render the answer on the whiteboard, open it."""
+    label = prov["label"]
+    if not prov.get("session") and not key_for(c):
+        notify("Can't ask %s" % label, "No OpenRouter key — see ~/.config/prime/ask-openrouter.key")
+        return 1
+    notify("Asking %s" % label, "Working on the whiteboard…")
+    try:
+        md = answer_once(c, prov, question, image, prepend=BOARD_PROMPT)
+    except Exception as e:
+        a, b = friendly(e, label)
+        notify(a, b)
+        print("%s %s" % (a, b), file=sys.stderr)
+        return 1
+    ok, err = to_board(label, question, md)
+    if not ok:
+        notify("Couldn't reach the whiteboard", err)
+        print(err, file=sys.stderr)
+        return 1
+    subprocess.Popen(["xdg-open", WB_URL], stdout=subprocess.DEVNULL,
+                     stderr=subprocess.DEVNULL, start_new_session=True)
+    notify("%s is on the whiteboard" % label, question[:80])
+    return 0
+
+
+def main(argv):
+    try:
+        c = load()
+    except (OSError, ValueError) as e:
+        notify("ask-ai", "ask-providers.json couldn't be read: %s" % e)
+        print("ask-providers.json couldn't be read: %s" % e, file=sys.stderr)
+        return 1
+    provs = c["providers"]
+
+    if not argv or argv[0] in ("-h", "--help"):
+        print(__doc__.strip())
+        return 0
+    if argv[0] == "--list":
+        for n, p in provs.items():
+            kind = "session" if p.get("session") else "chat"
+            print("%-8s %-8s %-7s %-34s %s" % (n, p["label"], kind, route(p), p.get("via", "")))
+        return 0
+
+    if argv[0] == "--pick":
+        # Who first, then the question — one key for all of them.
+        name = pick(provs)
+        if not name:
+            return 0
+        argv = [name, "--box"] + argv[1:]
+
+    name, argv = argv[0], argv[1:]
+    if name not in provs:
+        print("No one called '%s' is set up. Try: %s" % (name, ", ".join(provs)), file=sys.stderr)
+        return 1
+    prov = provs[name]
+    label = prov["label"]
+
+    image, test, want_box, want_chat, want_board, words = None, False, False, False, False, []
+    i = 0
+    while i < len(argv):
+        a = argv[i]
+        if a == "--image" and i + 1 < len(argv):
+            image = argv[i + 1]; i += 2; continue
+        if a == "--box":
+            want_box = True; i += 1; continue
+        if a == "--test":
+            test = True; i += 1; continue
+        if a == "--chat":
+            want_chat = True; i += 1; continue
+        if a == "--board":
+            want_board = True; i += 1; continue
+        words.append(a); i += 1
+    question = " ".join(w for w in words if w).strip()
+
+    if image and not os.path.exists(image):
+        notify("Can't ask %s" % label, "That picture isn't there any more.")
+        print("That picture isn't there any more: %s" % image, file=sys.stderr)
+        return 1
+
+    if test:
+        try:
+            if prov.get("session"):
+                exe = tool(prov["session"][0])
+                if not exe:
+                    raise RuntimeError("%s isn't installed" % prov["session"][0])
+                r = subprocess.run([exe, "-p", "Reply with exactly: ok"], capture_output=True,
+                                   text=True, timeout=TIMEOUT, stdin=subprocess.DEVNULL, cwd=HOME)
+                if not (r.stdout or "").strip():
+                    raise RuntimeError((r.stderr or "no answer").strip().split("\n")[-1])
+            else:
+                complete(c, prov, [{"role": "user", "content": "Reply with exactly: ok"}])
+            print("  %s answers (%s)." % (label, route(prov)))
+            return 0
+        except Exception as e:
+            a, b = friendly(e, label)
+            print("  ! %s\n  %s" % (a, b))
+            return 1
+
+    if want_box:
+        question = box(label)
+        if not question:
+            return 0
+    if image and not question:
+        question = "What is this? Describe it briefly."
+
+    if want_board:
+        if not question:
+            notify("Ask %s on the whiteboard" % label, "Nothing was asked.")
+            return 1
+        return on_board(c, name, prov, question, image)
+    if want_chat:
+        return chat(c, name, prov, question, image)
+    return open_session(c, name, prov, question, image)
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main(sys.argv[1:]))
+    except KeyboardInterrupt:
+        print()
+        sys.exit(130)

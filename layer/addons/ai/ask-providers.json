@@ -1,0 +1,57 @@
+{
+  "_comment": [
+    "Who 'Ask …' can ask besides Prime itself. Used by bin/ask-ai and by the rows",
+    "bin/prime-snip-actions adds to the snip sheet and right-click menus.",
+    "",
+    "Prime's own assistant is separate and unchanged: it stays on whatever",
+    "~/.config/prime/ai.conf points at, and it is the only one allowed to change",
+    "settings. Everyone here is a read-only second opinion — they get the question",
+    "and the picture, nothing else.",
+    "",
+    "Picking a row opens a terminal with a live session, so you can ask follow-ups",
+    "in it; close it when you're done.",
+    "",
+    "Two kinds of provider:",
+    "  'session'  a CLI that is already signed in on this computer. Opened",
+    "             interactively and seeded with the question. A snip is passed as",
+    "             a file path for it to read.",
+    "  'model'    a model reached over the OpenAI-compatible API in base_url,",
+    "             opened in ask-ai's own chat loop (--chat). Needs a key in",
+    "             key_file (chmod 600) or $OPENROUTER_API_KEY.",
+    "",
+    "To change this list, copy it to ~/.config/prime/ask-providers.json and edit",
+    "that — yours is used instead and updates never overwrite it. To add someone,",
+    "copy a block and give it a new key; the menus and the snip sheet pick it up",
+    "with no further change. The order here is the row order.",
+    "",
+    "A provider whose CLI isn't installed, or whose key is missing, is skipped",
+    "with a plain message rather than failing oddly: `ask-ai --list` shows what is",
+    "actually set up on this computer."
+  ],
+  "base_url": "https://openrouter.ai/api/v1",
+  "key_file": "~/.config/prime/ask-openrouter.key",
+  "providers": {
+    "claude": {
+      "label": "Claude",
+      "icon": "󰚩",
+      "session": ["claude"],
+      "via": "the claude CLI, if it is signed in here",
+      "model": "anthropic/claude-sonnet-4.5",
+      "_note": "session first; if the CLI is missing, the model is used over base_url"
+    },
+    "gemini": {
+      "label": "Gemini",
+      "icon": "󰊭",
+      "session": ["gemini"],
+      "via": "the gemini CLI, if it is signed in here",
+      "model": "google/gemini-2.5-pro",
+      "_note": "same: the CLI when it works, otherwise the model over base_url"
+    },
+    "chatgpt": {
+      "label": "ChatGPT",
+      "icon": "󰭻",
+      "model": "openai/gpt-4o",
+      "via": "OpenRouter"
+    }
+  }
+}

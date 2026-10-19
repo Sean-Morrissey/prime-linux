@@ -4,7 +4,7 @@
     "custom/ask": {
       "format": "󰚩  Ask",
       "tooltip-format": "Ask Prime (Super+Shift+Space) · right-click: last answer",
-      "on-click": "~/.local/share/prime-linux/layer/addons/ai/bin/prime-ask --box",
+      "on-click": "~/.local/share/prime-linux/layer/bin/prime-chat",
       "on-click-right": "~/.local/share/prime-linux/layer/addons/ai/bin/prime-ask --last"
     }
   }

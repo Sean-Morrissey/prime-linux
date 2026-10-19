@@ -1,0 +1,321 @@
+#!/usr/bin/env python3
+# prime:summary=Ask Prime — a real conversation window (not the task panel)
+"""prime-chat — Ask Prime in a conversation window.
+
+  prime-chat                 open the window
+  prime-chat "question"      open it with the first question already asked
+
+Why this exists: prime-panel is Prime's *task* window — the health check,
+updates, About and add-ons all run there, so it is shaped like a task (steps, a
+result, a Close button). An answer from the assistant was being shown the same
+way, which made a conversation look like a finished job and left no way to ask
+the next question. This window is shaped like a conversation instead: the
+transcript fills it, the question box is always there, and nothing is ever
+"done".
+
+It talks to whatever ~/.config/prime/ai.conf points at (the local base model, or
+any provider the user plugged in), so it follows the assistant setting.
+"""
+import json, os, re, threading, urllib.request, urllib.error, gi
+gi.require_version("Gtk", "4.0")
+gi.require_version("Adw", "1")
+from gi.repository import Gtk, Adw, GLib, Gdk, Gio, Pango
+
+HOME = os.path.expanduser("~")
+LAYER = os.environ.get("PRIME_LAYER") or os.path.realpath(
+    os.path.join(os.path.dirname(os.path.realpath(__file__)), ".."))
+CONF = os.path.join(HOME, ".config/prime/ai.conf")
+KEY = os.path.join(HOME, ".config/prime/ai.key")
+# The same persona prime-ask uses. Without it the model has no idea what Prime
+# is and will cheerfully invent one, so this is not optional.
+PERSONA = os.path.join(LAYER, "addons/ai/personas/prime.md")
+FALLBACK_PERSONA = ("You are Prime, the assistant built into Prime Linux "
+                    "(CachyOS + the Hyprland desktop). Be warm, plain and brief.")
+
+
+def system_prompt():
+    try:
+        return open(PERSONA).read().strip()
+    except OSError:
+        return FALLBACK_PERSONA
+
+
+_MD_CODE = re.compile(r"`([^`]+)`")
+_MD_BOLD = re.compile(r"\*\*([^*]+)\*\*")
+_MD_ITAL = re.compile(r"(?<!\*)\*([^*\n]+)\*(?!\*)")
+_MD_HEAD = re.compile(r"(?m)^#{1,6}\s*(.+)$")
+
+
+def md_to_pango(text):
+    """Just enough markdown for an answer to read properly: headings, bold,
+    italic, inline code. Escaped first so the model can't inject markup."""
+    s = GLib.markup_escape_text(text)
+    s = _MD_HEAD.sub(r"<b>\1</b>", s)
+    s = _MD_CODE.sub(r'<tt>\1</tt>', s)
+    s = _MD_BOLD.sub(r"<b>\1</b>", s)
+    s = _MD_ITAL.sub(r"<i>\1</i>", s)
+    return s
+
+CSS = """
+/* Opaque: a wall of text has to stay readable over whatever is behind it. */
+window.prime-chat, .prime-chat > * { background-color: #16161c; color: #f4f4f6; }
+.prime-chat #title { font-size: 1.15rem; font-weight: 700; }
+.prime-chat #subtitle { font-size: 0.82rem; color: rgba(255,255,255,0.50); }
+.prime-chat .bubble { border-radius: 14px; padding: 12px 16px; }
+.prime-chat .bubble.me { background-color: alpha(@accent_bg_color, 0.22); }
+.prime-chat .bubble.prime { background-color: rgba(255,255,255,0.055); }
+.prime-chat .who {
+    font-size: 0.72rem; font-weight: 700; letter-spacing: 0.07em;
+    color: rgba(255,255,255,0.45); margin-bottom: 2px;
+}
+.prime-chat .msg { font-size: 1.02rem; }
+.prime-chat #composer {
+    padding: 10px 14px; border-top: 1px solid rgba(255,255,255,0.07);
+}
+.prime-chat entry, .prime-chat textview, .prime-chat text {
+    background-color: rgba(255,255,255,0.06); border-radius: 12px;
+    font-size: 1.0rem; padding: 10px 12px;
+}
+.prime-chat button.send { border-radius: 12px; font-weight: 600; padding: 8px 18px; }
+.prime-chat .hint { font-size: 0.78rem; color: rgba(255,255,255,0.38); }
+"""
+
+
+def read_conf():
+    cfg = {"BASE_URL": "", "MODEL": ""}
+    try:
+        for line in open(CONF):
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                k, v = line.split("=", 1)
+                cfg[k.strip()] = v.strip()
+    except OSError:
+        pass
+    key = ""
+    try:
+        key = open(KEY).read().strip()
+    except OSError:
+        pass
+    cfg["KEY"] = key
+    return cfg
+
+
+class Bubble(Gtk.Box):
+    """One turn in the transcript. Grows with its text; never fixed height."""
+
+    def __init__(self, who, text=""):
+        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        self.set_halign(Gtk.Align.FILL)
+        inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        inner.add_css_class("bubble")
+        inner.add_css_class("me" if who == "you" else "prime")
+        lbl_who = Gtk.Label(label="YOU" if who == "you" else "PRIME", xalign=0)
+        lbl_who.add_css_class("who")
+        self.body = Gtk.Label(label=text, xalign=0, wrap=True,
+                              wrap_mode=Pango.WrapMode.WORD_CHAR, selectable=True)
+        self.body.add_css_class("msg")
+        inner.append(lbl_who)
+        inner.append(self.body)
+        # a reply reads better slightly inset from the question
+        inner.set_margin_start(0 if who == "you" else 14)
+        inner.set_margin_end(14 if who == "you" else 0)
+        self.append(inner)
+
+    def set_text(self, t):
+        self.raw = t
+        self.body.set_text(t)
+
+    def append_text(self, t):
+        self.raw = getattr(self, "raw", self.body.get_text()) + t
+        # plain while streaming (cheap, and half-written **bold** would flicker)
+        self.body.set_text(self.raw)
+
+    def finish(self):
+        """Streaming done — render the markdown properly."""
+        raw = getattr(self, "raw", self.body.get_text())
+        try:
+            self.body.set_markup(md_to_pango(raw))
+        except GLib.GError:
+            self.body.set_text(raw)
+
+
+class ChatWindow(Adw.ApplicationWindow):
+    def __init__(self, app, first_question=None):
+        super().__init__(application=app, title="Ask Prime")
+        self.set_default_size(620, 560)
+        self.add_css_class("prime-chat")
+        self.cfg = read_conf()
+        self.history = []        # [{"role","content"}]
+        self.busy = False
+
+        root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        self.set_content(root)
+
+        head = Adw.HeaderBar()
+        model = self.cfg.get("MODEL") or "not set up"
+        tw = Adw.WindowTitle(title="Ask Prime", subtitle=model)
+        head.set_title_widget(tw)
+        newbtn = Gtk.Button(icon_name="document-new-symbolic", tooltip_text="Start a new conversation")
+        newbtn.connect("clicked", self.on_new)
+        head.pack_start(newbtn)
+        root.append(head)
+
+        self.scroll = Gtk.ScrolledWindow(vexpand=True)
+        self.scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        self.turns = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10,
+                             margin_top=14, margin_bottom=14, margin_start=14, margin_end=14)
+        self.scroll.set_child(self.turns)
+        root.append(self.scroll)
+
+        comp = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        comp.set_name("composer")
+        self.entry = Gtk.Entry(hexpand=True, placeholder_text="Ask Prime anything…")
+        self.entry.connect("activate", lambda *_: self.send())
+        self.sendbtn = Gtk.Button(label="Ask")
+        self.sendbtn.add_css_class("send")
+        self.sendbtn.add_css_class("suggested-action")
+        self.sendbtn.connect("clicked", lambda *_: self.send())
+        comp.append(self.entry)
+        comp.append(self.sendbtn)
+        root.append(comp)
+
+        self.hint = Gtk.Label(label="Enter to ask · the answer stays here, ask as many follow-ups as you like",
+                              xalign=0, margin_start=16, margin_bottom=8)
+        self.hint.add_css_class("hint")
+        root.append(self.hint)
+
+        if not self.cfg.get("BASE_URL"):
+            self.add_turn("prime", "No assistant is set up yet. "
+                                   "Settings → AI Assistant, or run: prime-addon enable ai")
+            self.entry.set_sensitive(False)
+            self.sendbtn.set_sensitive(False)
+        elif first_question:
+            GLib.idle_add(self._ask_now, first_question)
+
+        self.entry.grab_focus()
+
+    def _ask_now(self, q):
+        self.entry.set_text(q)
+        self.send()
+        return False
+
+    def add_turn(self, who, text=""):
+        b = Bubble(who, text)
+        self.turns.append(b)
+        GLib.idle_add(self._scroll_down)
+        return b
+
+    def _scroll_down(self):
+        adj = self.scroll.get_vadjustment()
+        adj.set_value(adj.get_upper() - adj.get_page_size())
+        return False
+
+    def on_new(self, _):
+        if self.busy:
+            return
+        self.history.clear()
+        child = self.turns.get_first_child()
+        while child:
+            nxt = child.get_next_sibling()
+            self.turns.remove(child)
+            child = nxt
+        self.entry.grab_focus()
+
+    def send(self):
+        q = self.entry.get_text().strip()
+        if not q or self.busy:
+            return
+        self.entry.set_text("")
+        self.add_turn("you", q)
+        self.history.append({"role": "user", "content": q})
+        self.busy = True
+        self.sendbtn.set_sensitive(False)
+        self.entry.set_sensitive(False)
+        self.reply = self.add_turn("prime", "…")
+        self._first_chunk = True
+        threading.Thread(target=self._stream, daemon=True).start()
+
+    def _stream(self):
+        cfg = self.cfg
+        url = cfg["BASE_URL"].rstrip("/") + "/chat/completions"
+        msgs = [{"role": "system", "content": system_prompt()}] + self.history
+        payload = {"model": cfg.get("MODEL", ""), "messages": msgs, "stream": True}
+        headers = {"Content-Type": "application/json"}
+        if cfg.get("KEY"):
+            headers["Authorization"] = "Bearer " + cfg["KEY"]
+        req = urllib.request.Request(url, data=json.dumps(payload).encode(), headers=headers)
+        got = []
+        try:
+            with urllib.request.urlopen(req, timeout=600) as r:
+                for raw in r:
+                    line = raw.decode("utf-8", "replace").strip()
+                    if not line.startswith("data:"):
+                        continue
+                    data = line[5:].strip()
+                    if data == "[DONE]":
+                        break
+                    try:
+                        delta = json.loads(data)["choices"][0].get("delta", {})
+                    except (ValueError, KeyError, IndexError):
+                        continue
+                    piece = delta.get("content") or ""
+                    if piece:
+                        got.append(piece)
+                        GLib.idle_add(self._chunk, piece)
+        except (urllib.error.URLError, OSError, TimeoutError) as e:
+            GLib.idle_add(self._failed, str(e))
+            return
+        GLib.idle_add(self._finished, "".join(got))
+
+    def _chunk(self, piece):
+        if self._first_chunk:
+            self.reply.set_text("")
+            self._first_chunk = False
+        self.reply.append_text(piece)
+        self._scroll_down()
+        return False
+
+    def _finished(self, full):
+        if full.strip():
+            self.history.append({"role": "assistant", "content": full})
+            self.reply.finish()
+        else:
+            self.reply.set_text("(no answer came back)")
+        self._ready()
+        return False
+
+    def _failed(self, msg):
+        self.reply.set_text(f"Couldn't reach the assistant.\n{msg}")
+        # a failed turn shouldn't poison the next question
+        if self.history and self.history[-1]["role"] == "user":
+            self.history.pop()
+        self._ready()
+        return False
+
+    def _ready(self):
+        self.busy = False
+        self.sendbtn.set_sensitive(True)
+        self.entry.set_sensitive(True)
+        self.entry.grab_focus()
+
+
+class ChatApp(Adw.Application):
+    def __init__(self, question=None):
+        super().__init__(application_id="dev.prime.Chat",
+                         flags=Gio.ApplicationFlags.DEFAULT_FLAGS)
+        self.question = question
+
+    def do_activate(self):
+        win = self.props.active_window or ChatWindow(self, self.question)
+        win.present()
+
+
+if __name__ == "__main__":
+    import sys
+    Adw.init()
+    prov = Gtk.CssProvider()
+    prov.load_from_data(CSS.encode())
+    Gtk.StyleContext.add_provider_for_display(
+        Gdk.Display.get_default(), prov, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+    q = " ".join(a for a in sys.argv[1:] if not a.startswith("-")) or None
+    ChatApp(q).run(None)

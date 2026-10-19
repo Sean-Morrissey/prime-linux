@@ -2,7 +2,7 @@
 Type=Application
 Name=Prime Tutor
 Comment=Learn step by step — a patient study partner
-Exec=@LAYER@/addons/ai/bin/prime-ask --tutor --box
+Exec=@LAYER@/bin/prime-chat --tutor
 Icon=prime-linux
 Categories=Education;Utility;
 Keywords=tutor;study;learn;homework;school;teach;

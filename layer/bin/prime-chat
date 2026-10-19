@@ -4,6 +4,14 @@
 
   prime-chat                 open the window
   prime-chat "question"      open it with the first question already asked
+  prime-chat --tutor         Prime Tutor (teaches step by step)
+
+This is a *renderer*, not a second assistant: every turn runs
+`prime-ask --answer`, exactly as prime-panel does, and shows its output as a
+conversation. So the assistant keeps everything it already had — the persona,
+the conversation history, the instant offline answers (prime-do), and the
+tools that can actually change this computer (each still asking permission in
+its own dialog). Only the presentation changed.
 
 Why this exists: prime-panel is Prime's *task* window — the health check,
 updates, About and add-ons all run there, so it is shaped like a task (steps, a
@@ -16,7 +24,7 @@ transcript fills it, the question box is always there, and nothing is ever
 It talks to whatever ~/.config/prime/ai.conf points at (the local base model, or
 any provider the user plugged in), so it follows the assistant setting.
 """
-import json, os, re, threading, urllib.request, urllib.error, gi
+import os, re, subprocess, sys, threading, gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Gtk, Adw, GLib, Gdk, Gio, Pango
@@ -25,19 +33,7 @@ HOME = os.path.expanduser("~")
 LAYER = os.environ.get("PRIME_LAYER") or os.path.realpath(
     os.path.join(os.path.dirname(os.path.realpath(__file__)), ".."))
 CONF = os.path.join(HOME, ".config/prime/ai.conf")
-KEY = os.path.join(HOME, ".config/prime/ai.key")
-# The same persona prime-ask uses. Without it the model has no idea what Prime
-# is and will cheerfully invent one, so this is not optional.
-PERSONA = os.path.join(LAYER, "addons/ai/personas/prime.md")
-FALLBACK_PERSONA = ("You are Prime, the assistant built into Prime Linux "
-                    "(CachyOS + the Hyprland desktop). Be warm, plain and brief.")
-
-
-def system_prompt():
-    try:
-        return open(PERSONA).read().strip()
-    except OSError:
-        return FALLBACK_PERSONA
+ASK = os.environ.get("PRIME_ASK") or os.path.join(LAYER, "addons/ai/bin/prime-ask")
 
 
 _MD_CODE = re.compile(r"`([^`]+)`")
@@ -78,10 +74,16 @@ window.prime-chat, .prime-chat > * { background-color: #16161c; color: #f4f4f6; 
 }
 .prime-chat button.send { border-radius: 12px; font-weight: 600; padding: 8px 18px; }
 .prime-chat .hint { font-size: 0.78rem; color: rgba(255,255,255,0.38); }
+/* Something Prime actually did, shown inline — a change is never invisible. */
+.prime-chat .action { font-size: 0.86rem; color: rgba(255,255,255,0.55); padding: 2px 4px; }
+.prime-chat .action.ok, .prime-chat .action.fix { color: #93c5fd; }
+.prime-chat .action.bad { color: #fcd34d; }
 """
 
 
 def read_conf():
+    """Only to show the model name and to tell the person if nothing is set up —
+    the conversation itself goes through prime-ask."""
     cfg = {"BASE_URL": "", "MODEL": ""}
     try:
         for line in open(CONF):
@@ -91,12 +93,6 @@ def read_conf():
                 cfg[k.strip()] = v.strip()
     except OSError:
         pass
-    key = ""
-    try:
-        key = open(KEY).read().strip()
-    except OSError:
-        pass
-    cfg["KEY"] = key
     return cfg
 
 
@@ -140,20 +136,21 @@ class Bubble(Gtk.Box):
 
 
 class ChatWindow(Adw.ApplicationWindow):
-    def __init__(self, app, first_question=None):
-        super().__init__(application=app, title="Ask Prime")
+    def __init__(self, app, first_question=None, tutor=False):
+        super().__init__(application=app, title="Prime Tutor" if tutor else "Ask Prime")
         self.set_default_size(620, 560)
         self.add_css_class("prime-chat")
         self.cfg = read_conf()
-        self.history = []        # [{"role","content"}]
         self.busy = False
+        self.tutor = tutor
+        self.fresh = False       # pass --new on the next turn (New conversation)
 
         root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         self.set_content(root)
 
         head = Adw.HeaderBar()
         model = self.cfg.get("MODEL") or "not set up"
-        tw = Adw.WindowTitle(title="Ask Prime", subtitle=model)
+        tw = Adw.WindowTitle(title="Prime Tutor" if tutor else "Ask Prime", subtitle=model)
         head.set_title_widget(tw)
         newbtn = Gtk.Button(icon_name="document-new-symbolic", tooltip_text="Start a new conversation")
         newbtn.connect("clicked", self.on_new)
@@ -213,7 +210,7 @@ class ChatWindow(Adw.ApplicationWindow):
     def on_new(self, _):
         if self.busy:
             return
-        self.history.clear()
+        self.fresh = True        # prime-ask starts a new thread on the next turn
         child = self.turns.get_first_child()
         while child:
             nxt = child.get_next_sibling()
@@ -227,45 +224,61 @@ class ChatWindow(Adw.ApplicationWindow):
             return
         self.entry.set_text("")
         self.add_turn("you", q)
-        self.history.append({"role": "user", "content": q})
         self.busy = True
         self.sendbtn.set_sensitive(False)
         self.entry.set_sensitive(False)
         self.reply = self.add_turn("prime", "…")
         self._first_chunk = True
-        threading.Thread(target=self._stream, daemon=True).start()
+        threading.Thread(target=self._stream, args=(q,), daemon=True).start()
 
-    def _stream(self):
-        cfg = self.cfg
-        url = cfg["BASE_URL"].rstrip("/") + "/chat/completions"
-        msgs = [{"role": "system", "content": system_prompt()}] + self.history
-        payload = {"model": cfg.get("MODEL", ""), "messages": msgs, "stream": True}
-        headers = {"Content-Type": "application/json"}
-        if cfg.get("KEY"):
-            headers["Authorization"] = "Bearer " + cfg["KEY"]
-        req = urllib.request.Request(url, data=json.dumps(payload).encode(), headers=headers)
+    def _stream(self, question):
+        """Run one turn through prime-ask and render its @-protocol output.
+        Same contract prime-panel uses: stdin is closed, so any tool that needs
+        permission asks in its own dialog rather than expecting a terminal."""
+        cmd = [sys.executable, ASK, "--answer", question]
+        if self.tutor:
+            cmd.insert(2, "--tutor")
+        if self.fresh:
+            cmd.append("--new")
+            self.fresh = False
         got = []
+        # PRIME_PANEL is what makes prime-ask speak the @-line protocol instead
+        # of printing plain text for a terminal. Same switch prime-panel uses.
+        env = dict(os.environ, PRIME_PANEL="1")
         try:
-            with urllib.request.urlopen(req, timeout=600) as r:
-                for raw in r:
-                    line = raw.decode("utf-8", "replace").strip()
-                    if not line.startswith("data:"):
-                        continue
-                    data = line[5:].strip()
-                    if data == "[DONE]":
-                        break
-                    try:
-                        delta = json.loads(data)["choices"][0].get("delta", {})
-                    except (ValueError, KeyError, IndexError):
-                        continue
-                    piece = delta.get("content") or ""
-                    if piece:
-                        got.append(piece)
-                        GLib.idle_add(self._chunk, piece)
-        except (urllib.error.URLError, OSError, TimeoutError) as e:
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                    stdin=subprocess.DEVNULL, text=True, bufsize=1, env=env)
+        except OSError as e:
             GLib.idle_add(self._failed, str(e))
             return
+        for raw in proc.stdout:
+            line = raw.rstrip("\n")
+            if line.startswith("@text "):
+                piece = line[6:] + "\n"
+                got.append(piece)
+                GLib.idle_add(self._chunk, piece)
+            elif line.startswith(("@ok ", "@fix ", "@bad ", "@note ")):
+                kind, _, msg = line[1:].partition(" ")
+                # the header already names the model; don't repeat it per turn
+                if not (kind == "note" and msg.startswith("Answered by")):
+                    GLib.idle_add(self._action, kind, msg)
+            # @step/@summary are task framing, and bare lines are raw detail:
+            # a conversation shows neither.
+        proc.wait()
         GLib.idle_add(self._finished, "".join(got))
+
+    def _action(self, kind, msg):
+        """A tool Prime actually ran, or a note — shown inline so a change to the
+        computer is never invisible."""
+        lbl = Gtk.Label(label=("✓ " if kind in ("ok", "fix") else
+                               "! " if kind == "bad" else "· ") + msg,
+                        xalign=0, wrap=True, wrap_mode=Pango.WrapMode.WORD_CHAR)
+        lbl.add_css_class("action")
+        lbl.add_css_class(kind)
+        lbl.set_margin_start(14)
+        self.turns.append(lbl)
+        self._scroll_down()
+        return False
 
     def _chunk(self, piece):
         if self._first_chunk:
@@ -277,18 +290,17 @@ class ChatWindow(Adw.ApplicationWindow):
 
     def _finished(self, full):
         if full.strip():
-            self.history.append({"role": "assistant", "content": full})
             self.reply.finish()
         else:
-            self.reply.set_text("(no answer came back)")
+            # tools can run with no prose; don't leave a bare "…" behind
+            self.reply.set_text("(nothing to say — see above)"
+                                if self.turns.get_last_child() is not self.reply
+                                else "(no answer came back)")
         self._ready()
         return False
 
     def _failed(self, msg):
         self.reply.set_text(f"Couldn't reach the assistant.\n{msg}")
-        # a failed turn shouldn't poison the next question
-        if self.history and self.history[-1]["role"] == "user":
-            self.history.pop()
         self._ready()
         return False
 
@@ -300,22 +312,23 @@ class ChatWindow(Adw.ApplicationWindow):
 
 
 class ChatApp(Adw.Application):
-    def __init__(self, question=None):
+    def __init__(self, question=None, tutor=False):
         super().__init__(application_id="dev.prime.Chat",
                          flags=Gio.ApplicationFlags.DEFAULT_FLAGS)
         self.question = question
+        self.tutor = tutor
 
     def do_activate(self):
-        win = self.props.active_window or ChatWindow(self, self.question)
+        win = self.props.active_window or ChatWindow(self, self.question, self.tutor)
         win.present()
 
 
 if __name__ == "__main__":
-    import sys
     Adw.init()
     prov = Gtk.CssProvider()
     prov.load_from_data(CSS.encode())
     Gtk.StyleContext.add_provider_for_display(
         Gdk.Display.get_default(), prov, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+    tutor = "--tutor" in sys.argv
     q = " ".join(a for a in sys.argv[1:] if not a.startswith("-")) or None
-    ChatApp(q).run(None)
+    ChatApp(q, tutor).run(None)

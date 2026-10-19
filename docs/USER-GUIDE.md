@@ -41,67 +41,18 @@ select it, copy it, paste it into the terminal with **Ctrl+Shift+V** (or
 right-click → Paste) and press **Enter**. When the terminal asks for your
 password, type it and press Enter. Nothing appears while you type: that's normal.
 
-Ask the person who gave you Prime Linux which of these two applies.
-
-### If the project is private (you were invited on GitHub)
-
-You need a free GitHub account, and an invitation from the owner.
-
-1. **Accept the invitation.** Open the email from GitHub that says you were
-   invited to collaborate on *Sean-Morrissey/prime-linux* and click
-   **View invitation**, then **Accept invitation**. (No email? Sign in at
-   <https://github.com/notifications>.)
-2. **Install GitHub's sign-in tool:**
-
-   ```
-   sudo pacman -Syu --needed --noconfirm github-cli git
-   ```
-
-3. **Sign this computer in to GitHub:**
-
-   ```
-   gh auth login
-   ```
-
-   It asks four questions. Move with the arrow keys, press Enter to choose:
-
-   | Question | Choose |
-   |---|---|
-   | Where do you use GitHub? | **GitHub.com** |
-   | Preferred protocol for Git operations? | **HTTPS** |
-   | Authenticate Git with your GitHub credentials? | **Yes** |
-   | How would you like to authenticate? | **Login with a web browser** |
-
-   It shows a code like `ABCD-1234`. Press Enter: a browser opens. Sign in to
-   GitHub, type the code, click **Authorize**. Back in the terminal it says
-   **Logged in as …**.
-4. **Download Prime Linux:**
-
-   ```
-   gh repo clone Sean-Morrissey/prime-linux ~/prime-linux
-   ```
-
-5. **Install it:**
-
-   ```
-   bash ~/prime-linux/install.sh
-   ```
-
-If step 5 stops half-way, paste the step 5 line again: it carries on from where
-it stopped. Once it has finished, updates come from **Update everything**, not
-from step 5: the `~/prime-linux` copy doesn't update itself, so the installer
-there won't put its older version over a newer one. Updates later use the same GitHub sign-in, so don't sign out
-(`gh auth logout`) on this computer.
-
-### If the project is public
-
 Paste this one line:
 
 ```
-curl -fsSL https://raw.githubusercontent.com/sean-morrissey/prime-linux/main/boot.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Sean-Morrissey/prime-linux/main/boot.sh | bash
 ```
 
-If it stops half-way, paste the same line again.
+If it stops half-way, paste the same line again: it carries on from where it
+stopped.
+
+You don't need a GitHub account. Once it has finished, updates come from
+**Update everything** (or `prime-update`) — not by pasting that line again:
+Prime keeps its own copy and updates itself.
 
 ### While it installs
 
@@ -111,9 +62,9 @@ downloading. When it says **Prime Linux is installed**, you're done.
 If something goes wrong, the message says what to do (usually "connect to the
 internet and run it again"). A full log is kept in `~/.local/state/prime/logs/`.
 
-Want to see what it will do first? Add `--dry-run`: `bash ~/prime-linux/install.sh --dry-run`
-(private) or `curl -fsSL …/boot.sh | bash -s -- --dry-run` (public). It shows every
-step and changes nothing.
+Want to see what it will do first? Add `--dry-run`:
+`curl -fsSL …/boot.sh | bash -s -- --dry-run`. It shows every step and changes
+nothing.
 
 **Already had your own Hyprland setup?** At the end the installer offers to bring
 your shortcuts, screens, bar items and background services along as your own

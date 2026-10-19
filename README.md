@@ -12,57 +12,24 @@ pick and stays on the login screen as a second choice) and an internet connectio
 New to Linux? The **[user guide](docs/USER-GUIDE.md)** walks through installing
 CachyOS too.
 
-Open a terminal (press the Windows key, type `terminal`, press Enter), then follow
-**A** or **B**, depending on whether the Prime Linux repository is private or public.
-Copy each grey box, paste it into the terminal with **Ctrl+Shift+V**, and press Enter.
+Open a terminal (press the Windows key, type `terminal`, press Enter). Copy the
+grey box below, paste it into the terminal with **Ctrl+Shift+V**, and press Enter.
 When it asks for your password, type it (nothing shows while you type) and press Enter.
-
-### A. The repository is private (you were added as a collaborator)
-
-1. Accept the invitation: open the email from GitHub ("…invited you to collaborate
-   on Sean-Morrissey/prime-linux") and click **View invitation → Accept**. You need a
-   free GitHub account for this.
-2. Install GitHub's sign-in tool:
-
-   ```bash
-   sudo pacman -Syu --needed --noconfirm github-cli git
-   ```
-
-3. Sign in to GitHub from this computer:
-
-   ```bash
-   gh auth login
-   ```
-
-   Answer its questions with the arrow keys and Enter:
-   **GitHub.com** → **HTTPS** → **Yes** (authenticate Git with your GitHub
-   credentials) → **Login with a web browser**. It shows an 8-character code: press
-   Enter, sign in to GitHub in the browser that opens, and type the code there.
-4. Download Prime Linux:
-
-   ```bash
-   gh repo clone Sean-Morrissey/prime-linux ~/prime-linux
-   ```
-
-5. Install it:
-
-   ```bash
-   bash ~/prime-linux/install.sh
-   ```
-
-   After that, update with **Update everything** (or `prime-update`), not by
-   running `~/prime-linux/install.sh` again: that copy doesn't update itself.
-   (If you do run it again, it sees it's older and uses the installed copy.)
-
-### B. The repository is public
 
 One line does everything:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/sean-morrissey/prime-linux/main/boot.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Sean-Morrissey/prime-linux/main/boot.sh | bash
 ```
 
-### Then, either way
+It downloads Prime Linux into `~/.local/share/prime-linux` and runs the installer
+from there. To see what it would do without changing anything:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Sean-Morrissey/prime-linux/main/boot.sh | bash -s -- --dry-run
+```
+
+### Then
 
 - The installer shows numbered steps `[1/8] … [8/8]` and takes 5–15 minutes. It ends
   with **Prime Linux is installed**.
@@ -70,23 +37,12 @@ curl -fsSL https://raw.githubusercontent.com/sean-morrissey/prime-linux/main/boo
   log in. You get the top bar, the **P** logo (click it for the Start menu), and:
   **Super+Space** search · **Super+I** Settings · **Super+/** every
   shortcut. (*Super* is the Windows key.)
-- If anything stops half-way, run the install command again (A: step 5, B: the
-  one line): it carries on where it stopped. The log is in `~/.local/state/prime/logs/`.
-- **Updates:** Settings → Updates → **Update everything**.
+- If anything stops half-way, run the same one line again: it carries on where it
+  stopped. The log is in `~/.local/state/prime/logs/`.
+- **Updates:** Settings → Updates → **Update everything** (or `prime-update`).
+  Don't re-run the installer to update — Prime updates its own copy.
 - **Changed your mind?** In a terminal: `prime-uninstall` puts the computer back as it
   was (from KDE's Konsole: `~/.local/share/prime-linux/layer/bin/prime-uninstall`).
-- The downloaded `~/prime-linux` folder (option A) can be deleted after installing;
-  Prime keeps its own copy in `~/.local/share/prime-linux`.
-
-### For the owner: giving Prime Linux to a friend
-
-- **Private repo:** on GitHub open the repository → **Settings → Collaborators → Add
-  people**, and enter your friend's GitHub username or email. On a personal account a
-  collaborator can also push to the repo, so only invite people you trust with that.
-  Send them this README's option **A**.
-- **Public repo:** nothing to do; send them option **B**. Making the repository public is
-  your call (Settings → General → Danger Zone → Change visibility); nothing in Prime
-  does it for you.
 
 The installer checks the computer first (internet, disk space, which desktop is
 already there), shows numbered progress, logs to `~/.local/state/prime/logs/`,
@@ -233,3 +189,15 @@ Writing a distro from source (bootloader, kernel, installer, package archive) �
 that is a multi-year project with a volunteer team. Prime Linux is a layer on top
 of CachyOS, not a fork of it: your own account, CachyOS's own update stream, and
 this repo's `layer/` on top.
+
+---
+
+## License
+
+Prime Linux is free software under the **GNU General Public License, version 3 or
+later** — see [LICENSE](LICENSE). You may use it, study it, change it and share it;
+if you distribute a changed version, it stays under the same licence so everyone
+keeps those freedoms.
+
+Prime installs software from CachyOS, Arch and Flathub. Those keep their own
+licences — this one covers Prime Linux itself (the `layer/` and the tooling here).

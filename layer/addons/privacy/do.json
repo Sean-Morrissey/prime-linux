@@ -1,0 +1,19 @@
+{"_comment": "Plain-words requests this pack adds to prime-do (Spotlight → Do it). Only read while the pack is on.",
+ "commands": [
+  {"id":    "vault-open",
+   "title": "Open my vault",
+   "words": [["vault", "safe"], ["open", "unlock", "show"]],
+   "not":   ["close", "lock"],
+   "cmd":   ["bash", "-lc", "~/.local/share/prime-linux/layer/addons/privacy/bin/prime-privacy vault open"]},
+
+  {"id":    "vault-close",
+   "title": "Close my vault",
+   "words": [["vault", "safe"], ["close", "lock", "hide"]],
+   "cmd":   ["bash", "-lc", "~/.local/share/prime-linux/layer/addons/privacy/bin/prime-privacy vault close"],
+   "says":  "Closing your vault"},
+
+  {"id":    "passwords",
+   "title": "Open my passwords",
+   "words": [["password", "passwords", "keepass"], ["open", "show", "manager"]],
+   "cmd":   ["bash", "-lc", "~/.local/share/prime-linux/layer/bin/prime-addon open keepassxc"]}
+ ]}

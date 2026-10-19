@@ -1,0 +1,22 @@
+{"_comment": "Plain-words requests this pack adds to prime-do (Spotlight -> Do it). Only read while the pack is on.",
+ "commands": [
+  {"id":    "new-document",
+   "title": "Start a new document",
+   "words": [["document", "doc", "letter", "write"], ["new", "start", "make", "create"]],
+   "cmd":   ["bash", "-lc", "~/.local/share/prime-linux/layer/bin/prime-addon open libreoffice --writer"]},
+
+  {"id":    "new-spreadsheet",
+   "title": "Start a new spreadsheet",
+   "words": [["spreadsheet", "sheet", "excel"], ["new", "start", "make", "create"]],
+   "cmd":   ["bash", "-lc", "~/.local/share/prime-linux/layer/bin/prime-addon open libreoffice --calc"]},
+
+  {"id":    "scan",
+   "title": "Scan a page",
+   "words": [["scan", "scanner"]],
+   "cmd":   ["bash", "-lc", "~/.local/share/prime-linux/layer/bin/prime-addon open simple-scan"]},
+
+  {"id":    "email",
+   "title": "Open email",
+   "words": [["email", "mail", "thunderbird"], ["open", "check", "read"]],
+   "cmd":   ["bash", "-lc", "~/.local/share/prime-linux/layer/bin/prime-addon open thunderbird"]}
+ ]}

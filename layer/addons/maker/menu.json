@@ -1,0 +1,15 @@
+{
+  "sections": [
+    {
+      "id": "maker", "label": "Maker", "icon": "󰹛",
+      "items": [
+        {"id": "maker.slice", "label": "Slice a model for printing", "hint": "OrcaSlicer — turns a model into a print file", "kind": "run", "cmd": "exec ~/.local/share/prime-linux/layer/addons/maker/bin/prime-maker slice"},
+        {"id": "maker.cad", "label": "Draw a part", "hint": "FreeCAD — design to measurements", "kind": "run", "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-addon open 'freecad|org.freecad.FreeCAD'"},
+        {"id": "maker.scad", "label": "Describe a part in code", "hint": "OpenSCAD", "kind": "run", "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-addon open openscad"},
+        {"id": "maker.sculpt", "label": "Sculpt or edit a mesh", "hint": "Blender", "kind": "run", "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-addon open blender"},
+        {"id": "maker.models", "label": "Models folder", "kind": "run", "cmd": "exec nemo ~/3D"},
+        {"id": "maker.check", "label": "Check my maker setup", "kind": "panel", "cmd": "~/.local/share/prime-linux/layer/bin/prime-addon check maker"}
+      ]
+    }
+  ]
+}

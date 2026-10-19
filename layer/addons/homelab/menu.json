@@ -1,0 +1,15 @@
+{
+  "sections": [
+    {
+      "id": "homelab", "label": "Homelab", "icon": "󰒋",
+      "items": [
+        {"id": "homelab.status", "label": "What's running", "hint": "sync, containers, remote login, disk space", "kind": "panel", "cmd": "~/.local/share/prime-linux/layer/addons/homelab/bin/prime-homelab status"},
+        {"id": "homelab.sync", "label": "Folder sync", "hint": "keep folders the same on all your machines", "kind": "run", "cmd": "exec ~/.local/share/prime-linux/layer/addons/homelab/bin/prime-homelab sync open"},
+        {"id": "homelab.backup", "label": "Back up now", "hint": "encrypted, to wherever you chose", "kind": "panel", "cmd": "~/.local/share/prime-linux/layer/addons/homelab/bin/prime-homelab backup run"},
+        {"id": "homelab.restore", "label": "Restore from a backup", "hint": "lists what you have saved", "kind": "panel", "cmd": "~/.local/share/prime-linux/layer/addons/homelab/bin/prime-homelab backup restore"},
+        {"id": "homelab.monitor", "label": "What's using this computer", "hint": "btop", "kind": "run", "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-terminal -e btop"},
+        {"id": "homelab.check", "label": "Check my homelab setup", "kind": "panel", "cmd": "~/.local/share/prime-linux/layer/bin/prime-addon check homelab"}
+      ]
+    }
+  ]
+}

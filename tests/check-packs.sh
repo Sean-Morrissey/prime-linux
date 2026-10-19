@@ -9,7 +9,7 @@ set -u
 P="$HOME/.local/share/prime-linux"; L="$P/layer"; A="$L/bin/prime-addon"; fail=0
 export PRIME_NONINTERACTIVE=1 PRIME_GPU="${PRIME_GPU:-none}" PRIME_ADDON_PACKAGES="${PRIME_ADDON_PACKAGES:-check}"
 export PRIME_GIT_NAME="Alex Example" PRIME_GIT_EMAIL="alex@example.com"
-PACKS="gaming coding creator student"
+PACKS="gaming coding creator student privacy office maker homelab"
 LOGS="${TMPDIR:-/tmp}/prime-pack-logs"; mkdir -p "$LOGS"
 ck() { if eval "$2" >/dev/null 2>&1; then echo "  PASS  $1"; else echo "  FAIL  $1"; fail=$((fail+1)); fi; }
 sections() { "$L/bin/prime-menu" --list | cut -f1; }

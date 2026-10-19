@@ -1,0 +1,12 @@
+{"_comment": "Plain-words requests this pack adds to prime-do (Spotlight -> Do it). Only read while the pack is on.",
+ "commands": [
+  {"id":    "slice",
+   "title": "Slice a model for printing",
+   "words": [["slice", "slicer", "print"], ["model", "stl", "3d", "open"]],
+   "cmd":   ["bash", "-lc", "~/.local/share/prime-linux/layer/addons/maker/bin/prime-maker slice"]},
+
+  {"id":    "cad",
+   "title": "Open CAD",
+   "words": [["cad", "freecad", "design"], ["open", "draw", "start"]],
+   "cmd":   ["bash", "-lc", "~/.local/share/prime-linux/layer/bin/prime-addon open 'freecad|org.freecad.FreeCAD'"]}
+ ]}

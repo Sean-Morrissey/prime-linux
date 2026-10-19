@@ -1,0 +1,106 @@
+#!/usr/bin/env bash
+# prime-office — the Office pack's helper.
+#
+#   prime-office new [doc|sheet|slides]    start a new document   (Super+Alt+O menu)
+#   prime-office defaults                  make LibreOffice open Office files
+#   prime-office setup | teardown | check  used by prime-addon
+#
+# The point of the setup step is that a .docx or .xlsx someone emails you opens
+# when you double-click it, instead of asking which program to use.
+set -u
+. "$(dirname "$(readlink -f "$0")")/../../_lib/pack.sh"
+
+DOCS="$HOME/Documents"
+MARK="office-defaults"
+
+# The file types people are actually sent, and what opens them.
+mimes_writer="application/msword \
+application/vnd.openxmlformats-officedocument.wordprocessingml.document \
+application/vnd.oasis.opendocument.text application/rtf"
+mimes_calc="application/vnd.ms-excel \
+application/vnd.openxmlformats-officedocument.spreadsheetml.sheet \
+application/vnd.oasis.opendocument.spreadsheet text/csv"
+mimes_impress="application/vnd.ms-powerpoint \
+application/vnd.openxmlformats-officedocument.presentationml.presentation \
+application/vnd.oasis.opendocument.presentation"
+
+defaults() {
+    have xdg-mime || { warn "xdg-mime is missing; can't set which program opens what."; return 1; }
+    local n=0 m
+    for m in $mimes_writer;  do xdg-mime default libreoffice-writer.desktop  "$m" 2>/dev/null && n=$((n+1)); done
+    for m in $mimes_calc;    do xdg-mime default libreoffice-calc.desktop    "$m" 2>/dev/null && n=$((n+1)); done
+    for m in $mimes_impress; do xdg-mime default libreoffice-impress.desktop "$m" 2>/dev/null && n=$((n+1)); done
+    xdg-mime default org.gnome.Papers.desktop application/pdf 2>/dev/null && n=$((n+1))
+    say "Word, Excel, PowerPoint and PDF files now open on double-click ($n types)."
+}
+
+new() {
+    local kind="${1:-doc}" target
+    mkdir -p "$DOCS"
+    case "$kind" in
+        sheet|calc|spreadsheet) target=--calc ;;
+        slides|impress|presentation) target=--impress ;;
+        *) target=--writer ;;
+    esac
+    "$LAYER/bin/prime-addon" open libreoffice "$target"
+}
+
+setup() {
+    mkdir -p "$DOCS"
+    bookmark_add "$DOCS" "Documents" 2>/dev/null || true
+    defaults
+    # Spell-check in the system language, when it isn't English. Skipped quietly
+    # if that dictionary isn't packaged — a missing dictionary must not fail the pack.
+    local lang="${LANG%%.*}"; lang="${lang%%_*}"
+    if [ -n "$lang" ] && [ "$lang" != "en" ] && [ "$lang" != "C" ]; then
+        if pacman -Si "hunspell-$lang" >/dev/null 2>&1; then
+            say "Adding spell-check for your language ($lang)."
+            sudo pacman -S --needed --noconfirm "hunspell-$lang" >/dev/null 2>&1 \
+                || note "Couldn't add hunspell-$lang; English spell-check still works."
+        else
+            note "No hunspell dictionary packaged for '$lang'; English spell-check is on."
+        fi
+    fi
+    return 0
+}
+
+teardown() {
+    bookmark_remove "$DOCS" 2>/dev/null || true
+    # Which program opens a file type is the person's setting; changing it back
+    # could leave them with nothing that opens a .docx. Leave it, and say so.
+    note "LibreOffice stays the program that opens Office files (change it in Settings → Default apps)."
+    return 0
+}
+
+check() {
+    have libreoffice && ck_ok "LibreOffice installed — opens Word, Excel and PowerPoint files" \
+        || ck_bad "LibreOffice is missing — switch the pack on again to install it"
+
+    local d; d="$(xdg-mime query default application/vnd.openxmlformats-officedocument.wordprocessingml.document 2>/dev/null)"
+    case "$d" in
+        libreoffice-writer.desktop) ck_ok "A Word document opens on double-click" ;;
+        "") ck_warn "Nothing is set to open Word documents — run: prime-office defaults" ;;
+        *)  ck_warn "Word documents open with ${d%.desktop} — run: prime-office defaults to use LibreOffice" ;;
+    esac
+
+    have thunderbird && ck_ok "Email installed (Thunderbird)" \
+        || ck_warn "Thunderbird is missing — switch the pack on again to install it"
+
+    have simple-scan && ck_ok "Scanner app installed (Document Scanner)" \
+        || ck_warn "simple-scan is missing — scanning won't work"
+
+    # Printing is Prime's job, not this pack's, but a broken spooler shows up here first.
+    if systemctl is-active --quiet cups 2>/dev/null; then ck_ok "Printing is on"
+    else ck_warn "Printing is off — Settings → Printers switches it on"; fi
+
+    have hunspell && ck_ok "Spell-check installed" || ck_warn "hunspell is missing — no spell-check"
+}
+
+case "${1:-}" in
+    new)      shift; new "${1:-doc}" ;;
+    defaults) defaults ;;
+    setup)    setup ;;
+    teardown) teardown ;;
+    check)    check ;;
+    *) sed -n '2,10p' "$(readlink -f "$0")" | sed 's/^# \{0,1\}//' ;;
+esac

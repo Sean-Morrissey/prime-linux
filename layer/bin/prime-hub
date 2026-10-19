@@ -36,6 +36,66 @@ def installed_ids():
         return set()
 
 
+ADDON_CMD = os.environ.get("PRIME_ADDON") or os.path.join(LAYER, "bin/prime-addon")
+PERSONAL_ADDONS = os.path.join(HOME, ".config/prime/addons.d")
+ENABLED_LIST = os.path.join(HOME, ".config/prime/addons")
+
+
+def _parse_conf(path):
+    """Read the shell-style addon.conf into a dict (KEY="value" lines only)."""
+    out = {}
+    try:
+        for line in open(path):
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            k, v = line.split("=", 1)
+            if not k.replace("_", "").isalnum():
+                continue
+            out[k.strip()] = v.strip().strip('"').strip("'")
+    except OSError:
+        pass
+    return out
+
+
+def load_addons():
+    """[(name, conf, personal)] from shipped layer/addons and ~/.config/prime/addons.d."""
+    found = []
+    for root, personal in ((os.path.join(LAYER, "addons"), False), (PERSONAL_ADDONS, True)):
+        if not os.path.isdir(root):
+            continue
+        for name in sorted(os.listdir(root)):
+            if name.startswith("_"):
+                continue
+            conf_path = os.path.join(root, name, "addon.conf")
+            if os.path.isfile(conf_path):
+                found.append((name, _parse_conf(conf_path), personal))
+    return found
+
+
+def enabled_addons():
+    try:
+        return {l.strip() for l in open(ENABLED_LIST)
+                if l.strip() and not l.startswith("#")}
+    except OSError:
+        return set()
+
+
+def needs_advanced(app):
+    """True when every backend this app offers is an unvetted AUR ref, so the
+    engine will refuse it unless Advanced is on. Mirrors prime-install.verify()."""
+    backends = app.get("backends", [])
+    if not backends:
+        return True
+    for b in backends:
+        t = b.get("type")
+        if t in ("repo", "flatpak", "webapp"):
+            return False
+        if t == "aur" and b.get("vetted"):
+            return False
+    return True
+
+
 class AppRow(Adw.ActionRow):
     def __init__(self, app, window):
         super().__init__()
@@ -48,23 +108,39 @@ class AppRow(Adw.ActionRow):
         icon.add_css_class("icon-dropshadow")
         self.add_prefix(icon)
 
+        self.needs_adv = needs_advanced(app)
+        self.warn_icon = Gtk.Image.new_from_icon_name("dialog-warning-symbolic")
+        self.warn_icon.set_tooltip_text(
+            "Unverified community package (AUR). Turn on Advanced to allow installing this.")
+        self.warn_icon.set_visible(False)
         self.spinner = Gtk.Spinner()
         self.btn = Gtk.Button()
         self.btn.set_valign(Gtk.Align.CENTER)
         self.btn.connect("clicked", self.on_click)
+        self.add_suffix(self.warn_icon)
         self.add_suffix(self.spinner)
         self.add_suffix(self.btn)
         self.refresh()
 
     def refresh(self):
         self.installed = self.app["id"] in installed_ids()
+        blocked = self.needs_adv and not self.installed and not self.window.advanced
+        self.warn_icon.set_visible(self.needs_adv and not self.installed)
         if self.installed:
             self.btn.set_label("Remove")
             self.btn.set_css_classes(["flat"])
+            self.btn.set_tooltip_text(None)
+        elif blocked:
+            self.btn.set_label("Install")
+            self.btn.set_css_classes(["pill"])
+            self.btn.set_tooltip_text(
+                "This comes from an unverified community source. Turn on Advanced to install it.")
         else:
             self.btn.set_label("Install")
             self.btn.set_css_classes(["suggested-action", "pill"])
-        self.btn.set_sensitive(True)
+            self.btn.set_tooltip_text(
+                "Unverified source — Advanced is on." if self.needs_adv else None)
+        self.btn.set_sensitive(not blocked)
         self.spinner.stop()
 
     def on_click(self, _):
@@ -76,8 +152,10 @@ class AppRow(Adw.ActionRow):
 
     def _run(self, verb):
         cmd = [ENGINE, "--yes"]
-        if verb == "install":
-            cmd.append("--advanced")   # GUI 'advanced' toggle would gate this; wired later
+        # Only ever pass --advanced when the user has switched Advanced on. The
+        # engine refuses unvetted sources without it — that gate stays real.
+        if verb == "install" and self.window.advanced:
+            cmd.append("--advanced")
         cmd += [verb, self.app["id"]]
         env = dict(os.environ, PRIME_CATALOG=CATALOG)
         r = subprocess.run(cmd, capture_output=True, text=True, env=env)
@@ -94,12 +172,73 @@ class AppRow(Adw.ActionRow):
         return False
 
 
+class AddonRow(Adw.ActionRow):
+    """One extension / pack, toggled through prime-addon."""
+
+    def __init__(self, name, conf, personal, window):
+        super().__init__()
+        self.name = name
+        self.window = window
+        title = conf.get("TITLE") or name.replace("-", " ").title()
+        if personal:
+            title += "  (yours)"
+        self.set_title(GLib.markup_escape_text(title))
+        self.set_subtitle(GLib.markup_escape_text(conf.get("DESCRIPTION", "")))
+        self.set_subtitle_lines(2)
+
+        icon = Gtk.Image.new_from_icon_name(
+            "application-x-addon-symbolic" if conf.get("KIND") != "pack" else "package-x-generic-symbolic")
+        icon.set_pixel_size(24)
+        self.add_prefix(icon)
+
+        self.spinner = Gtk.Spinner()
+        self.switch = Gtk.Switch(valign=Gtk.Align.CENTER)
+        self.switch.set_active(name in enabled_addons())
+        self.handler = self.switch.connect("notify::active", self.on_toggle)
+        self.add_suffix(self.spinner)
+        self.add_suffix(self.switch)
+
+    def set_busy(self, busy):
+        self.switch.set_sensitive(not busy)
+        self.spinner.start() if busy else self.spinner.stop()
+
+    def on_toggle(self, switch, _param):
+        want = switch.get_active()
+        self.set_busy(True)
+        self.window.set_status(
+            f"{'Enabling' if want else 'Disabling'} {self.get_title()}… (this can take a while)")
+        threading.Thread(target=self._run, args=(want,), daemon=True).start()
+
+    def _run(self, want):
+        verb = "enable" if want else "disable"
+        env = dict(os.environ, PRIME_NONINTERACTIVE="1")
+        r = subprocess.run([ADDON_CMD, verb, self.name],
+                           capture_output=True, text=True, env=env)
+        GLib.idle_add(self._done, want, r.returncode,
+                      (r.stdout + r.stderr).strip().splitlines())
+
+    def _done(self, want, code, lines):
+        self.set_busy(False)
+        actual = self.name in enabled_addons()
+        # reflect reality, not the click, without re-firing the handler
+        self.switch.handler_block(self.handler)
+        self.switch.set_active(actual)
+        self.switch.handler_unblock(self.handler)
+        if code == 0 and actual == want:
+            self.window.set_status(f"{self.get_title()}: {'on' if actual else 'off'}")
+        else:
+            tail = lines[-1] if lines else f"exit {code}"
+            self.window.set_status(f"{self.get_title()}: failed — {tail}")
+        return False
+
+
 class HubWindow(Adw.ApplicationWindow):
     def __init__(self, app):
         super().__init__(application=app, title="Prime Hub")
         self.set_default_size(1000, 720)
         self.apps = load_catalog()
         self.rows = []
+        self.advanced = False
 
         split = Adw.NavigationSplitView()
         self.set_content(split)
@@ -121,10 +260,22 @@ class HubWindow(Adw.ApplicationWindow):
         split.set_sidebar(Adw.NavigationPage(child=sb_box, title="Prime Hub"))
 
         # ---- content ----
+        self.section = "Apps"
         self.search = Gtk.SearchEntry(placeholder_text="Search apps…", hexpand=True)
-        self.search.connect("search-changed", lambda *_: self.rebuild_apps())
+        self.search.connect("search-changed", lambda *_: self.on_search())
         c_head = Adw.HeaderBar()
         c_head.set_title_widget(self.search)
+
+        # Advanced: off by default. On, it allows installing unverified AUR
+        # packages (the engine still shows the PKGBUILD and warns).
+        self.adv_switch = Gtk.Switch(valign=Gtk.Align.CENTER)
+        self.adv_switch.set_tooltip_text(
+            "Advanced: allow installing unverified community (AUR) packages")
+        self.adv_switch.connect("notify::active", self.on_advanced)
+        adv_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        adv_box.append(Gtk.Label(label="Advanced", css_classes=["dim-label"]))
+        adv_box.append(self.adv_switch)
+        c_head.pack_end(adv_box)
 
         self.content_stack = Gtk.ScrolledWindow(vexpand=True)
         self.status = Gtk.Label(label="Ready", xalign=0, ellipsize=Pango.EllipsizeMode.END,
@@ -138,14 +289,66 @@ class HubWindow(Adw.ApplicationWindow):
     def set_status(self, text):
         self.status.set_text(text)
 
+    def on_advanced(self, switch, _param):
+        self.advanced = switch.get_active()
+        self.set_status(
+            "Advanced on — unverified community packages can be installed."
+            if self.advanced else "Advanced off — only verified sources.")
+        for r in self.rows:
+            r.refresh()
+
     def on_section(self, _list, row):
         if row is None:
             return
         name = SECTIONS[row.get_index()]
+        self.section = name
+        self.search.set_visible(name in ("Apps", "Extensions"))
+        self.search.set_placeholder_text(
+            "Search apps…" if name == "Apps" else "Search extensions…")
         if name == "Apps":
             self.rebuild_apps()
+        elif name == "Extensions":
+            self.rebuild_addons()
         else:
             self.show_placeholder(name)
+
+    def on_search(self):
+        if self.section == "Extensions":
+            self.rebuild_addons()
+        else:
+            self.rebuild_apps()
+
+    def rebuild_addons(self):
+        query = self.search.get_text().strip().lower()
+        page = Adw.PreferencesPage()
+        shipped, personal = [], []
+        for name, conf, is_personal in load_addons():
+            hay = f"{name} {conf.get('TITLE','')} {conf.get('DESCRIPTION','')}".lower()
+            if query and query not in hay:
+                continue
+            (personal if is_personal else shipped).append((name, conf, is_personal))
+
+        if shipped:
+            g = Adw.PreferencesGroup(
+                title="Packs and add-ons",
+                description="Bundles of apps and settings Prime sets up for you. "
+                            "Turning one on installs what it needs.")
+            for n, c, p in shipped:
+                g.add(AddonRow(n, c, p, self))
+            page.add(g)
+        if personal:
+            g = Adw.PreferencesGroup(
+                title="Your add-ons",
+                description="Yours — never shipped, never touched by updates.")
+            for n, c, p in personal:
+                g.add(AddonRow(n, c, p, self))
+            page.add(g)
+        if not shipped and not personal:
+            self.content_stack.set_child(Adw.StatusPage(
+                title="No extensions found" if query else "No extensions",
+                icon_name="system-search-symbolic"))
+            return
+        self.content_stack.set_child(page)
 
     def show_placeholder(self, name):
         status = Adw.StatusPage(title=name, icon_name="emblem-system-symbolic",

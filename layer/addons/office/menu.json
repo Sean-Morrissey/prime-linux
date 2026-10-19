@@ -1,0 +1,19 @@
+{
+  "sections": [
+    {
+      "id": "office", "label": "Office", "icon": "󰈙",
+      "items": [
+        {"id": "office.doc", "label": "New document", "hint": "LibreOffice Writer — saves as .docx too", "kind": "run", "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-addon open libreoffice --writer"},
+        {"id": "office.sheet", "label": "New spreadsheet", "hint": "LibreOffice Calc — opens .xlsx", "kind": "run", "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-addon open libreoffice --calc"},
+        {"id": "office.slides", "label": "New slides", "hint": "LibreOffice Impress — opens .pptx", "kind": "run", "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-addon open libreoffice --impress"},
+        {"id": "office.mail", "label": "Email", "hint": "Thunderbird", "kind": "run", "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-addon open thunderbird"},
+        {"id": "office.scan", "label": "Scan a page", "hint": "USB or network scanner", "kind": "run", "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-addon open simple-scan"},
+        {"id": "office.sign", "label": "Fill in or sign a PDF", "hint": "Xournal++", "kind": "run", "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-addon open xournalpp"},
+        {"id": "office.pdf", "label": "Merge or split PDFs", "hint": "PDF Arranger", "kind": "run", "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-addon open pdfarranger"},
+        {"id": "office.folder", "label": "Documents folder", "kind": "run", "cmd": "exec nemo ~/Documents"},
+        {"id": "office.defaults", "label": "Make Office files open in LibreOffice", "hint": "if a .docx opens in the wrong thing", "kind": "panel", "cmd": "~/.local/share/prime-linux/layer/addons/office/bin/prime-office defaults"},
+        {"id": "office.check", "label": "Check my office setup", "kind": "panel", "cmd": "~/.local/share/prime-linux/layer/bin/prime-addon check office"}
+      ]
+    }
+  ]
+}

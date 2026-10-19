@@ -1,0 +1,149 @@
+#!/usr/bin/env bash
+# prime-privacy — the Privacy pack's helper.
+#
+#   prime-privacy vault [open|close|status]   the encrypted folder (Super+Alt+K)
+#   prime-privacy scrub [FILE...]             remove hidden details from files
+#   prime-privacy passwords                   open the password manager
+#   prime-privacy setup | teardown | check    used by prime-addon
+#
+# The vault is a folder that looks like nonsense until you unlock it with your
+# password: ~/.vault holds the encrypted files, ~/Vault is where they appear
+# while it is open. Nothing is moved — closing it just takes the readable view
+# away. gocryptfs does the encrypting; there is no partitioning and no admin
+# rights involved.
+set -u
+. "$(dirname "$(readlink -f "$0")")/../../_lib/pack.sh"
+
+ENC="$HOME/.vault"            # the encrypted files (safe to back up as-is)
+PLAIN="$HOME/Vault"           # where they appear while it is unlocked
+
+# ── the vault ────────────────────────────────────────────────────────────────
+vault_open_now() { mountpoint -q "$PLAIN" 2>/dev/null; }
+
+vault() {
+    case "${1:-toggle}" in
+        status) if vault_open_now; then echo "open"; else echo "closed"; fi ;;
+        toggle) if vault_open_now; then vault close; else vault open; fi ;;
+        open)
+            have gocryptfs || { warn "gocryptfs isn't installed."; return 1; }
+            vault_open_now && { notify "Your vault is already open."; return 0; }
+            if [ ! -f "$ENC/gocryptfs.conf" ]; then
+                if nonint; then
+                    warn "No vault yet. Run: prime-privacy vault open  (it will make one)"
+                    return 0
+                fi
+                say "You don't have a vault yet. Making one at ${ENC/#$HOME/\~}."
+                say "Choose a password you will not forget — nobody can recover it for you."
+                mkdir -p "$ENC" || return 1
+                gocryptfs -init "$ENC" || { warn "Couldn't create the vault."; return 1; }
+            fi
+            mkdir -p "$PLAIN"
+            if gocryptfs "$ENC" "$PLAIN"; then
+                bookmark_add "$PLAIN" "Vault" 2>/dev/null || true
+                notify "Your vault is open at ${PLAIN/#$HOME/\~}. Super+Alt+K closes it." 5000 "󰒃 Vault"
+            else
+                warn "Wrong password, or the vault wouldn't open."; return 1
+            fi ;;
+        close)
+            vault_open_now || { notify "Your vault is already closed."; return 0; }
+            # FUSE 3 ships fusermount3; older systems have fusermount. Try both,
+            # then a lazy unmount so an open file manager can't keep the vault
+            # readable, and finally plain umount.
+            local fm=""
+            have fusermount3 && fm=fusermount3
+            [ -z "$fm" ] && have fusermount && fm=fusermount
+            if [ -n "$fm" ]; then
+                "$fm" -u "$PLAIN" 2>/dev/null || "$fm" -uz "$PLAIN" 2>/dev/null || true
+            fi
+            vault_open_now && umount "$PLAIN" 2>/dev/null
+            vault_open_now && umount -l "$PLAIN" 2>/dev/null
+            if vault_open_now; then
+                warn "Something is still using the vault — close it and try again."; return 1
+            fi
+            bookmark_remove "$PLAIN" 2>/dev/null || true
+            notify "Your vault is closed. The files are unreadable again." 4000 "󰒃 Vault" ;;
+    esac
+}
+
+# ── scrubbing hidden details ─────────────────────────────────────────────────
+# A photo carries the camera, often the place it was taken; a document carries
+# the author and the program. mat2 writes a clean copy next to the original.
+scrub() {
+    have mat2 || { warn "mat2 isn't installed."; return 1; }
+    local files=("$@") out=0
+    if [ ${#files[@]} -eq 0 ]; then
+        if nonint; then warn "Give it a file: prime-privacy scrub FILE"; return 0; fi
+        warn "Pick the files in the file manager, then use this from the right-click menu."
+        return 0
+    fi
+    for f in "${files[@]}"; do
+        [ -f "$f" ] || { warn "No such file: $f"; out=1; continue; }
+        if mat2 --inplace "$f" >/dev/null 2>&1; then
+            say "cleaned  $(basename "$f")"
+        else
+            warn "couldn't clean $(basename "$f") (the format may not be supported)"; out=1
+        fi
+    done
+    [ $out = 0 ] && notify "Hidden details removed from ${#files[@]} file(s)." 4000 "󰒃 Privacy"
+    return $out
+}
+
+passwords() { "$LAYER/bin/prime-addon" open keepassxc; }
+
+# ── prime-addon verbs ────────────────────────────────────────────────────────
+setup() {
+    # Nothing is created until the person asks for it: making a vault means
+    # choosing a password, and that must never happen behind their back.
+    say "Password manager: KeePassXC — your passwords stay in one file you keep."
+    say "Encrypted folder: Super+Alt+K (made the first time you open it)."
+    say "VPN: Settings → Network → add a VPN; .ovpn and WireGuard files import there."
+    return 0
+}
+
+teardown() {
+    # Close the vault so a disabled pack never leaves files readable, but never
+    # delete it: those are the person's files.
+    vault_open_now && vault close >/dev/null 2>&1
+    bookmark_remove "$PLAIN" 2>/dev/null || true
+    return 0
+}
+
+check() {
+    have keepassxc && ck_ok "Password manager installed (KeePassXC)" \
+        || ck_bad "KeePassXC is missing — switch the pack on again to install it"
+
+    if have gocryptfs; then
+        if [ -f "$ENC/gocryptfs.conf" ]; then
+            if vault_open_now; then
+                ck_warn "Your vault is OPEN — the files are readable. Super+Alt+K closes it."
+            else
+                ck_ok "Encrypted vault exists and is closed"
+            fi
+        else
+            ck_ok "Encryption ready — Super+Alt+K makes your vault the first time"
+        fi
+    else
+        ck_bad "gocryptfs is missing — switch the pack on again to install it"
+    fi
+
+    have mat2 && ck_ok "Can remove hidden details from files (mat2)" \
+        || ck_warn "mat2 is missing — 'Remove hidden details' won't work"
+
+    # A VPN is the person's to add; say where, don't nag.
+    if nmcli -t -f TYPE connection show 2>/dev/null | grep -q vpn || \
+       nmcli -t -f TYPE connection show 2>/dev/null | grep -q wireguard; then
+        ck_ok "A VPN is set up in Settings → Network"
+    else
+        ck_warn "No VPN set up. Settings → Network → + → import your provider's file"
+    fi
+}
+
+case "${1:-}" in
+    vault)     shift; vault "${1:-toggle}" ;;
+    scrub)     shift; scrub "$@" ;;
+    passwords) passwords ;;
+    setup)     setup ;;
+    teardown)  teardown ;;
+    check)     check ;;
+    *) sed -n '2,15p' "$(readlink -f "$0")" | sed 's/^# \{0,1\}//' ;;
+esac

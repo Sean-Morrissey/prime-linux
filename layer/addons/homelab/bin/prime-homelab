@@ -1,0 +1,151 @@
+#!/usr/bin/env bash
+# prime-homelab — the Homelab pack's helper.
+#
+#   prime-homelab sync [on|off|open]      folder sync between your machines
+#   prime-homelab backup [run|restore|where]   encrypted backups (restic)
+#   prime-homelab status                  what is running, and what it's using
+#   prime-homelab setup | teardown | check     used by prime-addon
+#
+# Nothing here is switched on behind the person's back: syncing their files and
+# putting the machine on a network are both decisions, not defaults. setup
+# installs the pieces and says how to start each one.
+set -u
+. "$(dirname "$(readlink -f "$0")")/../../_lib/pack.sh"
+
+BACKUP_CONF="$HOME/.config/prime/backup.conf"   # REPO=… (where backups go)
+
+# ── folder sync ──────────────────────────────────────────────────────────────
+sync() {
+    case "${1:-open}" in
+        on)
+            systemctl --user enable --now syncthing.service 2>/dev/null \
+                && notify "Folder sync is on. It opens at http://localhost:8384" 5000 "󰒋 Homelab" \
+                || warn "Couldn't start syncthing."
+            ;;
+        off)
+            systemctl --user disable --now syncthing.service 2>/dev/null \
+                && notify "Folder sync is off." 4000 "󰒋 Homelab" || warn "Couldn't stop syncthing."
+            ;;
+        open)
+            systemctl --user is-active --quiet syncthing.service 2>/dev/null || sync on
+            sleep 1
+            "$LAYER/bin/prime-browser" http://localhost:8384 2>/dev/null \
+                || xdg-open http://localhost:8384 >/dev/null 2>&1
+            ;;
+        status) systemctl --user is-active syncthing.service 2>/dev/null || echo inactive ;;
+    esac
+}
+
+# ── backups ──────────────────────────────────────────────────────────────────
+backup_repo() { [ -f "$BACKUP_CONF" ] && . "$BACKUP_CONF"; echo "${REPO:-}"; }
+
+backup() {
+    have restic || { warn "restic isn't installed."; return 1; }
+    local repo; repo="$(backup_repo)"
+    case "${1:-run}" in
+        where)
+            if [ -n "$repo" ]; then say "Backups go to: $repo"
+            else say "No backup location set yet. Pick one with: prime-homelab backup setup"; fi ;;
+        setup)
+            if nonint; then warn "Run 'prime-homelab backup setup' in a terminal to choose a location."; return 0; fi
+            local dir
+            dir="$(ask_text "Where should backups go? (a folder, ideally on another disk)" "$HOME/Backups")"
+            [ -n "$dir" ] || return 0
+            mkdir -p "$(dirname "$BACKUP_CONF")"
+            printf 'REPO=%q\n' "$dir" > "$BACKUP_CONF"
+            say "Backups will go to $dir."
+            say "Set it up once with:  restic init --repo $dir"
+            say "Keep the password you choose — without it a backup cannot be restored." ;;
+        run)
+            [ -n "$repo" ] || { warn "No backup location set. Run: prime-homelab backup setup"; return 1; }
+            say "Backing up your home folder to $repo …"
+            restic -r "$repo" backup "$HOME" \
+                --exclude "$HOME/.cache" --exclude "$HOME/.local/share/Trash" \
+                --exclude "$HOME/.var" --exclude "$HOME/Downloads" \
+                || { warn "Backup failed."; return 1; }
+            notify "Backup finished." 4000 "󰒋 Homelab" ;;
+        restore)
+            [ -n "$repo" ] || { warn "No backup location set."; return 1; }
+            say "Your backups in $repo:"; restic -r "$repo" snapshots || return 1
+            say "To restore one:  restic -r $repo restore <id> --target /somewhere/safe"
+            say "Restore somewhere empty first and look at it — never straight over your home folder." ;;
+    esac
+}
+
+status() {
+    printf '%-22s %s\n' "folder sync" "$(systemctl --user is-active syncthing.service 2>/dev/null || echo inactive)"
+    printf '%-22s %s\n' "containers (podman)" "$(have podman && podman ps -q 2>/dev/null | wc -l || echo 'not installed') running"
+    printf '%-22s %s\n' "remote login (ssh)" "$(systemctl is-active sshd 2>/dev/null || echo inactive)"
+    printf '%-22s %s\n' "tailscale" "$(have tailscale && (tailscale status >/dev/null 2>&1 && echo connected || echo 'installed, not signed in') || echo 'not installed')"
+    have duf && { echo; duf -only local 2>/dev/null | head -12; }
+}
+
+setup() {
+    # Podman needs a sub-ID range to run rootless. The Coding pack does the same;
+    # doing it twice is harmless, and skipping it leaves containers broken.
+    if have podman && ! grep -q "^$USER:" /etc/subuid 2>/dev/null; then
+        say "Giving your account the ID range rootless containers need."
+        sudo usermod --add-subuids 100000-165535 --add-subgids 100000-165535 "$USER" 2>/dev/null \
+            && podman system migrate >/dev/null 2>&1 \
+            || note "Couldn't set sub-IDs; containers may need: sudo usermod --add-subuids 100000-165535 --add-subgids 100000-165535 $USER"
+    fi
+    say "Folder sync:  Super+Alt+J → Folder sync (nothing syncs until you add a folder)."
+    say "Backups:      prime-homelab backup setup  — choose where they go."
+    say "Reach it from anywhere: sudo tailscale up  (signs this machine in; your call)."
+    say "Remote login is Prime's: Settings → Security, or  sudo prime-security ssh on."
+    return 0
+}
+
+teardown() {
+    # Stop what this pack started; never touch the person's synced files,
+    # backups or containers.
+    systemctl --user disable --now syncthing.service 2>/dev/null || true
+    note "Your synced folders, backups and containers are untouched."
+    return 0
+}
+
+check() {
+    have podman && ck_ok "Containers installed (rootless Podman)" || ck_warn "Podman is missing"
+    if have podman && ! grep -q "^$USER:" /etc/subuid 2>/dev/null; then
+        ck_bad "Rootless containers won't start — run: sudo usermod --add-subuids 100000-165535 --add-subgids 100000-165535 $USER"
+    fi
+
+    if systemctl --user is-active --quiet syncthing.service 2>/dev/null; then
+        ck_ok "Folder sync is running (http://localhost:8384)"
+    else
+        ck_warn "Folder sync is off — Super+Alt+J → Folder sync turns it on"
+    fi
+
+    local repo; repo="$(backup_repo)"
+    if [ -z "$repo" ]; then
+        ck_warn "No backups set up — run: prime-homelab backup setup"
+    elif [ -d "$repo" ]; then
+        ck_ok "Backups go to $repo"
+    else
+        ck_bad "Backup location $repo isn't there (disk not plugged in?)"
+    fi
+
+    if have tailscale; then
+        tailscale status >/dev/null 2>&1 && ck_ok "Reachable from your other devices (Tailscale)" \
+            || ck_warn "Tailscale installed but not signed in — run: sudo tailscale up"
+    fi
+
+    # An always-on machine that sleeps is not always on — the commonest surprise.
+    if systemctl is-enabled --quiet sleep.target 2>/dev/null && \
+       ! systemctl is-enabled --quiet systemd-suspend.service 2>/dev/null; then
+        :
+    fi
+    if [ -d /sys/class/power_supply/BAT0 ] || [ -d /sys/class/power_supply/BAT1 ]; then
+        ck_warn "This is a laptop: closing the lid may suspend it and stop everything. Settings → Power to keep it awake."
+    fi
+}
+
+case "${1:-}" in
+    sync)     shift; sync "${1:-open}" ;;
+    backup)   shift; backup "${1:-run}" ;;
+    status)   status ;;
+    setup)    setup ;;
+    teardown) teardown ;;
+    check)    check ;;
+    *) sed -n '2,11p' "$(readlink -f "$0")" | sed 's/^# \{0,1\}//' ;;
+esac

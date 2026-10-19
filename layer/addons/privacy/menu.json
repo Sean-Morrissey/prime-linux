@@ -1,0 +1,15 @@
+{
+  "sections": [
+    {
+      "id": "privacy", "label": "Privacy", "icon": "󰒃",
+      "items": [
+        {"id": "privacy.passwords", "label": "Passwords", "hint": "KeePassXC — kept in one file you own", "kind": "run", "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-addon open keepassxc"},
+        {"id": "privacy.vault", "label": "Open or close your vault", "hint": "Super+Alt+Shift+K · an encrypted folder", "kind": "run", "cmd": "exec ~/.local/share/prime-linux/layer/addons/privacy/bin/prime-privacy vault toggle"},
+        {"id": "privacy.vaultopen", "label": "Vault folder", "hint": "only there while it's unlocked", "kind": "run", "cmd": "exec nemo ~/Vault"},
+        {"id": "privacy.keys", "label": "Keys and the keyring", "hint": "Seahorse — SSH and GPG keys, saved passwords", "kind": "run", "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-addon open seahorse"},
+        {"id": "privacy.vpn", "label": "Set up a VPN", "hint": "import your provider's .ovpn or WireGuard file", "kind": "run", "cmd": "exec nm-connection-editor"},
+        {"id": "privacy.check", "label": "Check my privacy setup", "kind": "panel", "cmd": "~/.local/share/prime-linux/layer/bin/prime-addon check privacy"}
+      ]
+    }
+  ]
+}

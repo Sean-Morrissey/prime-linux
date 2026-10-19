@@ -1,0 +1,99 @@
+#!/usr/bin/env bash
+# prime-maker — the Maker pack's helper.
+#
+#   prime-maker slice [FILE]              open the slicer (on a model, if given)
+#   prime-maker view FILE                 look at an .stl/.3mf/.obj without slicing
+#   prime-maker setup | teardown | check  used by prime-addon
+#
+# "Slicing" is the step between a model you downloaded and a print: the slicer
+# works out the layers and writes the file the printer actually reads (.gcode).
+set -u
+. "$(dirname "$(readlink -f "$0")")/../../_lib/pack.sh"
+
+MODELS="$HOME/3D"
+MARK="maker-models"
+
+slicer_cmd() {
+    # OrcaSlicer first (most printers have a profile for it), then PrusaSlicer.
+    if flatpak --user info com.orcaslicer.OrcaSlicer >/dev/null 2>&1; then
+        echo "flatpak --user run com.orcaslicer.OrcaSlicer"
+    elif have prusa-slicer; then
+        echo "prusa-slicer"
+    else
+        echo ""
+    fi
+}
+
+slice() {
+    local cmd; cmd="$(slicer_cmd)"
+    [ -n "$cmd" ] || { warn "No slicer installed — switch the Maker pack on again."; return 1; }
+    if [ -n "${1:-}" ]; then setsid $cmd "$1" >/dev/null 2>&1 < /dev/null &
+    else setsid $cmd >/dev/null 2>&1 < /dev/null & fi
+    return 0
+}
+
+view() {
+    [ -n "${1:-}" ] || { warn "Give it a model: prime-maker view FILE"; return 1; }
+    have f3d || { warn "f3d isn't installed."; return 1; }
+    setsid f3d "$1" >/dev/null 2>&1 < /dev/null &
+}
+
+setup() {
+    mkdir -p "$MODELS/Models" "$MODELS/Printed"
+    bookmark_add "$MODELS" "3D" 2>/dev/null || true
+    say "Models go in ${MODELS/#$HOME/\~}/Models; what you've printed in Printed."
+    # Open .stl/.3mf in the viewer on double-click — looking at a model is the
+    # common case, and launching a whole slicer for that is slow.
+    if have xdg-mime && have f3d; then
+        local m
+        for m in model/stl model/3mf application/vnd.ms-package.3dmanufacturing-3dmodel+xml model/obj; do
+            xdg-mime default f3d.desktop "$m" 2>/dev/null || true
+        done
+        say "Double-clicking a model opens the viewer."
+    fi
+    say "Your printer's profile: add it inside the slicer the first time you open it."
+    return 0
+}
+
+teardown() {
+    bookmark_remove "$MODELS" 2>/dev/null || true
+    return 0
+}
+
+check() {
+    local cmd; cmd="$(slicer_cmd)"
+    case "$cmd" in
+        flatpak*) ck_ok "Slicer installed (OrcaSlicer)" ;;
+        prusa-slicer) ck_warn "Only PrusaSlicer is installed — OrcaSlicer has profiles for more printers (switch the pack on again to get it)" ;;
+        *) ck_bad "No slicer installed — switch the pack on again" ;;
+    esac
+
+    have freecad && ck_ok "CAD installed (FreeCAD) — draw parts to measurements" \
+        || ck_warn "FreeCAD is missing"
+    have openscad && ck_ok "OpenSCAD installed — parts described in code" \
+        || ck_warn "OpenSCAD is missing"
+    have f3d && ck_ok "Model viewer installed (f3d)" \
+        || ck_warn "f3d is missing — models won't open on double-click"
+
+    [ -d "$MODELS" ] && ck_ok "Models folder: ${MODELS/#$HOME/\~}" \
+        || ck_warn "No ${MODELS/#$HOME/\~} folder — switch the pack on again to make it"
+
+    # A printer on USB shows up as a serial device; most people print over the
+    # network or by SD card, so this is information, never a failure.
+    if ls /dev/ttyUSB* /dev/ttyACM* >/dev/null 2>&1; then
+        if in_group uucp || in_group dialout; then
+            ck_ok "A printer is plugged in and you can talk to it"
+        else
+            ck_warn "A printer is plugged in but your account can't use the port — run: sudo usermod -aG uucp $USER, then log out and in"
+        fi
+    fi
+}
+
+case "${1:-}" in
+    slice)    shift; slice "${1:-}" ;;
+    view)     shift; view "${1:-}" ;;
+    setup)    setup ;;
+    teardown) teardown ;;
+    check)    check ;;
+    *) sed -n '2,9p' "$(readlink -f "$0")" | sed 's/^# \{0,1\}//' ;;
+esac

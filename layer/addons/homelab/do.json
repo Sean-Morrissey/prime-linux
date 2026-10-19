@@ -1,0 +1,18 @@
+{"_comment": "Plain-words requests this pack adds to prime-do (Spotlight -> Do it). Only read while the pack is on.",
+ "commands": [
+  {"id":    "backup",
+   "title": "Back up my files",
+   "words": [["backup", "back up"], ["now", "run", "start", "make"]],
+   "cmd":   ["bash", "-lc", "~/.local/share/prime-linux/layer/addons/homelab/bin/prime-homelab backup run"],
+   "says":  "Backing up your files"},
+
+  {"id":    "sync",
+   "title": "Open folder sync",
+   "words": [["sync", "syncthing"], ["open", "folder", "folders", "show"]],
+   "cmd":   ["bash", "-lc", "~/.local/share/prime-linux/layer/addons/homelab/bin/prime-homelab sync open"]},
+
+  {"id":    "running",
+   "title": "What is this computer running",
+   "words": [["running", "status", "server"], ["what", "show", "check"]],
+   "cmd":   ["bash", "-lc", "~/.local/share/prime-linux/layer/bin/prime-panel --title Homelab -- ~/.local/share/prime-linux/layer/addons/homelab/bin/prime-homelab status"]}
+ ]}

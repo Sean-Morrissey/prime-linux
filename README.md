@@ -1,9 +1,24 @@
 # Prime Linux
 
-A student-first, atomic Linux desktop that ships with a resident AI agent.
+A desktop for CachyOS that sets itself up, explains what it did, and can always
+be undone.
 
-Status (2026-10-01): **Prime Linux installs onto CachyOS with a few copy-paste commands** (below).
-The image/ISO work further down is the longer road and is not needed to try it.
+**What that means in practice:** one command turns a CachyOS install into a
+complete Hyprland desktop — bar, dock, shortcuts, settings, apps — with a
+snapshot taken before every change, a plain-language health check, and
+`prime-uninstall` to put the computer back as it was. Optionally, an assistant
+that can change settings for you through a checked toolbox.
+
+### Where it is today
+
+| | |
+|---|---|
+| **Works now** | The desktop, the packs, snapshot-and-rollback, the health check, updates, uninstall. Installed and used on real hardware, including a 2016 laptop on integrated graphics. |
+| **Optional** | The assistant. It needs a model — one running on your own computer, or an API key you provide. Nothing is sent anywhere until you connect one, and the desktop is complete without it. |
+| **Not yet** | A bootable ISO. Prime is a layer on top of CachyOS today, not an image you install from scratch — so you need CachyOS first. The atomic-image track is parked; see the Roadmap. |
+
+It is young, and it is one person's project. Everything it changes is backed up
+and reversible, which is the answer to both of those.
 
 ## Install (on CachyOS)
 
@@ -12,57 +27,24 @@ pick and stays on the login screen as a second choice) and an internet connectio
 New to Linux? The **[user guide](docs/USER-GUIDE.md)** walks through installing
 CachyOS too.
 
-Open a terminal (press the Windows key, type `terminal`, press Enter), then follow
-**A** or **B**, depending on whether the Prime Linux repository is private or public.
-Copy each grey box, paste it into the terminal with **Ctrl+Shift+V**, and press Enter.
+Open a terminal (press the Windows key, type `terminal`, press Enter). Copy the
+grey box below, paste it into the terminal with **Ctrl+Shift+V**, and press Enter.
 When it asks for your password, type it (nothing shows while you type) and press Enter.
-
-### A. The repository is private (you were added as a collaborator)
-
-1. Accept the invitation: open the email from GitHub ("…invited you to collaborate
-   on Sean-Morrissey/prime-linux") and click **View invitation → Accept**. You need a
-   free GitHub account for this.
-2. Install GitHub's sign-in tool:
-
-   ```bash
-   sudo pacman -Syu --needed --noconfirm github-cli git
-   ```
-
-3. Sign in to GitHub from this computer:
-
-   ```bash
-   gh auth login
-   ```
-
-   Answer its questions with the arrow keys and Enter:
-   **GitHub.com** → **HTTPS** → **Yes** (authenticate Git with your GitHub
-   credentials) → **Login with a web browser**. It shows an 8-character code: press
-   Enter, sign in to GitHub in the browser that opens, and type the code there.
-4. Download Prime Linux:
-
-   ```bash
-   gh repo clone Sean-Morrissey/prime-linux ~/prime-linux
-   ```
-
-5. Install it:
-
-   ```bash
-   bash ~/prime-linux/install.sh
-   ```
-
-   After that, update with **Update everything** (or `prime-update`), not by
-   running `~/prime-linux/install.sh` again: that copy doesn't update itself.
-   (If you do run it again, it sees it's older and uses the installed copy.)
-
-### B. The repository is public
 
 One line does everything:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/sean-morrissey/prime-linux/main/boot.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Sean-Morrissey/prime-linux/main/boot.sh | bash
 ```
 
-### Then, either way
+It downloads Prime Linux into `~/.local/share/prime-linux` and runs the installer
+from there. To see what it would do without changing anything:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Sean-Morrissey/prime-linux/main/boot.sh | bash -s -- --dry-run
+```
+
+### Then
 
 - The installer shows numbered steps `[1/8] … [8/8]` and takes 5–15 minutes. It ends
   with **Prime Linux is installed**.
@@ -70,23 +52,12 @@ curl -fsSL https://raw.githubusercontent.com/sean-morrissey/prime-linux/main/boo
   log in. You get the top bar, the **P** logo (click it for the Start menu), and:
   **Super+Space** search · **Super+I** Settings · **Super+/** every
   shortcut. (*Super* is the Windows key.)
-- If anything stops half-way, run the install command again (A: step 5, B: the
-  one line): it carries on where it stopped. The log is in `~/.local/state/prime/logs/`.
-- **Updates:** Settings → Updates → **Update everything**.
+- If anything stops half-way, run the same one line again: it carries on where it
+  stopped. The log is in `~/.local/state/prime/logs/`.
+- **Updates:** Settings → Updates → **Update everything** (or `prime-update`).
+  Don't re-run the installer to update — Prime updates its own copy.
 - **Changed your mind?** In a terminal: `prime-uninstall` puts the computer back as it
   was (from KDE's Konsole: `~/.local/share/prime-linux/layer/bin/prime-uninstall`).
-- The downloaded `~/prime-linux` folder (option A) can be deleted after installing;
-  Prime keeps its own copy in `~/.local/share/prime-linux`.
-
-### For the owner: giving Prime Linux to a friend
-
-- **Private repo:** on GitHub open the repository → **Settings → Collaborators → Add
-  people**, and enter your friend's GitHub username or email. On a personal account a
-  collaborator can also push to the repo, so only invite people you trust with that.
-  Send them this README's option **A**.
-- **Public repo:** nothing to do; send them option **B**. Making the repository public is
-  your call (Settings → General → Danger Zone → Change visibility); nothing in Prime
-  does it for you.
 
 The installer checks the computer first (internet, disk space, which desktop is
 already there), shows numbered progress, logs to `~/.local/state/prime/logs/`,
@@ -120,24 +91,24 @@ top): [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ## What makes it different
 
-Every other distro treats AI as an app you install and launch. Every other distro
-gives you a desktop and wishes you luck. Prime Linux is built the other way around:
+Most desktops hand you a working machine and wish you luck the first time
+something breaks. Prime is built so that nothing it does is a one-way door:
 
-| | Ordinary distro | Prime Linux |
+| | Ordinary desktop | Prime Linux |
 |---|---|---|
-| AI assistant | an app in the launcher | can be the OS supervisor — hotkey voice, screen-aware, remembers you across reboots (your choice, step 5 of first run — your own key, nothing sent until you connect one) |
-| First run | a stack of forms | a conversation: tell Prime about yourself and it configures the machine |
+| A change you regret | undo it by hand, if you can work out what changed | every change is backed up and logged in plain words; `prime-uninstall` puts the computer back as it was |
 | A broken update | you fix it, or reinstall | a snapshot is taken first; pick the previous one in the boot menu and you're back |
-| Self-diagnosis | none | Prime runs the health check, reports in plain language, rolls back |
-| School | generic | semester scaffolding, study dashboard, math practice, whiteboard, notes/citations/PDF stack |
-| Desktop | one size fits all | two sessions at login: "Desktop" (KDE) for normal people, "Prime" (Hyprland) for power mode |
+| Something isn't right | search forums | a health check that says what's wrong and the one command or menu row that fixes it |
+| Setting it up | a stack of forms, then days of config | packs: one step installs *and* configures a whole use — coding, gaming, office, 3D printing — with shortcuts, menus and sensible settings |
+| Your own setup | starts from scratch | `prime-import` brings your existing shortcuts, screens and services along as your own add-on, which updates never touch |
+| An assistant | an app in the launcher | optional, and wired into the desktop: it can change settings through a checked toolbox that asks first, backs up and can undo — your model or your key, nothing sent until you connect one |
 
-The one-line pitch: **the first desktop that knows you, sets itself up for you, and
-fixes itself when updates go wrong.**
+The one-line pitch: **a desktop you can experiment with, because you can always
+get back.**
 
-The differentiator is *not* the desktop theme. People make tiling-WM rices every
-day. The differentiator is an agent that has hands on the machine — and a
-machine that can always be rolled back.
+The differentiator is *not* the theme — people make tiling-WM rices every day.
+It is that the machine is always recoverable, and that the setup work is done for
+you instead of being homework.
 
 ---
 
@@ -233,3 +204,15 @@ Writing a distro from source (bootloader, kernel, installer, package archive) �
 that is a multi-year project with a volunteer team. Prime Linux is a layer on top
 of CachyOS, not a fork of it: your own account, CachyOS's own update stream, and
 this repo's `layer/` on top.
+
+---
+
+## License
+
+Prime Linux is free software under the **GNU General Public License, version 3 or
+later** — see [LICENSE](LICENSE). You may use it, study it, change it and share it;
+if you distribute a changed version, it stays under the same licence so everyone
+keeps those freedoms.
+
+Prime installs software from CachyOS, Arch and Flathub. Those keep their own
+licences — this one covers Prime Linux itself (the `layer/` and the tooling here).

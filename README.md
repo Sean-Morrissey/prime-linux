@@ -1,9 +1,24 @@
 # Prime Linux
 
-A student-first, atomic Linux desktop that ships with a resident AI agent.
+A desktop for CachyOS that sets itself up, explains what it did, and can always
+be undone.
 
-Status (2026-10-01): **Prime Linux installs onto CachyOS with a few copy-paste commands** (below).
-The image/ISO work further down is the longer road and is not needed to try it.
+**What that means in practice:** one command turns a CachyOS install into a
+complete Hyprland desktop — bar, dock, shortcuts, settings, apps — with a
+snapshot taken before every change, a plain-language health check, and
+`prime-uninstall` to put the computer back as it was. Optionally, an assistant
+that can change settings for you through a checked toolbox.
+
+### Where it is today
+
+| | |
+|---|---|
+| **Works now** | The desktop, the packs, snapshot-and-rollback, the health check, updates, uninstall. Installed and used on real hardware, including a 2016 laptop on integrated graphics. |
+| **Optional** | The assistant. It needs a model — one running on your own computer, or an API key you provide. Nothing is sent anywhere until you connect one, and the desktop is complete without it. |
+| **Not yet** | A bootable ISO. Prime is a layer on top of CachyOS today, not an image you install from scratch — so you need CachyOS first. The atomic-image track is parked; see the Roadmap. |
+
+It is young, and it is one person's project. Everything it changes is backed up
+and reversible, which is the answer to both of those.
 
 ## Install (on CachyOS)
 
@@ -76,24 +91,24 @@ top): [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ## What makes it different
 
-Every other distro treats AI as an app you install and launch. Every other distro
-gives you a desktop and wishes you luck. Prime Linux is built the other way around:
+Most desktops hand you a working machine and wish you luck the first time
+something breaks. Prime is built so that nothing it does is a one-way door:
 
-| | Ordinary distro | Prime Linux |
+| | Ordinary desktop | Prime Linux |
 |---|---|---|
-| AI assistant | an app in the launcher | can be the OS supervisor — hotkey voice, screen-aware, remembers you across reboots (your choice, step 5 of first run — your own key, nothing sent until you connect one) |
-| First run | a stack of forms | a conversation: tell Prime about yourself and it configures the machine |
+| A change you regret | undo it by hand, if you can work out what changed | every change is backed up and logged in plain words; `prime-uninstall` puts the computer back as it was |
 | A broken update | you fix it, or reinstall | a snapshot is taken first; pick the previous one in the boot menu and you're back |
-| Self-diagnosis | none | Prime runs the health check, reports in plain language, rolls back |
-| School | generic | semester scaffolding, study dashboard, math practice, whiteboard, notes/citations/PDF stack |
-| Desktop | one size fits all | two sessions at login: "Desktop" (KDE) for normal people, "Prime" (Hyprland) for power mode |
+| Something isn't right | search forums | a health check that says what's wrong and the one command or menu row that fixes it |
+| Setting it up | a stack of forms, then days of config | packs: one step installs *and* configures a whole use — coding, gaming, office, 3D printing — with shortcuts, menus and sensible settings |
+| Your own setup | starts from scratch | `prime-import` brings your existing shortcuts, screens and services along as your own add-on, which updates never touch |
+| An assistant | an app in the launcher | optional, and wired into the desktop: it can change settings through a checked toolbox that asks first, backs up and can undo — your model or your key, nothing sent until you connect one |
 
-The one-line pitch: **the first desktop that knows you, sets itself up for you, and
-fixes itself when updates go wrong.**
+The one-line pitch: **a desktop you can experiment with, because you can always
+get back.**
 
-The differentiator is *not* the desktop theme. People make tiling-WM rices every
-day. The differentiator is an agent that has hands on the machine — and a
-machine that can always be rolled back.
+The differentiator is *not* the theme — people make tiling-WM rices every day.
+It is that the machine is always recoverable, and that the setup work is done for
+you instead of being homework.
 
 ---
 

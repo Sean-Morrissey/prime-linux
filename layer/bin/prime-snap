@@ -70,7 +70,7 @@ if [ "$DRY" = 1 ]; then
     exit 0
 fi
 
-hyprctl --batch "\
-dispatch setfloating active ; \
-dispatch resizewindowpixel exact $W $H,activewindow ; \
-dispatch movewindowpixel exact $X $Y,activewindow" >/dev/null 2>&1
+HYPR="$(dirname "$(readlink -f "$0")")/prime-hypr"
+{ "$HYPR" dispatch setfloating active &&
+  "$HYPR" dispatch resizewindowpixel "exact $W $H,activewindow" &&
+  "$HYPR" dispatch movewindowpixel "exact $X $Y,activewindow"; } >/dev/null 2>&1

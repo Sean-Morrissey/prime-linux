@@ -17,6 +17,9 @@ chmod +x "$T/fake"/*; export PATH="$T/fake:$PATH"
 KEY='FAKEFAKEFAKE0000test0000notareal'
 fail=0
 ck() { if ( eval "$2" ) >"$T/out" 2>&1; then echo "  PASS  $1"; else echo "  FAIL  $1"; sed 's/^/        /' "$T/out" | head -15; fail=$((fail+1)); fi; }
+# Hyprland 0.57 reads hyprland.lua and no longer reads hyprland.conf at all (0.56 prefers
+# the .lua too when it's there), so check whichever file Hyprland itself would load.
+hypr_entry() { local d="${1:-$HOME/.config/hypr}"; if [ -f "$d/hyprland.lua" ]; then echo "$d/hyprland.lua"; else echo "$d/hyprland.conf"; fi; }
 
 # the old desktop, and Prime installed for this account (the layer, nothing else yet)
 cp -a "$FIX" "$HOME"
@@ -86,7 +89,7 @@ ck "the settings file is Prime's now"           "grep -q prime-linux $HOME/.conf
 ck "Super+/ lists your shortcuts"               "$L/bin/prime-keys --list | grep -q 'Super + F1 .*Open Steam'"
 ck "a second apply is refused until undone"     "! $L/bin/prime-import --apply --yes"
 if command -v Hyprland >/dev/null 2>&1; then
-ck "Hyprland accepts the result"                "Hyprland --verify-config -c $HOME/.config/hypr/hyprland.conf | tee $T/verify.txt | tail -3; grep -qi 'config ok' $T/verify.txt"
+ck "Hyprland accepts the result"                "Hyprland --verify-config -c \$(hypr_entry) | tee $T/verify.txt | tail -3; grep -qi 'config ok' $T/verify.txt"
 else
 echo "  SKIP  Hyprland isn't installed here — --verify-config not run"
 fi

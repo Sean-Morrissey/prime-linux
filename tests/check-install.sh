@@ -4,6 +4,9 @@ set -u
 P="$HOME/.local/share/prime-linux"; L="$P/layer"; fail=0
 S="${XDG_STATE_HOME:-$HOME/.local/state}/prime"
 ck() { if ( eval "$2" ) >/dev/null 2>&1; then echo "  PASS  $1"; else echo "  FAIL  $1"; fail=$((fail+1)); fi; }
+# Hyprland 0.57 reads hyprland.lua and no longer reads hyprland.conf at all (0.56 prefers
+# the .lua too when it's there), so check whichever file Hyprland itself would load.
+hypr_entry() { local d="${1:-$HOME/.config/hypr}"; if [ -f "$d/hyprland.lua" ]; then echo "$d/hyprland.lua"; else echo "$d/hyprland.conf"; fi; }
 
 echo "-- the install itself"
 ck "installed copy exists"                 "[ -x $L/bin/prime-menu ]"
@@ -27,7 +30,7 @@ ck "re-run is a no-op that stays complete"  "bash $P/install.sh --no-packages --
 ck "dry run changes nothing"                "h=\$(mktemp -d) && HOME=\$h XDG_STATE_HOME= bash $P/install.sh --dry-run --no-packages && [ -z \"\$(ls -A \$h)\" ]"
 
 echo "-- the desktop config"
-ck "Hyprland accepts the whole config"      "Hyprland --verify-config -c ~/.config/hypr/hyprland.conf"
+ck "Hyprland accepts the whole config"      "Hyprland --verify-config -c \$(hypr_entry)"
 ck "every bind has a description"           "! grep -hE '^bind[a-z]* =' $L/default/hypr/*.conf $L/addons/*/hypr.conf | grep -vE '^bind[a-z]*d[a-z]* ='"
 # a mouse-drag bind (m) and a release bind (r) on the same key are two different
 # binds (Super+drag moves a window; letting go snaps it), so they count apart
@@ -60,7 +63,7 @@ ck "auto-started notifications use Prime's look" "[ -L ~/.config/systemd/user/sw
 echo "-- migrations"
 ck "fresh install has no pending migrations" "$L/bin/prime-migrate --pending"
 ck "old install: keyboard migration runs once" "h=\$(mktemp) && cp ~/.config/hypr/hyprland.conf \$h && sed -i '/keyboard.conf/d' ~/.config/hypr/hyprland.conf && sed -i '/^1790862549.sh$/d' ~/.config/prime/migrations && ! $L/bin/prime-migrate --pending && $L/bin/prime-migrate && [ \$(grep -c 'hypr/keyboard.conf' ~/.config/hypr/hyprland.conf) = 1 ] && $L/bin/prime-migrate && [ \$(grep -c 'hypr/keyboard.conf' ~/.config/hypr/hyprland.conf) = 1 ] && $L/bin/prime-migrate --pending"
-ck "config still valid after migration"     "Hyprland --verify-config -c ~/.config/hypr/hyprland.conf"
+ck "config still valid after migration"     "Hyprland --verify-config -c \$(hypr_entry)"
 ck "a failing migration stops the run"      "d=\$(mktemp -d) && printf '#!/bin/bash\n# fails\nexit 3\n' > \$d/100.sh && printf '#!/bin/bash\n# after\ntrue\n' > \$d/200.sh && ! PRIME_MIGRATIONS_DIR=\$d $L/bin/prime-migrate && PRIME_MIGRATIONS_DIR=\$d $L/bin/prime-migrate --pending | grep -q 200.sh"
 
 echo "-- system pieces and add-ons"
@@ -72,7 +75,7 @@ ck "the login screen offers Prime"          "cmp $L/system/wayland-sessions/prim
 ck "desktop backup works"                   "$L/bin/prime-desktop-backup save test && ls ~/.config-backups/desktop/*_test.tar.gz"
 ck "accent switch rewrites colours"         "$L/bin/prime-theme --set-accent 34d399 && grep -q 34d399 ~/.config/prime/theme/colors.css"
 ck "add-on enable (no setup) + bar merge"   "echo ai >> ~/.config/prime/addons && $L/bin/prime-addon --relink && grep -q addons/ai ~/.config/hypr/addons.conf && $L/bin/prime-bar --print top | jq -e '.\"modules-left\" | index(\"custom/ask\")'"
-ck "config still valid with add-on"        "Hyprland --verify-config -c ~/.config/hypr/hyprland.conf"
+ck "config still valid with add-on"        "Hyprland --verify-config -c \$(hypr_entry)"
 ck "right-click gets Ask rows with add-on"  "$L/bin/prime-context bar.cpu --list | grep -q 'Ask Prime'"
 ck "menu rows still resolve with the AI add-on"  "$L/bin/prime-menu --check | tail -1 | grep -q 'every row resolves'"
 ck "welcome app loads (GTK 4 + libadwaita)"     "python3 -c 'import gi; gi.require_version(\"Gtk\",\"4.0\"); gi.require_version(\"Adw\",\"1\"); from gi.repository import Adw' && python3 -c 'import ast,sys; ast.parse(open(sys.argv[1]).read())' $L/bin/prime-welcome"

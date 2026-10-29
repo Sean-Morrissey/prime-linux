@@ -975,6 +975,16 @@ def apply(imp: Import, assume_yes: bool):
         shutil.copy2(os.path.join(LAYER, "seed/hypr/hyprland.conf"), cur)
         if moved:
             say(f"    your old {tilde(cur)} is now {tilde(moved)} (renamed, not deleted)")
+    # Hyprland 0.57+ reads only hyprland.lua, which loads the hyprland.conf above;
+    # without it an imported desktop would come up as bare Hyprland. Older Hyprland
+    # ignores the file, so this is safe on every version. Anything of yours by that
+    # name is renamed, not deleted, like the file above.
+    lua = os.path.join(hy, "hyprland.lua")
+    if not (os.path.isfile(lua) and "prime-linux" in open(lua, errors="replace").read()):
+        moved = move_aside(lua)
+        shutil.copy2(os.path.join(LAYER, "seed/hypr/hyprland.lua"), lua)
+        if moved:
+            say(f"    your old {tilde(lua)} is now {tilde(moved)} (renamed, not deleted)")
     if P["monitors"]:
         write(os.path.join(hy, "monitors.conf"),
               "# Screens — Menu → Settings → Displays rewrites this file. (Brought over by prime-import.)\n"

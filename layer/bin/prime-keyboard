@@ -31,7 +31,7 @@ input {
 }
 EOF
     if [ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]; then
-        hyprctl keyword input:kb_layout "$1" >/dev/null 2>&1
+        "$BIN/prime-hypr" keyword input:kb_layout "$1" >/dev/null 2>&1
     fi
     pkill -RTMIN+11 -x waybar 2>/dev/null || true
 }

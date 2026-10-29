@@ -40,8 +40,8 @@
   // workspaces: one dot per desktop in use (just one, until you use more) — the
   // running apps live in the dock at the bottom (prime-dock)
   "hyprland/workspaces": {
-    "on-scroll-up": "hyprctl dispatch workspace e-1",
-    "on-scroll-down": "hyprctl dispatch workspace e+1",
+    "on-scroll-up": "~/.local/share/prime-linux/layer/bin/prime-hypr dispatch workspace e-1",
+    "on-scroll-down": "~/.local/share/prime-linux/layer/bin/prime-hypr dispatch workspace e+1",
     "format": "{icon}",
     "format-icons": {"default": "●"},
     "on-click-right": "~/.local/share/prime-linux/layer/bin/prime-context bar.workspaces"

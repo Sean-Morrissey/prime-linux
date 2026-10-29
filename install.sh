@@ -265,6 +265,7 @@ gpu_hw_env() {   # gpu_hw_env "<lspci -nn display lines>" → the Hyprland env l
 if skip_step 3; then info "done earlier"
 else
     seed hypr/hyprland.conf
+    seed hypr/hyprland.lua      # Hyprland 0.57+ reads this; it loads hyprland.conf
     seed kitty/kitty.conf
     retire waybar/config.jsonc      # a bar config from another setup would replace Prime's bar
     retire waybar/sidebar.jsonc

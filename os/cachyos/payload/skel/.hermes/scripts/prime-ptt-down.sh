@@ -65,7 +65,7 @@ fi
 if ! ptt_backend_port >/dev/null; then
   ptt_log "desktop backend unreachable — launching the app"
   ptt_notify "Prime" "Starting the Hermes desktop app…"
-  hyprctl dispatch exec -- "$DESKTOP_BIN" >/dev/null 2>&1
+  ~/.local/share/prime-linux/layer/bin/prime-hypr dispatch exec -- "$DESKTOP_BIN" >/dev/null 2>&1
   for _ in $(seq 1 20); do
     sleep 1
     ptt_backend_port >/dev/null && break

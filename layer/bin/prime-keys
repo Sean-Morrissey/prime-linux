@@ -33,7 +33,7 @@ static_rows() {
         k = k w " + " }
       key = $2; if (length(key) == 1) key = toupper(key)
       arg = ""; for (i = 5; i <= NF; i++) arg = arg (i > 5 ? ", " : "") $i
-      printf "%-24s  %s\t%s\t%s\tfalse\n", k key, $3, $4, arg }'
+      printf "%-24s  %s\t%s\t%s\tfalse\t\t\n", k key, $3, $4, arg }'
 }
 
 rows() {
@@ -52,8 +52,8 @@ rows() {
         | ((mods + [keyname]) | join(" + ")) as $k
         | (if .has_description then .description
            else (.dispatcher + " " + .arg | .[0:60]) end) as $d
-        | [$k, $d, .dispatcher, .arg, (.mouse | tostring)] | @tsv' |
-  awk -F'\t' '{ printf "%-24s  %s\t%s\t%s\t%s\n", $1, $2, $3, $4, $5 }'
+        | [$k, $d, .dispatcher, .arg, (.mouse | tostring), (.modmask | tostring), .key] | @tsv' |
+  awk -F'\t' '{ printf "%-24s  %s\t%s\t%s\t%s\t%s\t%s\n", $1, $2, $3, $4, $5, $6, $7 }'
 }
 
 [ "${1:-}" = "--list" ] && { rows | cut -f1; exit 0; }
@@ -63,10 +63,15 @@ pick="$(printf '%s\n' "$ROWS" | cut -f1 | ROFI_HINT="type a key or a word  ·  E
   "$BIN/prime-rofi" -dmenu -i -p "⌨  Shortcuts" -theme spotlight -theme-str 'window { width: 760px; }')" || exit 0
 [ -n "$pick" ] || exit 0
 
-IFS=$'\t' read -r _ dispatcher arg mouse < <(printf '%s\n' "$ROWS" | awk -F'\t' -v p="$pick" '$1 == p { print; exit }')
+# split on \037, not tab: tabs are whitespace to `read`, so an empty field (a
+# dispatcher with no argument) would vanish and shift the ones after it
+IFS=$'\037' read -r _ dispatcher arg mouse modmask key < <(printf '%s\n' "$ROWS" | awk -F'\t' -v p="$pick" '$1 == p { print; exit }' | tr '\t' '\037')
 [ "${mouse:-false}" = true ] && exit 0          # a drag can't be "run" from a list
 case "$dispatcher" in
-  exec) hyprctl dispatch exec -- "$arg" >/dev/null ;;
+  # Hyprland 0.57+ only names the dispatcher ("HL.Dispatcher(exec_cmd)"), so the
+  # bind is run by its keys from the table prime.lua kept while loading the config
+  HL.Dispatcher*) "$BIN/prime-hypr" run-bind "$modmask" "$key" >/dev/null ;;
+  exec) "$BIN/prime-hypr" dispatch exec -- "$arg" >/dev/null ;;
   "")   ;;
-  *)    hyprctl dispatch "$dispatcher" $arg >/dev/null ;;
+  *)    "$BIN/prime-hypr" dispatch "$dispatcher" $arg >/dev/null ;;
 esac

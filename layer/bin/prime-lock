@@ -14,12 +14,12 @@ CONF="$BIN/../default/hypr/hyprlock.conf"
 pidof hyprlock >/dev/null && exit 0
 if [ "${1:-}" = --now ] || [ -n "${PRIME_NO_SCREENSAVER:-}" ]; then exec hyprlock -c "$CONF"; fi
 export PRIME_LOCKER="hyprlock -c '$CONF'"
-hyprctl dispatch submap prime-locked >/dev/null 2>&1      # no shortcuts behind the screen saver
+"$BIN/prime-hypr" dispatch submap prime-locked >/dev/null 2>&1     # no shortcuts behind the screen saver
 "${PRIME_SAVER:-$BIN/prime-screensaver}" --lock     # PRIME_SAVER: tests
 if ! pidof hyprlock >/dev/null; then
     setsid hyprlock -c "$CONF" >/dev/null 2>&1 < /dev/null &
     for _ in 1 2 3 4 5 6 7 8 9 10; do pidof hyprlock >/dev/null && break; sleep 0.1; done
     sleep 0.4
 fi
-hyprctl dispatch submap reset >/dev/null 2>&1
+"$BIN/prime-hypr" dispatch submap reset >/dev/null 2>&1
 exit 0

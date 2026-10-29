@@ -30,6 +30,6 @@ case "$choice" in
     "$SLEEP")   systemctl suspend ;;
     "$RESTART") confirm "Restart"   && systemctl reboot ;;
     "$OFF")     confirm "Shut down" && systemctl poweroff ;;
-    "$OUT")     confirm "Log out"   && hyprctl dispatch exit ;;
+    "$OUT")     confirm "Log out"   && "$BIN/prime-hypr" dispatch exit ;;
     *)          exit 0 ;;
 esac

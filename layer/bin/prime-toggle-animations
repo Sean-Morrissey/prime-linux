@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # prime:summary=Animations on/off for this session (a slow machine, or screen recording)
 # Animations on/off for this session (a slow machine, or screen recording).
-if [ "$(hyprctl getoption animations:enabled -j | jq .int)" = 1 ]; then
-    hyprctl keyword animations:enabled false >/dev/null && notify-send -a Prime "Animations off"
+HYPR="$(dirname "$(readlink -f "$0")")/prime-hypr"
+# Hyprland 0.57 reports this option as "bool"; older versions as "int"
+if [ "$(hyprctl getoption animations:enabled -j | jq '.int // (if .bool then 1 else 0 end)')" = 1 ]; then
+    "$HYPR" keyword animations:enabled false >/dev/null && notify-send -a Prime "Animations off"
 else
-    hyprctl keyword animations:enabled true >/dev/null && notify-send -a Prime "Animations on"
+    "$HYPR" keyword animations:enabled true >/dev/null && notify-send -a Prime "Animations on"
 fi

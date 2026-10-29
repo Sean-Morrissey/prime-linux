@@ -213,7 +213,7 @@ PY
 # ── push the new look into the running session ───────────────────────────────
 reload_live() {
   live || return 0
-  hyprctl keyword general:col.active_border "rgba(ffffff44) rgba(${ACCENT}66) 45deg" >/dev/null 2>&1
+  "$BIN/prime-hypr" keyword general:col.active_border "rgba(ffffff44) rgba(${ACCENT}66) 45deg" >/dev/null 2>&1
   swaync-client -rs >/dev/null 2>&1
   pkill -USR1 -x kitty 2>/dev/null
   "$BIN/prime-bar" restart >/dev/null 2>&1 &

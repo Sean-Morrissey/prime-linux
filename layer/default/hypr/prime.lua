@@ -680,7 +680,7 @@ end
 
 -- One `hyprctl keyword KEY VALUE`, now: what `prime-hypr keyword` calls. Read as a
 -- config line, so an option (general:gaps_in, or general.gaps_in) and a keyword
--- (workspace = 1, monitor:DP-1) both work. A failure is raised, not just listed,
+-- (workspace = 1, monitor:<output>) both work. A failure is raised, not just listed,
 -- so the script that asked hears about it.
 function M.set(key, value)
   local before = #M.errors

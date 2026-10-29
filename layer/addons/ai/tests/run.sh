@@ -16,6 +16,7 @@ trap 'kill $MOCK 2>/dev/null; rm -rf "$T"' EXIT
 H="$T/home"; mkdir -p "$H/.local/share" "$H/.config/hypr" "$H/.config/prime" "$H/.local/share/applications"
 ln -s "$REPO" "$H/.local/share/prime-linux"
 cp "$REPO/layer/seed/hypr/hyprland.conf" "$H/.config/hypr/hyprland.conf"
+cp "$REPO/layer/seed/hypr/hyprland.lua" "$H/.config/hypr/hyprland.lua"   # what install.sh seeds; 0.57 reads this
 for f in monitors.conf addons.conf hardware.conf keyboard.conf; do echo "# $f" > "$H/.config/hypr/$f"; done
 echo "# enabled add-ons" > "$H/.config/prime/addons"
 mkdir -p "$T/run"; chmod 700 "$T/run"

@@ -460,6 +460,22 @@ def with_block(text, block):
     return text.rstrip("\n") + "\n\n" + block + "\n"
 
 
+_READS_LUA = {}
+
+
+def reads_lua(hl):
+    """Hyprland 0.57 dropped hyprland.conf and only reads Lua, so a .conf handed straight
+    to --verify-config is run as Lua and dies on its first line. Asked once per binary."""
+    if hl not in _READS_LUA:
+        try:
+            r = run([hl, "--version"], timeout=10)
+        except subprocess.TimeoutExpired:
+            return False
+        m = re.search(r"Hyprland (\d+)\.(\d+)", strip_ansi(r.stdout + r.stderr))
+        _READS_LUA[hl] = bool(m) and (int(m.group(1)), int(m.group(2))) >= (0, 57)
+    return _READS_LUA[hl]
+
+
 def config_errors(path):
     """Hyprland's own parser: None when Hyprland isn't installed, else a set of errors."""
     hl = shutil.which("Hyprland")
@@ -467,15 +483,37 @@ def config_errors(path):
         return None
     env = {k: v for k, v in os.environ.items() if k not in ("HYPRLAND_INSTANCE_SIGNATURE", "WAYLAND_DISPLAY")}
     with tempfile.TemporaryDirectory() as rt:
-        if not os.path.isdir(env.get("XDG_RUNTIME_DIR", "")):
-            env["XDG_RUNTIME_DIR"] = rt          # the checker refuses to start without one
+        # Always ours: the checker refuses to start without one, and Prime's reader writes
+        # the lines it had to skip there — overwriting the live session's list would throw
+        # away what the desktop is already telling the user about.
+        env["XDG_RUNTIME_DIR"] = rt
+        target = path
+        if reads_lua(hl):
+            # Check it the way Hyprland will really read it: through Prime's reader.
+            target = os.path.join(rt, "entry.lua")
+            reader = os.path.join(LAYER, "default/hypr/prime.lua")
+            with open(target, "w") as f:
+                f.write("dofile([==[%s]==])\nprime.load_conf([==[%s]==])\n" % (reader, path))
         try:
-            r = run([hl, "--verify-config", "-c", path], env=env, timeout=30)
+            r = run([hl, "--verify-config", "-c", target], env=env, timeout=30)
         except subprocess.TimeoutExpired:
             return None
+        # A line the reader can't use is a rejection too: it would be dropped from the
+        # desktop in silence otherwise.
+        skipped = set()
+        try:
+            with open(os.path.join(rt, "prime-hypr-errors")) as f:
+                skipped = {ln.strip() for ln in f if ln.strip()}
+        except OSError:
+            pass
     out = strip_ansi(r.stdout + r.stderr)
     errs = {re.sub(r" at line \d+", "", m.group(0)).replace(path, HYPR)
             for m in re.finditer(r"Config error in file .*", out)}
+    # the reader shortens $HOME to ~ and names the candidate file it was handed; the
+    # person reading this only knows their own settings file
+    friendly = HYPR.replace(HOME, "~", 1) if HYPR.startswith(HOME) else HYPR
+    short = path.replace(HOME, "~", 1) if path.startswith(HOME) else path
+    errs |= {e.replace(short, friendly).replace(path, HYPR) for e in skipped}
     if r.returncode != 0 and not errs:
         return None                              # the checker itself didn't run: can't judge
     return errs

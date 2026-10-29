@@ -33,6 +33,9 @@ in_home() { "${E[@]}" "$@"; }
 fail=0
 ck() { if eval "$2" >/dev/null 2>&1; then echo "  PASS  $1"; else echo "  FAIL  $1"; fail=$((fail+1)); fi; }
 accent() { sed -n 's/^ACCENT=//p' "$H/.config/prime/theme.conf"; }
+# Hyprland 0.57 reads hyprland.lua and no longer reads hyprland.conf at all (0.56 prefers
+# the .lua too when it's there), so check whichever file Hyprland itself would load.
+hypr_entry() { if [ -f "$H/.config/hypr/hyprland.lua" ]; then echo "$H/.config/hypr/hyprland.lua"; else echo "$H/.config/hypr/hyprland.conf"; fi; }
 
 in_home "$L/bin/prime-theme" --apply >/dev/null 2>&1
 
@@ -58,7 +61,7 @@ ck "a single key is refused"                        "in_home $S run add_shortcut
 ck "settings: layout, scrolling, look, animations"  "for a in '{\"setting\":\"keyboard_layout\",\"value\":\"gb\"}' '{\"setting\":\"natural_scroll\",\"value\":\"off\"}' '{\"setting\":\"animations\",\"value\":\"off\"}'; do in_home $S run change_setting \"\$a\" | grep -q true || exit 1; done; in_home $S run set_look '{\"preset\":\"sharp\"}' | grep -q true"
 ck "bad keyboard layout refused"                    "in_home $S run change_setting '{\"setting\":\"keyboard_layout\",\"value\":\"zz\"}' | grep -q invalid"
 if command -v Hyprland >/dev/null; then
-ck "Hyprland accepts the config with Prime's block" "in_home Hyprland --verify-config -c $H/.config/hypr/hyprland.conf | grep -q 'config ok'"
+ck "Hyprland accepts the config with Prime's block" "in_home Hyprland --verify-config -c \$(hypr_entry) | grep -q 'config ok'"
 cp "$H/.config/prime/settings.json" "$T/settings.good"
 ck "a block Hyprland rejects is never written"      "cp $H/.config/hypr/hyprland.conf $T/before && python3 -c \"import json;p='$H/.config/prime/settings.json';s=json.load(open(p));s['shortcuts'].append({'mods':'SUPER','key':'F9','description':'x','dispatch':'notadispatcher'});json.dump(s,open(p,'w'))\" && in_home $S run change_setting '{\"setting\":\"rounding\",\"value\":\"4\"}' | grep -q 'Hyprland rejected' && cmp $H/.config/hypr/hyprland.conf $T/before"
 cp "$T/settings.good" "$H/.config/prime/settings.json"

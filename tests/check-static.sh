@@ -45,7 +45,7 @@ printf '#!/bin/sh\necho "saver $*" >> %s/log\nexit 1\n' "$LK" > "$LK/saver"
 chmod +x "$LK"/*
 PATH="$LK:$PATH" PRIME_SAVER="$LK/saver" bash $L/bin/prime-lock >/dev/null 2>&1
 ck "shortcuts off, saver, then the password screen, then shortcuts back — even if the saver fails" \
-   "[ \"\$(grep -v pidof $LK/log | paste -sd'|')\" = 'hyprctl dispatch submap prime-locked|saver --lock|hyprlock|hyprctl dispatch submap reset' ]"
+   "[ \"\$(grep -v -e pidof -e 'hyprctl version' $LK/log | paste -sd'|')\" = 'hyprctl dispatch submap prime-locked|saver --lock|hyprlock|hyprctl dispatch submap reset' ]"
 : > "$LK/log"; PATH="$LK:$PATH" PRIME_SAVER="$LK/saver" bash $L/bin/prime-lock --now >/dev/null 2>&1
 ck "going to sleep: straight to the password screen"  "[ \"\$(cat $LK/log)\" = hyprlock ]"
 ck "the submap prime-lock uses exists (has a bind)"   "awk '/^submap = prime-locked/{f=1;next} /^submap = reset/{f=0} f && /^bind/' $L/default/hypr/bindings.conf | grep -q ."

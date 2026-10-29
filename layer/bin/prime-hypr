@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+# prime:summary=drive Hyprland the same way on every version (0.57 changed hyprctl)
+# prime-hypr — one way for Prime's scripts to tell Hyprland what to do.
+#
+# Hyprland 0.57 replaced `hyprctl dispatch NAME ARGS` and `hyprctl keyword` with
+# Lua (`hyprctl dispatch 'hl.dsp.…'`, `hyprctl eval 'hl.config(…)'`). Scripts keep
+# saying what they mean the classic way; on older Hyprland this passes it straight
+# through, and on 0.57+ it hands it to the translation table in
+# layer/default/hypr/prime.lua (loaded by ~/.config/hypr/hyprland.lua).
+#
+#   prime-hypr dispatch NAME [ARGS…]   e.g. prime-hypr dispatch workspace e+1
+#   prime-hypr keyword KEY VALUE       e.g. prime-hypr keyword animations:enabled false
+#   prime-hypr run-bind MODMASK KEY    do what a shortcut does (prime-keys)
+#   prime-hypr lua                     exit 0 if this Hyprland reads Lua config
+set -u
+
+# 0.57+ reads Lua. Asked once per Hyprland instance: the bar calls this on every
+# scroll, and `hyprctl version` is a round trip.
+is_lua() {
+  local cache="${XDG_RUNTIME_DIR:-/tmp}/prime-hypr-lua.${HYPRLAND_INSTANCE_SIGNATURE:-none}"
+  if [ ! -s "$cache" ]; then
+    local tag major minor
+    tag="$(hyprctl version -j 2>/dev/null | jq -r '.tag // empty' 2>/dev/null)"
+    tag="${tag#v}"; major="${tag%%.*}"; minor="${tag#*.}"; minor="${minor%%.*}"
+    case "$major$minor" in *[!0-9]*|"") return 1 ;; esac       # unknown: assume classic
+    if [ "$major" -gt 0 ] || [ "$minor" -ge 57 ]; then echo 1 > "$cache"; else echo 0 > "$cache"; fi
+  fi
+  [ "$(cat "$cache")" = 1 ]
+}
+
+# A Lua long string, so quotes and backslashes in commands pass through untouched.
+lq() {
+  case "$1" in *']==]'*) echo "prime-hypr: can't pass ']==]' to Hyprland" >&2; exit 2 ;; esac
+  printf '[==[%s]==]' "$1"
+}
+
+# hyprctl eval prints "ok" or the error; make that an exit status.
+lua_eval() {
+  local out
+  out="$(hyprctl eval "if not prime then error('Prime is not loaded: ~/.config/hypr/hyprland.lua should load layer/default/hypr/prime.lua') end; $1" 2>&1)"
+  [ "$out" = ok ] && return 0
+  echo "prime-hypr: $out" >&2
+  return 1
+}
+
+cmd="${1:-}"; shift || true
+case "$cmd" in
+  dispatch)
+    [ $# -ge 1 ] || { echo "usage: prime-hypr dispatch NAME [ARGS…]" >&2; exit 2; }
+    if ! is_lua; then exec hyprctl dispatch "$@"; fi
+    name="$1"; shift
+    [ "${1:-}" = "--" ] && shift                 # hyprctl dispatch exec -- CMD
+    lua_eval "prime.dispatch($(lq "$name"), $(lq "$*"))"
+    ;;
+  keyword)
+    [ $# -eq 2 ] || { echo "usage: prime-hypr keyword KEY VALUE" >&2; exit 2; }
+    if ! is_lua; then exec hyprctl keyword "$1" "$2"; fi
+    lua_eval "prime.set($(lq "$1"), $(lq "$2"))"
+    ;;
+  run-bind)
+    [ $# -eq 2 ] || { echo "usage: prime-hypr run-bind MODMASK KEY" >&2; exit 2; }
+    is_lua || { echo "prime-hypr: run-bind needs Hyprland 0.57+ (use hyprctl dispatch)" >&2; exit 2; }
+    lua_eval "prime.run_bind($(lq "$1"), $(lq "$2"))"
+    ;;
+  lua) is_lua ;;
+  *) sed -n '3,15p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2 ;;
+esac

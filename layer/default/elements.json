@@ -294,11 +294,11 @@
         },
         {
           "label": "󰒿  Minimize the focused window",
-          "cmd": "hyprctl dispatch movetoworkspacesilent special:minimized"
+          "cmd": "~/.local/share/prime-linux/layer/bin/prime-hypr dispatch movetoworkspacesilent special:minimized"
         },
         {
           "label": "󰅖  Close the focused window",
-          "cmd": "hyprctl dispatch killactive"
+          "cmd": "~/.local/share/prime-linux/layer/bin/prime-hypr dispatch killactive"
         }
       ],
       "no_copy": true

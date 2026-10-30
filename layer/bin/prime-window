@@ -1,0 +1,99 @@
+#!/usr/bin/env bash
+# prime:summary=minimise, bring back and move windows the way a desktop should
+# prime-window — the window jobs Hyprland has no real answer for.
+#
+#   prime-window minimise [ADDRESS]   hide it (the title bar's − and Super+minus)
+#   prime-window restore              bring a minimised window back to this desktop
+#   prime-window send-to              put this window on another desktop
+#
+# Why this exists: Hyprland has no minimise. The usual stand-in is to move the
+# window into a special workspace — but a special workspace *draws on top of*
+# whichever desktop is active, and Hyprland only hides one once its last window
+# leaves, never when one arrives. So: peek at your minimised windows
+# (Super+backspace), minimise another while that peek is open, and it lands
+# somewhere still on screen. Minimising looks like it did nothing, and the
+# window then follows you to every desktop you switch to.
+#
+# Every one of these moves the window and then makes sure the overlay is shut.
+set -u
+BIN="$(dirname "$(readlink -f "$0")")"
+HYPR="$BIN/prime-hypr"
+
+say() { notify-send -a Prime "$1" "${2:-}" 2>/dev/null || true; }
+
+focused() {   # one line: <active workspace id> TAB <special workspace name>
+    hyprctl -j monitors | jq -r '.[] | select(.focused) | "\(.activeWorkspace.id)\t\(.specialWorkspace.name)"'
+}
+
+# Hyprland closes a special workspace by itself once its last window leaves, but
+# never when one arrives. Every window in there is minimised by definition, so
+# if the overlay is still up on this screen, none of them should be showing.
+shut_overlay() {
+    [ "$1" = "special:minimized" ] && "$HYPR" dispatch togglespecialworkspace minimized >/dev/null
+    return 0
+}
+
+minimised_rows() {
+    hyprctl -j clients | jq -r '.[] | select(.workspace.name == "special:minimized")
+                                | "\(.address)\t\(.class)\t\(.title)"'
+}
+
+pick() {   # pick <prompt> <hint>  — one choice per line on stdin, the line back on stdout
+    ROFI_HINT="$2" "$BIN/prime-rofi" -dmenu -i -p "$1" -theme spotlight
+}
+
+case "${1:-}" in
+  minimise|minimize)
+    addr="${2:-}"
+    [ -n "$addr" ] || addr="$(hyprctl -j activewindow | jq -r '.address // empty')"
+    case "$addr" in 0x*) ;; *) exit 0 ;; esac
+    "$HYPR" dispatch movetoworkspacesilent "special:minimized,address:$addr" >/dev/null
+    IFS=$'\t' read -r _here special < <(focused)
+    shut_overlay "$special"
+    ;;
+
+  restore)
+    mapfile -t rows < <(minimised_rows)
+    if [ "${#rows[@]}" -eq 0 ]; then
+        say "Bring a window back" "Nothing is minimised right now."
+        exit 0
+    fi
+    if [ "${#rows[@]}" -eq 1 ]; then
+        addr="${rows[0]%%$'\t'*}"
+    else
+        sel="$(printf '%s\n' "${rows[@]}" | awk -F'\t' '{print $1"  "$2" — "$3}' \
+               | pick "Bring a window back" "Enter brings it to this desktop · Esc closes")" || exit 0
+        [ -n "${sel:-}" ] || exit 0
+        addr="${sel%% *}"
+    fi
+    case "$addr" in 0x*) ;; *) exit 0 ;; esac
+    IFS=$'\t' read -r here special < <(focused)
+    "$HYPR" dispatch movetoworkspacesilent "$here,address:$addr" >/dev/null
+    shut_overlay "$special"
+    "$HYPR" dispatch focuswindow "address:$addr" >/dev/null
+    ;;
+
+  send-to)
+    addr="$(hyprctl -j activewindow | jq -r '.address // empty')"
+    case "$addr" in 0x*) ;; *) say "Move this window" "No window is focused."; exit 0 ;; esac
+    clients="$(hyprctl -j clients)"
+    IFS=$'\t' read -r here _special < <(focused)
+    menu=""
+    for id in 1 2 3 4 5; do
+        apps="$(jq -r --argjson w "$id" '[.[] | select(.workspace.id == $w) | .class] | unique | join(", ")' <<<"$clients")"
+        [ -n "$apps" ] || apps="empty"
+        mark=""; [ "$id" = "$here" ] && mark="   ← you are here"
+        menu="$menu$id  ·  $apps$mark"$'\n'
+    done
+    sel="$(printf '%s' "$menu" | pick "Put this window on…" "Enter moves it and takes you there · Esc closes")" || exit 0
+    [ -n "${sel:-}" ] || exit 0
+    to="${sel%% *}"
+    case "$to" in [1-9]|10) ;; *) exit 0 ;; esac
+    "$HYPR" dispatch movetoworkspace "$to,address:$addr" >/dev/null
+    ;;
+
+  *)
+    sed -n '3,18p' "$0" | sed 's/^# \{0,1\}//' >&2
+    exit 2
+    ;;
+esac

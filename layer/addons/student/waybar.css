@@ -1,0 +1,8 @@
+/* Prime student pack — the Focus mode countdown next to the clock (only while it's on) */
+#custom-focus.on {
+    color: @accent;
+    padding: 0 10px;
+    margin: 4px 4px;
+    border-radius: 10px;
+    background: alpha(@accent, 0.12);
+}

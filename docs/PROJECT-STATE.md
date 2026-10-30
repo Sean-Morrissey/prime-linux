@@ -6,6 +6,18 @@ the shared source of truth for *state*; `docs/` is the source of truth for *desi
 
 Last verified: 2026-09-21.
 
+> **This whole file is about the parked Fedora/bootc image track and is stale as
+> of 2026-10-02** — over 100 commits and the 2026-09-26 pivot to shipping Prime as
+> a layer on CachyOS (`install.sh` + `layer/`) happened after the "last verified"
+> date below. For the state of the product that actually ships today, read, in
+> order: [`PRIME-LAYER.md`](PRIME-LAYER.md) (what it is and how it's built),
+> [`SHIP-GATES.md`](SHIP-GATES.md) (the acceptance bar and what's verified against
+> it), and [`REDTEAM-2026-10.md`](REDTEAM-2026-10.md) (the two most recent
+> red-team passes against `main`, with what's fixed and what's still open). The
+> rest of this file is kept as a historical record of the image track's
+> last-known state, not a claim about current reality — do not treat any fact
+> below as current without re-checking it.
+
 ---
 
 ## What this is, in one paragraph
@@ -45,8 +57,8 @@ Pitch (for red-teaming): [`PITCH.md`](PITCH.md).
    supplies their own at first boot, stored `0600` under their home.
 3. **Never ship personal data.** One person's config baked into the image turns the
    product into a backup of someone's laptop. Personalization happens on-device.
-4. **GHCR paths are lowercase.** `ghcr.io/Sean-Morrissey/...` fails; it must be
-   `ghcr.io/sean-morrissey/...`. Any doc or command with an uppercase path is wrong.
+4. **GHCR paths are lowercase.** `ghcr.io/<Owner>/...` with capitals fails; it must be
+   `ghcr.io/<owner>/...`, all lowercase. Any doc or command with an uppercase path is wrong.
 5. **Don't guess upstream facts.** Base tags, image sizes, layer counts and driver
    support are checkable — query the registry first, then write the number down.
    Figures here were verified on the date above.
@@ -97,7 +109,7 @@ then stops retrying after 2 bad boots so it cannot loop.
 - The `bootc` adapter for the shipped image is written but **not yet proven** — it
   needs an image booted in a VM. It refuses to run at all on a non-bootc machine, and
   every mutating verb also needs `PRIME_ALLOW_REAL_SYSTEM_CHANGES=yes`, which only
-  the installed systemd units set (so Sean's CachyOS is untouched by construction).
+  the installed systemd units set (so the author's CachyOS is untouched by construction).
 - Shipped as `prime-update.timer` / `.service` / `prime-boot-verify.service`, enabled
   by the recipe. `backends/arch/*` is the source of truth and is copied into the file
   layer by `tools/sync-supervisor.sh`; CI fails if the copies drift.

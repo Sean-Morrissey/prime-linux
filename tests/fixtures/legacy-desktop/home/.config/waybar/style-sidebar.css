@@ -1,0 +1,3 @@
+window#waybar { background: rgba(0, 0, 0, 0.6); }
+#custom-whiteboard { color: @accent; font-size: 18px; }
+#custom-ledger { padding: 4px 0; }

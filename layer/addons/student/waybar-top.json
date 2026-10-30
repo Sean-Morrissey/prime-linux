@@ -1,0 +1,12 @@
+{
+  "insert": {"modules-center": {"after": "clock", "modules": ["custom/focus"]}},
+  "modules": {
+    "custom/focus": {
+      "exec": "~/.local/share/prime-linux/layer/addons/student/bin/prime-student focus bar",
+      "return-type": "json",
+      "interval": 30,
+      "signal": 12,
+      "on-click": "~/.local/share/prime-linux/layer/addons/student/bin/prime-student focus stop"
+    }
+  }
+}

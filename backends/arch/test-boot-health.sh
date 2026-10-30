@@ -37,7 +37,7 @@ EOF
 cat > "$MOCKBIN/loginctl" <<'EOF'
 #!/usr/bin/env bash
 case "$1" in
-  list-sessions) printf 'c1 1000 sean seat0\n' ;;   # a session exists, but...
+  list-sessions) printf 'c1 1000 alex seat0\n' ;;   # a session exists, but...
   show-session)
     case "$4" in
       Type) echo tty ;;            # ...it is not graphical -> login screen

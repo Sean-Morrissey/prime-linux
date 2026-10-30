@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Timetable
+Comment=Your classes for the week and your reminders — with a note before each
+Exec=@LAYER@/bin/prime-timetable
+Icon=x-office-calendar
+Categories=Office;Education;
+Keywords=timetable;schedule;classes;lessons;school;reminders;remind;homework;

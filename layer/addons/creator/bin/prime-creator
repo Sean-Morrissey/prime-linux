@@ -1,0 +1,156 @@
+#!/usr/bin/env bash
+# prime-creator — the Creator pack's helper.
+#
+#   prime-creator hw          what your graphics card can encode/decode (plain report)
+#   prime-creator gpu-render  let Blender render on the graphics card (shows the download size first)
+#   prime-creator extras      more creative apps: Ardour, Inkscape, HandBrake, darktable
+#   prime-creator tips        how to get hardware encoding in OBS and Kdenlive
+#   prime-creator setup | check     used by prime-addon
+set -u
+. "$(dirname "$(readlink -f "$0")")/../../_lib/pack.sh"
+
+# name<TAB>package<TAB>what it is
+EXTRAS=$'Ardour\tardour\tProfessional audio recording and mixing
+Inkscape\tinkscape\tVector drawing: logos, icons, posters
+HandBrake\thandbrake\tConvert and shrink videos
+darktable\tdarktable\tEdit RAW photos from a camera
+G\'MIC filters\tkrita-plugin-gmic gimp-plugin-gmic\t500+ extra filters for Krita and GIMP
+Virtual camera\tv4l2loopback-dkms v4l2loopback-utils\tUse OBS as a webcam in video calls'
+
+render_nodes() { ls /dev/dri/renderD* 2>/dev/null; }
+
+# codecs <node> enc|dec — "H.264 HEVC AV1 …" the VA-API driver offers on that device
+va_codecs() {
+    local ep; [ "$2" = enc ] && ep='VAEntrypointEncSlice' || ep='VAEntrypointVLD'
+    vainfo --display drm --device "$1" 2>/dev/null | grep -E "$ep\b" | sed -E 's/^[[:space:]]*VAProfile([A-Za-z0-9]+).*/\1/' \
+        | sed -E 's/^H264.*/H.264/;s/^HEVC.*/HEVC/;s/^AV1.*/AV1/;s/^VP9.*/VP9/;s/^VP8.*/VP8/;s/^MPEG2.*/MPEG-2/;s/^VC1.*/VC-1/;s/^JPEG.*/JPEG/' \
+        | awk '!s[$0]++' | paste -sd' '
+}
+nvenc_codecs() {
+    have ffmpeg || return 0
+    ffmpeg -hide_banner -encoders 2>/dev/null | awk '/_nvenc/ {print $2}' | sed 's/_nvenc//;s/h264/H.264/;s/hevc/HEVC/;s/av1/AV1/' | paste -sd' '
+}
+
+hw_lines() {   # emits check lines about hardware video
+    local g node enc dec any=0 va_done=0
+    for g in $(gpus); do
+        case "$g" in
+            amd|intel|nouveau)
+                [ $va_done = 1 ] && continue; va_done=1     # one pass covers every render node
+                for node in $(render_nodes); do
+                    enc="$(va_codecs "$node" enc)"; dec="$(va_codecs "$node" dec)"
+                    [ -n "$enc$dec" ] || continue
+                    any=1
+                    [ -n "$enc" ] && ck_ok "Hardware encoding ($node): $enc — OBS/Kdenlive can record and export on the GPU" \
+                                  || ck_warn "No hardware encoding on $node (decoding only: $dec)"
+                    [ -n "$dec" ] && ck_ok "Hardware decoding ($node): $dec"
+                done
+                [ $any = 1 ] || ck_warn "VA-API didn't answer for the $g GPU (normal in a container/VM; otherwise run 'vainfo')" ;;
+            nvidia)
+                if have nvidia-smi && nvidia-smi >/dev/null 2>&1; then ck_ok "NVIDIA driver running"
+                else ck_bad "NVIDIA driver not running — restart, or install it (CachyOS Hello → Install NVIDIA drivers)"; fi
+                enc="$(nvenc_codecs)"
+                [ -n "$enc" ] && ck_ok "NVENC hardware encoding: $enc" || ck_warn "ffmpeg sees no NVENC encoders"
+                pacman -Qq libva-nvidia-driver >/dev/null 2>&1 && ck_ok "Video decoding for browsers/players (VA-API on NVIDIA)" ;;
+            none) ck_warn "No graphics card detected — video will encode on the CPU (slower)" ;;
+        esac
+    done
+}
+
+blender_gpu_pkgs() {   # the GPU-compute runtime Blender's Cycles needs for this machine
+    local g out=""
+    for g in $(gpus); do
+        case "$g" in
+            amd)    out+=" hip-runtime-amd hiprt" ;;
+            nvidia) out+=" cuda" ;;
+            intel)  out+=" intel-compute-runtime level-zero-loader" ;;
+        esac
+    done
+    echo $out
+}
+gpu_render() {
+    local pk; pk="$(blender_gpu_pkgs)"
+    [ -n "$pk" ] || { say "No AMD, NVIDIA or Intel graphics card found — Blender renders on the CPU."; return 0; }
+    local missing=() p; for p in $pk; do pacman -Qq "$p" >/dev/null 2>&1 || missing+=("$p"); done
+    [ ${#missing[@]} -gt 0 ] || { say "GPU rendering for Blender is already installed."; gpu_render_howto; return 0; }
+    local bytes mb
+    bytes="$(pacman -Sp --print-format '%s' "${missing[@]}" 2>/dev/null | awk '{s+=$1} END {print s+0}')"
+    mb=$((bytes / 1048576))
+    say "Blender can render on your graphics card — often 5-20x faster than the CPU."
+    say "That needs: ${missing[*]}  (about ${mb} MB to download)"
+    ask "Install it?" y || return 0
+    sudo pacman -S --needed --noconfirm "${missing[@]}" || return 1
+    printf 'pacman %s\n' "${missing[@]}" >> "$PACK_STATE/creator.installed"
+    gpu_render_howto
+}
+gpu_render_howto() {
+    say "In Blender: Edit → Preferences → System → Cycles Render Devices → pick HIP"
+    say "(AMD), OptiX/CUDA (NVIDIA) or oneAPI (Intel) and tick your card. Then in a"
+    say "scene's Render Properties set Device: GPU Compute."
+}
+
+extras() {
+    local picks=() i l pkg
+    if [ $# -gt 0 ]; then picks=("$@")
+    else
+        nonint && { cut -f1,3 <<<"$EXTRAS"; return 0; }
+        echo; say "Which would you like? (numbers, e.g. 1 3)"
+        i=1; while IFS=$'\t' read -r l pkg desc; do say "$(printf '%d) %-15s %s' $i "$l" "$desc")"; i=$((i+1)); done <<<"$EXTRAS"
+        sel="$(ask_text "Numbers, e.g. 1 3")" || return 0
+        for i in $sel; do pkg="$(sed -n "${i}p" <<<"$EXTRAS" | cut -f2)"; [ -n "$pkg" ] && picks+=("$pkg"); done
+    fi
+    [ ${#picks[@]} -gt 0 ] || return 0
+    "$LAYER/bin/prime-addon" get "${picks[@]}"
+}
+
+tips() {
+    cat <<'EOF'
+
+  Creating on Prime — hardware encoding, the short version
+
+  • OBS: the first time it opens, let the wizard run ("Optimize for recording" or
+    streaming). It tests your graphics card and picks its hardware encoder —
+    look for VAAPI/AMF (AMD), QSV (Intel) or NVENC (NVIDIA) in Settings → Output.
+    Screen capture: add a "Screen Capture (PipeWire)" source and pick a screen.
+  • Kdenlive: when rendering, choose a profile marked VAAPI (AMD/Intel) or NVENC
+    (NVIDIA) — much faster than the CPU ones. If none are listed, switch on the
+    hardware encoders in Kdenlive's settings and reopen the Render dialog.
+  • Blender: Settings → Apps → Creator → "GPU rendering for Blender" installs what your
+    card needs; then Preferences → System → Cycles Render Devices.
+  • Krita and GIMP open .psd files; Krita is the one for drawing with a tablet.
+  • What can my card do? Settings → Apps → Creator → Check my creator setup.
+EOF
+}
+
+setup() {
+    mkdir -p "$HOME/Videos" "$HOME/Pictures" "$HOME/Music"
+    local enc=0
+    while IFS=$'\t' read -r lvl msg; do
+        [ "$lvl" = ok ] && [[ "$msg" == *encoding* ]] && { say "$msg"; enc=1; }
+    done < <(hw_lines)
+    [ $enc = 1 ] || note "Hardware video encoding wasn't confirmed yet — after logging in, check: Settings → Apps → Creator → Check my creator setup"
+    note "Blender renders on the processor until you add graphics-card rendering (Settings → Apps → Creator)."
+    note "OBS: let its first-run wizard pick your graphics card's encoder."
+}
+
+check() {
+    hw_lines
+    local pk p miss=(); pk="$(blender_gpu_pkgs)"
+    for p in $pk; do pacman -Qq "$p" >/dev/null 2>&1 || miss+=("$p"); done
+    if [ -z "$pk" ]; then ck_warn "Blender: CPU rendering only (no supported graphics card found)"
+    elif [ ${#miss[@]} -eq 0 ]; then ck_ok "Blender can render on the graphics card ($pk)"
+    else ck_warn "Blender renders on the CPU — faster on the GPU: Settings → Apps → Creator → GPU rendering for Blender"; fi
+    if have ffmpeg && ffmpeg -hide_banner -hwaccels 2>/dev/null | grep -qx vaapi; then ck_ok "ffmpeg supports VA-API"; fi
+    pacman -Qq xdg-desktop-portal-hyprland >/dev/null 2>&1 && ck_ok "Screen capture for OBS (PipeWire portal)" \
+                                                          || ck_bad "Screen capture portal missing — install xdg-desktop-portal-hyprland"
+}
+
+case "${1:-}" in
+    hw)         hw_lines | while IFS=$'\t' read -r l m; do printf '  %s %s\n' "$([ "$l" = ok ] && echo '✓' || echo '!')" "$m"; done ;;
+    gpu-render) gpu_render ;;
+    extras)     shift; extras "$@" ;;
+    tips)       tips ;;
+    setup)      setup ;;
+    check)      check ;;
+    *)          sed -n '2,9p' "$0"; exit 2 ;;
+esac

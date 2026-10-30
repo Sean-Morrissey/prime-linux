@@ -64,7 +64,7 @@ cat > "$MOCKBIN/loginctl" <<'EOF'
 #!/usr/bin/env bash
 # mock loginctl: one session, idle since $MOCK_IDLE_SINCE_US (microseconds)
 case "$1" in
-  list-sessions) printf 'c1 1000 sean seat0\n' ;;
+  list-sessions) printf 'c1 1000 alex seat0\n' ;;
   show-session)
     case "$4" in
       IdleHint) echo yes ;;

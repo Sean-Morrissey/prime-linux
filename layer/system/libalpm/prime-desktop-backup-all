@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# Run by pacman, as root, before every package change (zz-prime-desktop-backup.hook):
+# every account that has Prime Linux gets a copy of its desktop settings, because
+# system snapshots cover / and not home folders.
+#
+# Safety, because this runs as root inside every package transaction:
+#   * it runs NOTHING from anyone's home folder — the save logic is right here,
+#     in this root-owned file (the old hook ran each user's own copy of
+#     prime-desktop-backup, i.e. user-editable code inside root's transaction);
+#   * tar runs AS that user (runuser), so it can only read and write what the user
+#     could anyway — no symlink trick can make root write somewhere it shouldn't;
+#   * a new session with no terminal (setsid, stdin/out to /dev/null) — the user's
+#     process can't push keystrokes into an administrator's terminal (TIOCSTI);
+#   * a clean environment (env -i) and a time limit, so a huge or hostile home
+#     folder can't hold up — or block — the system update.
+# The archive name format matches prime-desktop-backup, so "Restore desktop
+# settings" lists these copies too.
+set -u
+KEEP=20
+PATHS=(.config/hypr .config/waybar .config/prime .config/rofi .config/swaync .config/kitty
+       .config/gtk-3.0 .config/gtk-4.0 .config/autostart .config/nwg-displays)
+
+# shellcheck disable=SC2016  # runs in the user's shell, expanded there
+SAVE='cd "$HOME" 2>/dev/null || exit 0
+umask 077
+dir=.config-backups/desktop
+mkdir -p "$dir" || exit 0
+have=(); for p in "$@"; do [ -e "$p" ] && have+=("$p"); done
+[ ${#have[@]} -gt 0 ] || exit 0
+tar --exclude=.config/hypr/wallpapers --exclude=.config/prime/ai.key -czf "$dir/$(date +%Y%m%d_%H%M%S)_before-update.tar.gz" -- "${have[@]}"
+ls -1t "$dir"/*.tar.gz 2>/dev/null | tail -n +$((KEEP + 1)) | xargs -r -d "\n" rm -f --'
+
+while IFS=: read -r name _ uid _ _ home _; do
+    case "$uid" in ''|*[!0-9]*) continue ;; esac
+    [ "$uid" -ge 1000 ] && [ "$uid" -lt 60000 ] || continue
+    [ -d "$home/.local/share/prime-linux" ] || continue
+    [ "$(stat -c %u "$home" 2>/dev/null)" = "$uid" ] || continue      # their own home only
+    setsid -w timeout 60 runuser -u "$name" -- env -i HOME="$home" USER="$name" LOGNAME="$name" \
+        PATH=/usr/bin:/bin LC_ALL=C.UTF-8 KEEP="$KEEP" /bin/bash -c "$SAVE" prime-desktop-backup "${PATHS[@]}" \
+        </dev/null >/dev/null 2>&1 || true
+done < <(getent passwd)
+exit 0

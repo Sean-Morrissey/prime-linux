@@ -1,0 +1,6 @@
+{
+    "_comment": "an old theme variant nothing starts any more: must not be imported",
+    "position": "top",
+    "modules-left": ["custom/apple-menu"],
+    "custom/apple-menu": { "format": "A", "on-click": "rofi -show drun" }
+}

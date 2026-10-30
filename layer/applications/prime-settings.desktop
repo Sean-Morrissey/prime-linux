@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Settings
+GenericName=System Settings
+Comment=Everything about this computer — Wi-Fi, sound, display, mouse, keyboard, gaming, storage, updates
+Exec=@LAYER@/bin/prime-system-settings
+Icon=preferences-system
+Categories=Settings;System;
+Keywords=settings;preferences;control;panel;wifi;sound;display;mouse;keyboard;cpu;gpu;storage;gaming;ai;bluetooth;
+StartupWMClass=org.primelinux.Settings

@@ -1,0 +1,9 @@
+[Unit]
+Description=Gateway with a key written into the unit (synthetic fixture)
+
+[Service]
+Environment=HERMES_TOKEN=FAKEFAKEFAKE0000test0000notarealtoken
+ExecStart=%h/.hermes/scripts/hermes-daemon.sh
+
+[Install]
+WantedBy=default.target

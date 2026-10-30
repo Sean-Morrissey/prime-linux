@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Default Apps
+Comment=Choose your browser and file manager
+Exec=@LAYER@/bin/prime-default-apps
+Icon=preferences-desktop-default-applications
+Categories=Settings;
+Keywords=browser;default;

@@ -1,0 +1,13 @@
+# Prime Linux — save every user's desktop settings before a package change
+# (snapper's snapshots cover /, not /home).
+[Trigger]
+Operation = Install
+Operation = Upgrade
+Operation = Remove
+Type = Package
+Target = *
+
+[Action]
+Description = Saving desktop settings (Prime Linux)...
+When = PreTransaction
+Exec = /usr/share/libalpm/scripts/prime-desktop-backup-all

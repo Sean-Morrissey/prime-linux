@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Get a File Back
+Comment=Your files as they were an hour, a day or a week ago
+Exec=@LAYER@/bin/prime-file-history
+Icon=document-open-recent
+Categories=System;Utility;
+Keywords=restore;undo;deleted;lost;overwritten;backup;history;previous version;

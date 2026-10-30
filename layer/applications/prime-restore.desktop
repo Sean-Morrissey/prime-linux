@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Restore Desktop Settings
+Comment=Go back to a copy saved before an update
+Exec=@LAYER@/bin/prime-desktop-backup restore
+Icon=document-revert
+Categories=System;Settings;
+Keywords=undo;backup;restore;

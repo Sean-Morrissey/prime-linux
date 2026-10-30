@@ -1,0 +1,12 @@
+{
+  "insert": {"modules-right": {"after": "custom/audio", "modules": ["custom/perf"]}},
+  "modules": {
+    "custom/perf": {
+      "exec": "~/.local/share/prime-linux/layer/addons/gaming/bin/prime-gaming perf bar",
+      "return-type": "json",
+      "interval": 30,
+      "signal": 11,
+      "on-click": "~/.local/share/prime-linux/layer/addons/gaming/bin/prime-gaming perf off"
+    }
+  }
+}

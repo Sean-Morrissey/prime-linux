@@ -1,0 +1,10 @@
+[Unit]
+Description=Push-to-talk speech service (synthetic fixture)
+
+[Service]
+ExecStart=%h/.hermes/scripts/prime-speak.sh
+EnvironmentFile=%h/.hermes/.env
+Restart=on-failure
+
+[Install]
+WantedBy=default.target

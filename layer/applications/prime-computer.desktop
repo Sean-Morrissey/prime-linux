@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=This Computer
+Comment=Model, processor, graphics, memory and disk
+Exec=@LAYER@/bin/prime-about --computer
+Icon=computer
+Categories=System;
+Keywords=specs;hardware;info;system;

@@ -1,0 +1,17 @@
+{
+  "sections": [
+    {
+      "id": "gaming", "label": "Gaming", "icon": "󰊗",
+      "items": [
+        {"id": "game.steam", "label": "Steam", "hint": "your games library", "kind": "run", "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-addon open steam"},
+        {"id": "game.heroic", "label": "Heroic", "hint": "Epic, GOG and Amazon games", "kind": "run", "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-addon open 'heroic|com.heroicgameslauncher.hgl'"},
+        {"id": "game.lutris", "label": "Lutris", "hint": "Battle.net, EA, emulators, everything else", "kind": "run", "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-addon open 'lutris|net.lutris.Lutris'"},
+        {"id": "game.perf", "label": "Performance mode on/off", "hint": "Super+Alt+P", "kind": "run", "cmd": "exec ~/.local/share/prime-linux/layer/addons/gaming/bin/prime-gaming perf toggle"},
+        {"id": "game.hud", "label": "FPS overlay on/off", "hint": "Super+Alt+H · in a game: Right Shift+F12", "kind": "run", "cmd": "exec ~/.local/share/prime-linux/layer/addons/gaming/bin/prime-gaming hud toggle"},
+        {"id": "game.proton", "label": "Proton versions", "hint": "add GE-Proton and others", "kind": "run", "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-addon open 'protonup-qt|net.davidotek.pupgui2'"},
+        {"id": "game.tips", "label": "Gaming tips", "hint": "Proton, launch options, controllers", "kind": "panel", "cmd": "~/.local/share/prime-linux/layer/addons/gaming/bin/prime-gaming tips"},
+        {"id": "game.check", "label": "Check my gaming setup", "kind": "panel", "cmd": "~/.local/share/prime-linux/layer/bin/prime-addon check gaming"}
+      ]
+    }
+  ]
+}

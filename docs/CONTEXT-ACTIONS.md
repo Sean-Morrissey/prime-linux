@@ -1,8 +1,10 @@
 # Context actions — right-click means "Ask Prime"
 
-**Status:** implemented on the live desktop (2026-09-21); not yet shipped in the
-image. This document is the contract Prime Linux must ship, not a description of
-something planned.
+**Status:** implemented and shipped — `layer/bin/prime-context`, registered for
+every bar item and right-click surface in `layer/default/elements.json` (and
+`layer/addons/ai/elements.json` for the AI add-on), installed by `install.sh` and
+covered by `tests/check-install.sh`'s right-click checks. This document is the
+contract Prime Linux ships, not a description of something planned.
 
 ## The principle
 

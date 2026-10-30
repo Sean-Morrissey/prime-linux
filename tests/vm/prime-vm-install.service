@@ -1,0 +1,12 @@
+# Placed in the CachyOS live ISO's writable layer by tests/vm/run.sh:
+# runs guest-install.sh, then powers the VM off either way.
+[Unit]
+Description=Prime Linux VM test: unattended CachyOS install
+After=pacman-init.service NetworkManager.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash /root/prime/guest-install.sh
+ExecStopPost=/usr/bin/systemctl --no-block poweroff
+StandardOutput=journal+console
+TimeoutStartSec=infinity

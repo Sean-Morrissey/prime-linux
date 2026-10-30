@@ -1,0 +1,9 @@
+[Unit]
+Description=Prime timetable — a note before each class, and your reminders on time
+PartOf=prime-session.target
+
+[Timer]
+# every minute, on the minute (a missed minute while asleep is caught up at wake)
+OnCalendar=*-*-* *:*:00
+AccuracySec=5s
+Persistent=false

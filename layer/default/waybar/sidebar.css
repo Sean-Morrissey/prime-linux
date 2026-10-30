@@ -1,0 +1,69 @@
+/* ══════════════════════════════════════════════════════════════
+ * Prime Linux sidebar — workspaces and open apps (the dock).
+ * Same glass as the top bar. Workspaces are dots: the one you're on is a
+ * longer accent pill, ones with windows are brighter, empty ones faint.
+ * ══════════════════════════════════════════════════════════════ */
+
+@define-color bg          rgba(12, 12, 16, 0.70);
+@define-color fg          #ececef;
+@define-color fg_dim      rgba(236, 236, 239, 0.62);
+@define-color fg_faint    rgba(236, 236, 239, 0.22);
+@define-color hairline    rgba(255, 255, 255, 0.08);
+@define-color highlight   rgba(255, 255, 255, 0.10);
+@define-color amber       #fbbf24;
+@define-color rose        #f87171;
+
+* {
+    border: none;
+    border-radius: 0;
+    font-family: "Inter", "JetBrainsMono Nerd Font Propo", sans-serif;
+    font-size: 0.5625rem;
+    min-height: 0;
+    box-shadow: none;
+}
+
+window#waybar {
+    background: transparent;
+    color: @fg;
+}
+
+.modules-left {
+    background: @bg;
+    border: 1px solid @hairline;
+    border-radius: 14px;
+    padding: 10px 0;
+}
+
+/* workspaces: dots, the current one an accent pill */
+#workspaces { margin: 0 6px 6px; }
+#workspaces button {
+    padding: 2px 0;
+    margin: 3px 0;
+    border-radius: 8px;
+    color: @fg_faint;
+    background: transparent;
+}
+#workspaces button.occupied { color: @fg_dim; }
+#workspaces button:hover { background: @highlight; color: @fg; }
+#workspaces button.active {
+    color: @accent;
+    background: alpha(@accent, 0.14);
+    padding: 6px 0;
+}
+#workspaces button.urgent { color: @amber; }
+
+/* open apps */
+#taskbar {
+    margin: 0 4px;
+    padding-top: 8px;
+    border-top: 1px solid @hairline;
+}
+#taskbar button {
+    padding: 6px 0;
+    margin: 2px 0;
+    border-radius: 10px;
+    background: transparent;
+}
+#taskbar button:hover { background: @highlight; }
+#taskbar button.active { background: alpha(@accent, 0.16); }
+#taskbar button.minimized { opacity: 0.4; }

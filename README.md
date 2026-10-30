@@ -2,8 +2,103 @@
 
 A student-first, atomic Linux desktop that ships with a resident AI agent.
 
-Status: **skeleton** — recipe, build pipeline, and first-boot scaffold are in place.
-First milestone is a bootable ISO built from this repo.
+Status (2026-10-01): **Prime Linux installs onto CachyOS with a few copy-paste commands** (below).
+The image/ISO work further down is the longer road and is not needed to try it.
+
+## Install (on CachyOS)
+
+You need a computer with **CachyOS** installed (any edition; KDE Plasma is a good
+pick and stays on the login screen as a second choice) and an internet connection.
+New to Linux? The **[user guide](docs/USER-GUIDE.md)** walks through installing
+CachyOS too.
+
+Open a terminal (press the Windows key, type `terminal`, press Enter), then follow
+**A** or **B**, depending on whether the Prime Linux repository is private or public.
+Copy each grey box, paste it into the terminal with **Ctrl+Shift+V**, and press Enter.
+When it asks for your password, type it (nothing shows while you type) and press Enter.
+
+### A. The repository is private (you were added as a collaborator)
+
+1. Accept the invitation: open the email from GitHub ("…invited you to collaborate
+   on Sean-Morrissey/prime-linux") and click **View invitation → Accept**. You need a
+   free GitHub account for this.
+2. Install GitHub's sign-in tool:
+
+   ```bash
+   sudo pacman -Syu --needed --noconfirm github-cli git
+   ```
+
+3. Sign in to GitHub from this computer:
+
+   ```bash
+   gh auth login
+   ```
+
+   Answer its questions with the arrow keys and Enter:
+   **GitHub.com** → **HTTPS** → **Yes** (authenticate Git with your GitHub
+   credentials) → **Login with a web browser**. It shows an 8-character code: press
+   Enter, sign in to GitHub in the browser that opens, and type the code there.
+4. Download Prime Linux:
+
+   ```bash
+   gh repo clone Sean-Morrissey/prime-linux ~/prime-linux
+   ```
+
+5. Install it:
+
+   ```bash
+   bash ~/prime-linux/install.sh
+   ```
+
+   After that, update with **Update everything** (or `prime-update`), not by
+   running `~/prime-linux/install.sh` again: that copy doesn't update itself.
+   (If you do run it again, it sees it's older and uses the installed copy.)
+
+### B. The repository is public
+
+One line does everything:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/sean-morrissey/prime-linux/main/boot.sh | bash
+```
+
+### Then, either way
+
+- The installer shows numbered steps `[1/8] … [8/8]` and takes 5–15 minutes. It ends
+  with **Prime Linux is installed**.
+- **Log out** (or restart), choose **Prime** in the login screen's session menu, and
+  log in. You get the top bar, the **P** logo (click it for the Start menu), and:
+  **Super+Space** search · **Super+I** Settings · **Super+/** every
+  shortcut. (*Super* is the Windows key.)
+- If anything stops half-way, run the install command again (A: step 5, B: the
+  one line): it carries on where it stopped. The log is in `~/.local/state/prime/logs/`.
+- **Updates:** Settings → Updates → **Update everything**.
+- **Changed your mind?** In a terminal: `prime-uninstall` puts the computer back as it
+  was (from KDE's Konsole: `~/.local/share/prime-linux/layer/bin/prime-uninstall`).
+- The downloaded `~/prime-linux` folder (option A) can be deleted after installing;
+  Prime keeps its own copy in `~/.local/share/prime-linux`.
+
+### For the owner: giving Prime Linux to a friend
+
+- **Private repo:** on GitHub open the repository → **Settings → Collaborators → Add
+  people**, and enter your friend's GitHub username or email. On a personal account a
+  collaborator can also push to the repo, so only invite people you trust with that.
+  Send them this README's option **A**.
+- **Public repo:** nothing to do; send them option **B**. Making the repository public is
+  your call (Settings → General → Danger Zone → Change visibility); nothing in Prime
+  does it for you.
+
+The installer checks the computer first (internet, disk space, which desktop is
+already there), shows numbered progress, logs to `~/.local/state/prime/logs/`,
+picks up where it stopped if interrupted, and `bash install.sh --dry-run` shows
+exactly what it would do. `prime-uninstall` puts everything back.
+
+- New to Linux? **[docs/USER-GUIDE.md](docs/USER-GUIDE.md)** — install to everyday use.
+- How the layer is built: [docs/PRIME-LAYER.md](docs/PRIME-LAYER.md) ·
+  what it does vs Omarchy: [docs/PARITY.md](docs/PARITY.md) ·
+  releases and channels: [docs/RELEASE.md](docs/RELEASE.md)
+- Tests: `tests/install-in-container.sh` (clean Arch container, install +
+  uninstall) and `tests/vm/run.sh all` (real CachyOS VM boot, screenshot).
 
 ---
 
@@ -17,7 +112,9 @@ dotfiles, your term scaffolding, your apps, your reminders. It stays on. It watc
 updates, it notices when something broke, it rolls it back, and it explains itself
 in plain language. The terminal is still right there when a human wants to type.
 
-Full design: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+How the layer that ships today is put together: [`docs/PRIME-LAYER.md`](docs/PRIME-LAYER.md).
+The original design document (an atomic-image track, parked — see the note at its
+top): [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ---
 
@@ -28,9 +125,9 @@ gives you a desktop and wishes you luck. Prime Linux is built the other way arou
 
 | | Ordinary distro | Prime Linux |
 |---|---|---|
-| AI assistant | an app in the launcher | the OS supervisor — hotkey voice, screen-aware, remembers you across reboots |
+| AI assistant | an app in the launcher | can be the OS supervisor — hotkey voice, screen-aware, remembers you across reboots (your choice, step 5 of first run — your own key, nothing sent until you connect one) |
 | First run | a stack of forms | a conversation: tell Prime about yourself and it configures the machine |
-| A broken update | you fix it, or reinstall | update is one image; pick the previous one at boot and you're back |
+| A broken update | you fix it, or reinstall | a snapshot is taken first; pick the previous one in the boot menu and you're back |
 | Self-diagnosis | none | Prime runs the health check, reports in plain language, rolls back |
 | School | generic | semester scaffolding, study dashboard, math practice, whiteboard, notes/citations/PDF stack |
 | Desktop | one size fits all | two sessions at login: "Desktop" (KDE) for normal people, "Prime" (Hyprland) for power mode |
@@ -46,94 +143,93 @@ machine that can always be rolled back.
 
 ## How it works
 
-Prime Linux is a **custom image built on an atomic Fedora base** (Aurora / KDE via
-Universal Blue) using [BlueBuild](https://blue-build.org). You do not fork a
-distro from scratch — you declare a recipe, CI builds it, and the recipe plus the
-base's package stream *is* your distro.
+Prime Linux is **a layer on top of a stock CachyOS install**, added by `install.sh`
+(one command, see above) — not a separate OS image you flash. You keep CachyOS's
+own installer, kernel, drivers and rolling updates; this repo adds the Hyprland
+"Prime" session, the resident agent, the desktop tooling and the supervisor on top
+of your existing account.
 
 ```
-GitHub repo (this)          GitHub Actions             You / your buddy
-  recipes/recipe.yml   ->   blue-build/github-action -> ghcr.io/<user>/prime-linux
-  files/system/**                                        |
-                                                         +-> `bluebuild generate-iso`  -> bootable USB
-                                                         +-> daily upstream rebuild   -> automatic updates
+GitHub repo (this)           install.sh / boot.sh            Your account
+  layer/bin/*            ->   clones to ~/.local/share/   ->  ~/.config/hypr, waybar,
+  layer/default/*             prime-linux, then seeds          kitty, systemd units,
+  os/arch/packages.txt        + links into your account        a Prime session at login
 ```
 
-Why atomic is the whole point for a beginner:
+There is no separate build step: `prime-update` is just `git pull` plus re-running
+the relevant installer steps. Why this is still safe for a beginner, without an
+atomic image:
 
-- **Updates are all-or-nothing.** Either the new image boots, or you pick the old
-  one in the boot menu. No half-upgraded system, no broken login manager.
-- **The OS is read-only where it matters.** A newbie can't `rm -rf` their way into
-  a reinstall.
-- **Your layer is thin.** Fedora and Universal Blue carry drivers, firmware,
-  codecs, kernel. This repo only carries what makes it *Prime*.
+- **Nothing of yours is touched without a backup.** Anything `install.sh` would
+  replace is copied to `~/.config-backups/` first; `prime-uninstall` reverses the
+  whole thing.
+- **System updates snapshot first.** CachyOS's default btrfs + snapper +
+  limine-snapper-sync means every pacman transaction gets a boot-menu entry; a bad
+  update is "pick the older entry," not "chroot and pray."
+- **Your layer is thin.** CachyOS carries the kernel, drivers, firmware and the
+  rolling package stream; this repo only carries what makes it *Prime* — a few
+  dozen scripts and config files under `layer/`.
+
+An atomic-image version of this same idea (an immutable Fedora base, an update as
+a whole new bootable image) was the original design and is parked, not deleted —
+see the note at the top of [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) and §9
+there ("Base-agnostic supervision") for how the two could coexist later.
 
 ---
 
 ## Layout
 
 ```
-recipes/recipe.yml          # the whole OS definition: base, packages, apps, units
-.github/workflows/build.yml # CI: builds the image daily -> ghcr.io
-docs/                       # ARCHITECTURE (design of record), INTERVIEW, PITCH
-docs/schemas/               # JSON Schema for the user-owned config files
-templates/                  # identity seed + capability ladder, ready to validate against
-files/system/               # everything here is copied over /
-  usr/lib/os-release        #   rebranding
-  usr/libexec/prime/hw-probe.sh          # hardware probe, no model call, ~0.2s
-  usr/libexec/prime/firstboot.sh
-  usr/lib/systemd/system/prime-firstboot.service
-files/scripts/              # build-time scripts (optional)
-modules/                    # custom BlueBuild modules (optional)
+install.sh  boot.sh              # the installer (see "Install" above)
+layer/
+  bin/                           # every prime-* command (bar widgets, menus, theme, doctor, update…)
+  default/                       # Prime's defaults: hypr/, waybar/, rofi/, swaync/, kitty/, menu.json
+  seed/                          # files copied into ~/.config ONCE (the user's own from then on)
+  addons/<gaming|coding|creator|student|ai>/   # optional packs, enabled with prime-addon
+  migrations/<unix-time>.sh      # safe-to-run-twice fixes for existing installs
+os/arch/packages.txt             # official-repo packages only — no AUR needed
+backends/arch/                  # the update/rollback supervisor (prime-autoupdate) — source of truth,
+                                 #   synced into files/system/ for the parked image track
+docs/                            # PRIME-LAYER (what ships today), USER-GUIDE, RELEASE, ARCHITECTURE (parked design)
+tests/                           # tests/check-*.sh, tests/install-in-container.sh, tests/vm/
 ```
-
----
-
-## Build it
-
-```bash
-# one-time: create a GitHub repo from this directory, let Actions build it
-gh repo create prime-linux --public --source=. --push
-
-# locally, once you have an image published:
-sudo bluebuild generate-iso --iso-name prime-linux.iso \
-  image ghcr.io/<your-user>/prime-linux
-```
-
-Signing: generate a cosign keypair (`cosign generate-key-pair`), add the private key
-as the `SIGNING_SECRET` repo secret, commit the public key as `cosign.pub`.
 
 ---
 
 ## Roadmap
 
-1. **Bootable base** — Aurora base, rebranded, stock install works from ISO. ← *we are here*
-2. **Two sessions** — "Desktop" (KDE, default) and "Prime" (Hyprland) at login.
-3. **The interview** — first-boot conversation that personalizes the install
-   (identity, courses, projects, apps, dotfiles, memory seed).
-4. **Supervision** — update watcher, post-update health check, guided rollback,
-   plain-language reports, activity audit log.
-5. **Student layer** — StudyHub, term scaffolding, whiteboard, math practice.
-6. **Always-on** — voice service, reminders, spend cap, permission ladder UI.
-7. **Polish** — logo, wallpaper, Plymouth splash, installer branding, `prime` CLI.
+1. **Packs** — `gaming`, `coding`, `creator`, `student` on the add-on system (the
+   `ai` add-on already ships). Each pack is `addon.conf` + menu rows + binds.
+2. **Nightly updates for everyone** — `prime-autoupdate`'s check → snapshot → apply
+   → health → rollback cycle, on by default from the installer.
+3. **Conversational customisation** — the AI add-on gets a fixed toolbox (theme,
+   addon, bind, setting, update, doctor, restore) instead of a shell, gated by
+   `templates/capability-ladder.yaml` and logged.
+4. **Security defaults** — firewall on by default, automatic security updates,
+   signed releases of the layer (see [docs/RELEASE.md](docs/RELEASE.md)).
+5. **First-run interview** ([docs/INTERVIEW.md](docs/INTERVIEW.md)) as the front
+   door: picks packs, theme, autonomy level and update policy.
+
+Full detail and current status: [docs/PRIME-LAYER.md](docs/PRIME-LAYER.md).
 
 ---
 
 ## Rules we hold to
 
-- **Never ship secrets.** No API keys in the image, ever. First boot asks the user;
-  keys live in their home directory only.
+- **Never ship secrets.** No API keys anywhere in the layer, ever. First boot asks
+  the user; keys live in their home directory only, `0600`.
 - **The agent runs with guardrails on someone else's machine.** Approval prompts on
   destructive commands, cost caps on model calls, and a "student" profile that is
   more restrictive than the owner's. Design this before shipping it to a friend.
-- **Rebrand properly.** A modified Fedora must not carry Fedora trademarks; this
-  image is `ID=primelinux`, `ID_LIKE=fedora`. Keep upstream licenses intact.
+- **Never overwrite a user's own files.** Defaults live in `layer/default/`; the
+  user's own config always loads last and always wins — see
+  [docs/PRIME-LAYER.md](docs/PRIME-LAYER.md)'s layer table.
 
 ---
 
 ## Not in scope
 
 Writing a distro from source (bootloader, kernel, installer, package archive) —
-that is a multi-year project with a volunteer team. Prime Linux is a *derivative
-image*, which is how Bluefin, Bazzite, and Aurora are all shipped, and it gets the
-same result: your own OS, your own ISO, your own update channel.
+that is a multi-year project with a volunteer team. Prime Linux is a layer on top
+of CachyOS, not a fork of it: your own account, CachyOS's own update stream, and
+this repo's `layer/` on top.

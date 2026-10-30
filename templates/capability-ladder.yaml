@@ -1,7 +1,9 @@
 # Prime Linux — capability ladder
 #
-# Generated from the autonomy slider in Beat 4 of the interview, then editable
-# by hand. Prime consults this before every action it takes on the user's behalf.
+# Installed as ~/.config/prime/capabilities.yaml (by `prime-settings`, from the
+# autonomy slider in Welcome) and editable by hand. Prime's toolbox
+# (layer/default/prime-tools.json, run by layer/bin/prime-settings) checks it
+# before every change it makes on the user's behalf. See docs/ASSISTANT.md.
 #
 # Levels, weakest to strongest:
 #   observe      — may look, may report, may not change anything
@@ -12,8 +14,11 @@
 # Rules that override the slider:
 #   * destructive.* is pinned at approve-each at EVERY autonomy level
 #   * secrets.* is pinned at approve-each — reading or writing credentials always asks
-#   * nothing may raise its own level; only the user can (via the settings surface,
-#     which writes this file)
+#   * nothing may raise its own level; only the user can (Welcome, or
+#     `prime-settings autonomy <level>`, which rewrites this file). No tool writes it,
+#     and a restore of saved desktop settings never brings an old copy back.
+#   * whatever the level, a change Prime proposes after reading content it didn't
+#     write (a screenshot, a file, app or file names) always asks first
 #
 # autonomy: suggest  (default)  -> every capability at or below suggest
 # autonomy: auto-user           -> user-space at auto; the update/rollback cycle is
@@ -58,7 +63,7 @@ capabilities:
   # --- system-level, always needs a reboot to take effect
   system.packages:
     level: approve-each
-    note: changes the image recipe and requires a rebuild + reboot
+    note: installs packages with pacman (packs that bring apps) — asks for the password
   system.update:
     level: auto
     note: atomic image upgrade; previous deployment stays bootable. The supervisor
@@ -72,7 +77,7 @@ capabilities:
   destructive.*:
     level: approve-each
     pinned: true
-    note: deletes, wipes, partition changes, force-pushes, anything irreversible
+    note: deletes, wipes, restoring old desktop settings over the current ones, anything irreversible
   secrets.*:
     level: approve-each
     pinned: true

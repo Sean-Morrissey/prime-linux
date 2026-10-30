@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Add-ons
+Comment=Optional extras for Prime, like the Ask Prime assistant
+Exec=@LAYER@/bin/prime-addon --choose
+Icon=application-x-addon
+Categories=Settings;
+Keywords=addon;extension;assistant;ai;

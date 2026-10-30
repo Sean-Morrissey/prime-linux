@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# prime-first-login — the first time an account logs in to Prime on a fresh install,
+# put the Prime layer in place for it, from the copy the installer left on the system
+# (/usr/share/prime-linux). Runs from the seeded hyprland.conf (exec-once); does
+# nothing once the account has Prime. Progress shows in a Prime window and the
+# password is asked for there, once — never in a terminal.
+set -u
+SYS=/usr/share/prime-linux
+[ -x "$HOME/.local/share/prime-linux/layer/bin/prime-menu" ] && exit 0
+if [ ! -f "$SYS/install.sh" ]; then
+    notify-send -a Prime -u critical "Prime couldn't finish setting up" \
+        "Part of Prime is missing from this computer. Reinstalling Prime fixes it." 2>/dev/null
+    exit 1
+fi
+# the system copy belongs to root; let this account's git read it
+export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0="$SYS"
+export PRIME_ASKPASS_REASON="Prime needs your password once, to finish setting up this account."
+"$SYS/layer/bin/prime-panel" --title "Setting up Prime" \
+    --subtitle "Putting your desktop in place. This takes a minute, once." -- \
+    bash "$SYS/install.sh" --no-packages
+# the layer is there now: load it into the running session
+hyprctl reload >/dev/null 2>&1
+systemctl --user daemon-reload 2>/dev/null
+systemctl --user start prime-session.target prime-bar@top prime-bar@side 2>/dev/null
+exit 0

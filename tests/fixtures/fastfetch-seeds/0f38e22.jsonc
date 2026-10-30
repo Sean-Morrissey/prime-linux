@@ -1,0 +1,41 @@
+// Prime's terminal greeting (fastfetch, shown by the shell's greeting).
+// P.R.I.M.E — Please Relax I'll Manage Everything.
+// Seeded by prime-linux; it's yours now — prime-update never overwrites it.
+// The logo itself (~/.config/prime/prime-logo.txt) is Prime's and is refreshed
+// by every update (layer/branding/terminal/, made by make-terminal-logo.py).
+{
+  "$schema": "https://github.com/fastfetch-cli/fastfetch/raw/dev/doc/json_schema.json",
+  "logo": {
+    "type": "file-raw",
+    "source": "~/.config/prime/prime-logo.txt",
+    // 15 lines x 16 columns; the module list below is ~19 lines, so 2 lines of
+    // top padding centre the logo against it
+    "width": 16,
+    "height": 15,
+    "padding": { "top": 2, "left": 2, "right": 4 }
+  },
+  "display": {
+    "separator": "  ",
+    "color": { "keys": "38;2;134;152;251", "title": "38;2;96;165;250" }
+  },
+  "modules": [
+    "title",
+    "separator",
+    { "type": "os", "key": "System" },
+    { "type": "host", "key": "Computer" },
+    { "type": "kernel", "key": "Kernel" },
+    { "type": "uptime", "key": "On for" },
+    { "type": "packages", "key": "Apps" },
+    { "type": "shell", "key": "Shell" },
+    { "type": "display", "key": "Screen" },
+    { "type": "wm", "key": "Desktop" },
+    { "type": "terminal", "key": "Terminal" },
+    { "type": "cpu", "key": "Processor" },
+    { "type": "gpu", "key": "Graphics" },
+    { "type": "memory", "key": "Memory" },
+    { "type": "disk", "key": "Disk", "folders": "/" },
+    { "type": "battery", "key": "Battery" },
+    "break",
+    "colors"
+  ]
+}

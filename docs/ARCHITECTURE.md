@@ -1,5 +1,15 @@
 # Prime Linux — architecture
 
+> **Status (2026-10-01): this document describes the original design — an atomic
+> Fedora/Universal-Blue image built with BlueBuild. That track is parked (never
+> booted to an install — see `docs/BUILD-STATE-2026-09-27.md`); on 2026-09-26 the
+> owner decided to ship the same product as a layer on top of CachyOS instead
+> (`install.sh` + `layer/`, documented in [`PRIME-LAYER.md`](PRIME-LAYER.md)).
+> The ideas below — the three layers, the capability ladder, the honest capability
+> table, base-agnostic supervision in §9 — still hold; only §5's "why Fedora" and
+> the BlueBuild build mechanics are superseded. Read `PRIME-LAYER.md` first for
+> what actually ships today; come back here for the long-term design reasoning.**
+
 > **Prime is not an app in this distro. Prime *is* the supervisor of this distro.**
 > You install Prime Linux, you talk to Prime, you tell it who you are, what you're
 > studying, what you're building, and how you like your machine — and Prime does
@@ -85,7 +95,7 @@ An agent with shell access on someone else's machine needs a spine, not vibes.
 - **Rollback is the undo button** — any system-level change is a new deployment.
   If the next boot is unhealthy, Prime detects it and offers the previous one.
 - **Audit log** — every command Prime runs is recorded (the activity-timeline hook
-  already does this on Sean's machine) and viewable in plain language: what, when,
+  already does this on the author's machine) and viewable in plain language: what, when,
   why, what changed.
 - **Spend cap** — a hard monthly ceiling on model calls, surfaced in the UI.
 - **Two profiles** — `owner` (full) and `student` (stricter defaults, safer
@@ -95,7 +105,7 @@ An agent with shell access on someone else's machine needs a spine, not vibes.
 
 ## 5. Why the shipped base is Fedora Atomic and not CachyOS/Arch
 
-CachyOS is the right machine *for Sean*: rolling, fast, hand-tuned, and he can fix
+CachyOS is the right machine *for the author*: rolling, fast, hand-tuned, and he can fix
 it when it breaks. CachyOS is the wrong machine to hand to someone who has never
 opened a terminal, for exactly one reason:
 
@@ -107,7 +117,7 @@ opened a terminal, for exactly one reason:
 - **Atomic + root agent = bounded failure.** The worst case is a bad image, and the
   boot menu already contains the fix. Non-negotiable when the user can't help.
 
-Sean's own machine stays CachyOS. Prime Linux is what gets *shipped*.
+The author's own machine stays CachyOS. Prime Linux is what gets *shipped*.
 
 **Why Aurora specifically, of the Universal Blue images:** it is the quiet
 productivity workstation of the set — KDE Plasma, drivers, codecs, flathub and
@@ -187,7 +197,7 @@ The contract instead:
 
 ### 8.2 Memory architecture decides whether Prime is still useful in week two
 
-The shape is right and **most of it already exists in shipping form on Sean's
+The shape is right and **most of it already exists in shipping form on the author's
 machine** — this is the strongest evidence the design is buildable:
 
 | Piece | Existing implementation |
@@ -244,7 +254,7 @@ to survive one person.*
 
 ## 9. Base-agnostic supervision (and the honest Arch story)
 
-The question that keeps coming back: can this work on Arch, like Sean's own CachyOS?
+The question that keeps coming back: can this work on Arch, like the author's own CachyOS?
 The answer splits cleanly, and the split is the useful part.
 
 **The agent layer does not care what distro it runs on.** hw-probe, the interview,

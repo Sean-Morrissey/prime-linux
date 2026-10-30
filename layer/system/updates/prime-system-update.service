@@ -1,0 +1,21 @@
+[Unit]
+Description=Prime Linux automatic updates (snapshot first, checked after, never restarts the computer)
+Documentation=file:///etc/prime/updates.conf
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# The consent flag lives in the installed unit, on purpose: the same program run
+# by hand (or by any other tool) refuses to change the system.
+Environment=PRIME_ALLOW_REAL_SYSTEM_CHANGES=yes
+ExecStart=/usr/local/lib/prime-linux/prime-system-update cycle
+Nice=10
+IOSchedulingClass=idle
+# An update must never be killed half-way. SIGINT lets pacman stop a download
+# cleanly but is refused while packages are being written, and no SIGKILL follows.
+TimeoutStartSec=4h
+KillSignal=SIGINT
+SendSIGKILL=no
+# 1 = the update failed (reported to the person), 2 = skipped: both are normal outcomes
+SuccessExitStatus=1 2

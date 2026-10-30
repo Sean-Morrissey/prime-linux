@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Prime
+Comment=The Prime desktop
+Exec=uwsm start -- hyprland.desktop
+TryExec=uwsm
+DesktopNames=Hyprland

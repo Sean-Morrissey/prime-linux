@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Ask Prime
+Comment=Ask the assistant anything
+Exec=@LAYER@/addons/ai/bin/prime-ask --box
+Icon=prime-linux
+Categories=Utility;
+Keywords=ai;assistant;chat;help;question;

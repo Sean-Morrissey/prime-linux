@@ -1,0 +1,19 @@
+@define-color accent #a78bfa;
+@define-color pill rgba(30, 30, 46, 0.85);
+@define-color unused #123456;
+
+* { font-family: "JetBrainsMono Nerd Font"; }
+
+window#waybar { background: transparent; }
+
+/* my pills */
+#custom-hermes,
+#custom-speak {
+    background: @pill;
+    border-radius: 10px;
+    padding: 0 8px;
+}
+#custom-speak.active { color: @accent; }
+#custom-gpu { color: #fbbf24; }
+#temperature.critical { color: #f87171; }
+#clock { font-weight: bold; }

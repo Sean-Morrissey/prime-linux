@@ -15,6 +15,7 @@
 #   prime rollbacks              list rollback points, newest first
 #   prime rollback <id>          go back
 #   prime audit                  everything Prime has done to this machine
+#   prime commands               the desktop commands, with what each one does
 #
 # The filesystem-level work lives in a backend, chosen by PRIME_BACKEND:
 #   sandbox  (default) a fake machine in a temp directory — safe, no root, no
@@ -210,8 +211,43 @@ for line in open(sys.argv[1]):
 PY
 }
 
+# Where the desktop commands live. The supervisor is installed system-side and
+# the prime-* commands ship in the layer, so the two are not siblings; look in
+# the places the layer actually gets installed, nearest first.
+layer_bin() {
+  local d
+  for d in "${PRIME_LAYER_BIN:-}" \
+           "$HOME/.local/share/prime-linux/layer/bin" \
+           "/usr/share/prime/bin" \
+           "$SELF_DIR/../../../../../layer/bin"; do
+    [ -n "$d" ] && [ -d "$d" ] && { (cd "$d" && pwd); return 0; }
+  done
+  return 1
+}
+
+# The desktop commands, read from their `# prime:summary=` headers. Keeping the
+# text in the scripts means this list cannot drift from what they actually do.
+cmd_commands() {
+  local bin name summary found=0
+  bin="$(layer_bin)" || { dim "  (desktop commands not installed)"; return 0; }
+  for f in "$bin"/prime-*; do
+    [ -f "$f" ] || continue
+    name="$(basename "$f")"
+    summary="$(sed -n 's/^# prime:summary=//p' "$f" | head -1)"
+    [ -n "$summary" ] || continue
+    printf '  %s%-24s%s %s\n' "$c_b" "$name" "$c_reset" "$summary"
+    found=$((found+1))
+  done
+  [ "$found" -gt 0 ] || dim "  (no commands carry a prime:summary header)"
+}
+
 usage() {
   sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'
+  if layer_bin >/dev/null 2>&1; then
+    say ""
+    say "Desktop commands:"
+    cmd_commands
+  fi
 }
 
 # ---------------------------------------------------------------------- main
@@ -224,6 +260,7 @@ case "${1:-}" in
   rollbacks) load_backend; cmd_rollbacks ;;
   rollback)  load_backend; shift; cmd_rollback "${1:-}" ;;
   audit)     cmd_audit ;;
+  commands)  cmd_commands ;;
   version)   say "prime $PRIME_VERSION" ;;
   ""|-h|--help|help) usage ;;
   *)         die "unknown command: $1 (try: prime help)" ;;

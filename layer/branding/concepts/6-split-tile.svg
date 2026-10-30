@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <!-- Prime Linux emblem "Split tile". Original artwork, CC0.
+       prime-theme recolours #f87171 to the accent. -->
+  <path fill="#f87171" d="M60 20 H76 A12 12 0 0 1 88 32 V224 A12 12 0 0 1 76 236 H60 A40 40 0 0 1 20 196 V60 A40 40 0 0 1 60 20 Z"/>
+  <path fill="#f87171" d="M118 20 H196 A40 40 0 0 1 236 60 V74 A72 72 0 0 1 164 146 H118 A12 12 0 0 1 106 134 V32 A12 12 0 0 1 118 20 Z"/>
+</svg>

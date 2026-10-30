@@ -1,0 +1,1842 @@
+#!/usr/bin/python3
+# prime:summary=everything about this computer, in one window
+"""Settings — everything about this computer, in one window (like System Settings on
+a Mac or Settings on Windows). A sidebar of sections; each page shows what's set now
+and changes it in place.
+
+It doesn't reinvent anything: each control calls the Prime tool that already does
+the job — the settings toolbox (prime-settings: backed up, logged and undoable),
+prime-theme, prime-toggle, prime-update-policy, prime-addon, prime-security… — or
+the system's own (nmcli, wpctl, bluetoothctl, timedatectl). Something the computer
+doesn't have (no battery, no Bluetooth, no Wi-Fi card) shows as such, never as an
+error.
+
+  prime-system-settings                 open Settings
+  prime-system-settings --page sound    open on one page (ids: --list-pages)
+  prime-system-settings --list-pages    id, title and search words for every page
+  prime-system-settings --selftest      build every page offscreen and check them
+  prime-system-settings --screenshots DIR   one PNG per page (needs a display, e.g. Xvfb)
+"""
+from __future__ import annotations
+
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import threading
+import urllib.parse
+
+BIN = os.path.dirname(os.path.realpath(__file__))
+LAYER = os.path.realpath(os.path.join(BIN, ".."))
+HOME = os.path.expanduser("~")
+CFG = os.path.join(HOME, ".config/prime")
+ACCENTS = [("Rose", "f87171"), ("Ember", "fb923c"), ("Amber", "fbbf24"), ("Emerald", "34d399"),
+           ("Teal", "2dd4bf"), ("Sapphire", "60a5fa"), ("Amethyst", "c084fc"), ("Silver", "d4d4d8")]
+TEXT_SIZES = [("Small", "small"), ("Default", "default"), ("Large", "large"), ("Larger", "larger")]
+LOOKS = [("Rounded", "rounded"), ("Sharp", "sharp"), ("Compact", "compact"), ("Airy", "airy")]
+POLICIES = [("Automatically, at night (recommended)", "automatic"), ("Ask me first", "ask"),
+            ("Only security fixes", "security"), ("Never by itself", "off")]
+POWER = [("Battery saver", "power-saver"), ("Balanced", "balanced"), ("Performance", "performance")]
+AUTONOMY = [("Ask me first", "suggest"), ("Change my own settings by itself", "auto-user"),
+            ("Also look after the system by itself", "auto-all")]
+
+
+# ── talking to the computer (all of it safe to call when something is missing) ──
+
+def has(cmd: str) -> bool:
+    return shutil.which(cmd) is not None or os.access(os.path.join(BIN, cmd), os.X_OK)
+
+
+def sh(*args, timeout: float = 4) -> str:
+    """Run a command, return its output ('' if it isn't there or fails)."""
+    cmd = list(args)
+    if not shutil.which(cmd[0]) and os.access(os.path.join(BIN, cmd[0]), os.X_OK):
+        cmd[0] = os.path.join(BIN, cmd[0])
+    try:
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout).stdout.strip()
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+
+
+def ok(*args, timeout: float = 30) -> bool:
+    cmd = list(args)
+    if not shutil.which(cmd[0]) and os.access(os.path.join(BIN, cmd[0]), os.X_OK):
+        cmd[0] = os.path.join(BIN, cmd[0])
+    try:
+        return subprocess.run(cmd, capture_output=True, timeout=timeout).returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
+def act(*args, stdin: str | None = None, timeout: float = 60) -> tuple:
+    """Make a change: (worked?, what went wrong). A password goes in on stdin, never on
+    the command line. PRIME_SETTINGS_DRY prints what would run (and never the stdin)."""
+    cmd = list(args)
+    if os.environ.get("PRIME_SETTINGS_DRY"):
+        print("ACT", " ".join(cmd), f"(+{len(stdin.splitlines())} line(s) on stdin)" if stdin else "", flush=True)
+        return True, ""
+    if not shutil.which(cmd[0]) and os.access(os.path.join(BIN, cmd[0]), os.X_OK):
+        cmd[0] = os.path.join(BIN, cmd[0])
+    try:
+        r = subprocess.run(cmd, input=stdin, capture_output=True, text=True, timeout=timeout)
+        return r.returncode == 0, (r.stderr or r.stdout).strip()
+    except (OSError, subprocess.TimeoutExpired):
+        return False, "it took too long or couldn't start"
+
+
+def launch(*args):
+    """Open another window (a Prime tool or an app), fully detached."""
+    cmd = list(args)
+    if not shutil.which(cmd[0]) and os.access(os.path.join(BIN, cmd[0]), os.X_OK):
+        cmd[0] = os.path.join(BIN, cmd[0])
+    if os.environ.get("PRIME_SETTINGS_DRY"):
+        print("LAUNCH", " ".join(cmd), flush=True)
+        return
+    try:
+        subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL, start_new_session=True)
+    except OSError:
+        pass
+
+
+def toolbox(tool: str, args: dict) -> tuple:
+    """prime-settings run: every change is backed up, logged and undoable."""
+    if os.environ.get("PRIME_SETTINGS_DRY"):
+        print("TOOL", tool, json.dumps(args, sort_keys=True), flush=True)
+        return True, "ok"
+    out = sh("prime-settings", "run", tool, json.dumps(args), timeout=60)
+    try:
+        r = json.loads(out)
+        return bool(r.get("ok")), r.get("message", "")
+    except ValueError:
+        return False, "That didn't work — Get help (About this computer) makes a report."
+
+
+def managed() -> dict:
+    """The settings Prime's toolbox already manages (what Settings shows as current)."""
+    try:
+        return json.load(open(os.path.join(CFG, "settings.json"))).get("settings", {})
+    except (OSError, ValueError):
+        return {}
+
+
+def theme_conf() -> dict:
+    out = {}
+    try:
+        for line in open(os.path.join(CFG, "theme.conf")):
+            if "=" in line:
+                k, v = line.strip().split("=", 1)
+                out[k] = v.strip("'\"")
+    except OSError:
+        pass
+    return out
+
+
+def enabled_addons() -> set:
+    try:
+        return {l.strip() for l in open(os.path.join(CFG, "addons")) if l.strip() and not l.startswith("#")}
+    except OSError:
+        return set()
+
+
+def gb(n_bytes: float) -> str:
+    return f"{n_bytes / 1e9:.0f} GB" if n_bytes >= 10e9 else f"{n_bytes / 1e9:.1f} GB"
+
+
+def read(path: str) -> str:
+    try:
+        return open(path).read().strip()
+    except OSError:
+        return ""
+
+
+# ── the hardware, described in words ───────────────────────────────────────────
+
+def cpu_info() -> dict:
+    model, cores = "", os.cpu_count() or 0
+    for line in read("/proc/cpuinfo").splitlines():
+        if line.startswith("model name"):
+            model = line.split(":", 1)[1].strip()
+            break
+    load = os.getloadavg()[0] if hasattr(os, "getloadavg") else 0.0
+    busy = min(100, round(load / max(cores, 1) * 100))
+    freq = read("/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq")
+    temp = ""
+    for z in sorted(os.listdir("/sys/class/thermal")) if os.path.isdir("/sys/class/thermal") else []:
+        if read(f"/sys/class/thermal/{z}/type") in ("x86_pkg_temp", "k10temp", "cpu-thermal", "acpitz"):
+            t = read(f"/sys/class/thermal/{z}/temp")
+            if t.isdigit():
+                temp = f"{int(t) // 1000} °C"
+                break
+    return {"model": model or "unknown", "cores": cores, "busy": busy,
+            "speed": f"{int(freq) / 1e6:.1f} GHz" if freq.isdigit() else "", "temp": temp}
+
+
+def gpus() -> list:
+    """[(name, driver)] for each graphics card."""
+    out = []
+    text = sh("lspci", "-k") if has("lspci") else ""
+    blocks = re.split(r"\n(?=\S)", text)
+    for b in blocks:
+        first = b.splitlines()[0] if b else ""
+        if re.search(r"VGA|3D|Display", first):
+            name = re.sub(r"^\S+\s+[^:]+:\s*", "", first)
+            name = re.sub(r"\s*\(rev [0-9a-f]+\)$", "", name)
+            m = re.search(r"Kernel driver in use:\s*(\S+)", b)
+            out.append((name, m.group(1) if m else ""))
+    return out
+
+
+def disks() -> list:
+    """[(where, total, free)] for / and the home folder's disk (once if they're the same)."""
+    out, seen = [], set()
+    for label, path in (("System", "/"), ("Your files", HOME)):
+        try:
+            st = os.statvfs(path)
+        except OSError:
+            continue
+        key = (st.f_blocks, st.f_bfree)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append((label, st.f_blocks * st.f_frsize, st.f_bavail * st.f_frsize))
+    return out
+
+
+def battery() -> dict:
+    root = "/sys/class/power_supply"
+    for b in sorted(os.listdir(root)) if os.path.isdir(root) else []:
+        if read(f"{root}/{b}/type") == "Battery" and read(f"{root}/{b}/scope") != "Device":
+            cap = read(f"{root}/{b}/capacity")
+            full, design = read(f"{root}/{b}/energy_full"), read(f"{root}/{b}/energy_full_design")
+            health = f"{round(int(full) * 100 / int(design))}%" if full.isdigit() and design.isdigit() and int(design) else ""
+            return {"percent": cap, "status": read(f"{root}/{b}/status"), "health": health}
+    return {}
+
+
+# ── screens (hyprctl), saved in ~/.config/hypr/monitors.conf ──────────────────
+
+MONITORS_CONF = os.path.join(HOME, ".config/hypr/monitors.conf")
+HYPRCTL = "hyprctl"                         # the window manager's control command
+SYSTEMCTL = "systemctl"                     # starts and stops the desktop's parts
+SCALES = [("100%", 1.0), ("125%", 1.25), ("150%", 1.5), ("175%", 1.75), ("200%", 2.0)]
+MINUTE_CHOICES = [("1 minute", 1), ("2 minutes", 2), ("5 minutes", 5), ("10 minutes", 10), ("15 minutes", 15),
+                  ("20 minutes", 20), ("30 minutes", 30), ("45 minutes", 45), ("1 hour", 60), ("2 hours", 120),
+                  ("Never", 0)]
+BAR_ITEM_NAMES = [("media", "Music controls", "Play, pause and skip, with what's playing"),
+                  ("toggles", "Quick toggles", "Night light, do not disturb, keep awake"),
+                  ("keyboard", "Keyboard layout", "Shown when you have more than one"),
+                  ("tray", "App icons (tray)", "Apps that run in the background, such as Discord or Steam"),
+                  ("network", "Wi-Fi", "Network and its menu"),
+                  ("bluetooth", "Bluetooth", "Bluetooth and its devices"),
+                  ("sound", "Volume", "Volume and sound devices"),
+                  ("battery", "Battery", "On laptops"),
+                  ("updates", "Updates", "Shown when updates are waiting"),
+                  ("notifications", "Notifications", "The notification centre button"),
+                  ("stats", "Processor, memory and graphics use", "Live numbers (with the Gaming pack)")]
+VRR_MODES = [("Off", 0), ("Always", 1), ("Full-screen games and video", 2)]
+
+
+def monitors() -> list:
+    try:
+        return json.loads(sh("hyprctl", "monitors", "-j") or "[]")
+    except ValueError:
+        return []
+
+
+def modes_of(mon: dict) -> list:
+    """[(label, "WxH@R")] best first: highest resolution, then highest refresh rate."""
+    seen, out = set(), []
+    for m in mon.get("availableModes", []):
+        mm = re.match(r"(\d+)x(\d+)@([\d.]+)Hz", m)
+        if not mm:
+            continue
+        w, h, r = int(mm.group(1)), int(mm.group(2)), float(mm.group(3))
+        key = (w, h, round(r))
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append((w * h, r, f"{w} × {h} at {round(r)} Hz", f"{w}x{h}@{r:.2f}"))
+    out.sort(key=lambda t: (-t[0], -t[1]))
+    return [(lab, val) for _a, _b, lab, val in out]
+
+
+def current_mode(mon: dict) -> str:
+    return f"{mon.get('width')}x{mon.get('height')}@{float(mon.get('refreshRate', 60)):.2f}"
+
+
+def monitor_line(name: str, mode: str, x: int, y: int, scale: float, vrr: int | None = None) -> str:
+    """One Hyprland monitor rule: name, mode, position, scale[, vrr]."""
+    line = f"{name}, {mode}, {int(x)}x{int(y)}, {scale:g}"
+    if vrr is not None:
+        line += f", vrr, {int(vrr)}"
+    return line
+
+
+def save_monitor(name: str, line: str, path: str = MONITORS_CONF) -> None:
+    """Replace this screen's rule in monitors.conf (or add it); other screens stay as they are."""
+    try:
+        lines = open(path).read().splitlines()
+    except OSError:
+        lines = ["# Screens — Settings → Displays rewrites this file."]
+    pat = re.compile(r"^\s*monitor\s*=\s*" + re.escape(name) + r"\s*,")
+    out, done = [], False
+    for ln in lines:
+        if pat.match(ln):
+            if not done:
+                out.append(f"monitor = {line}")
+                done = True
+            continue
+        out.append(ln)
+    if not done:
+        out.append(f"monitor = {line}")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path + ".tmp", "w") as fh:
+        fh.write("\n".join(out) + "\n")
+    os.replace(path + ".tmp", path)
+
+
+# ── sound (PipeWire) ─────────────────────────────────────────────────────────────
+
+def audio_devices(kind: str) -> tuple:
+    """([(id, name)], default id) for "Sinks" (speakers) or "Sources" (microphones)."""
+    text = sh("wpctl", "status")
+    out, default, section, in_audio = [], "", "", False
+    for line in text.splitlines():
+        clean = line.replace("│", " ").replace("├", " ").replace("└", " ").replace("─", " ")
+        st = clean.strip()
+        if st.startswith("Audio"):
+            in_audio = True
+        elif st.startswith("Video") or st.startswith("Settings"):
+            in_audio = False
+        if not in_audio:
+            continue
+        if st.endswith(":") and st[:-1] in ("Devices", "Sinks", "Sources", "Filters", "Streams"):
+            section = st[:-1]
+            continue
+        if section != kind:
+            continue
+        m = re.match(r"(\*)?\s*(\d+)\.\s+(.*?)(\s*\[vol:.*)?$", st)
+        if m:
+            out.append((m.group(2), m.group(3).strip()))
+            if m.group(1):
+                default = m.group(2)
+    return out, default
+
+
+def app_streams() -> list:
+    """[(index, app name, volume 0-150)] for every app playing sound right now."""
+    try:
+        data = json.loads(sh("pactl", "-f", "json", "list", "sink-inputs") or "[]")
+    except ValueError:
+        return []
+    out = []
+    for d in data:
+        props = d.get("properties", {})
+        name = props.get("application.name") or props.get("media.name") or "An app"
+        vols = [int(str(v.get("value_percent", "100%")).rstrip("%")) for v in d.get("volume", {}).values()] or [100]
+        out.append((d.get("index"), name, max(vols)))
+    return out
+
+
+def sink_names() -> dict:
+    """{pactl sink index: (sink name, description)} — where an app's sound can go."""
+    try:
+        data = json.loads(sh("pactl", "-f", "json", "list", "sinks") or "[]")
+    except ValueError:
+        return {}
+    return {d.get("index"): (d.get("name", ""), d.get("description") or d.get("name", "")) for d in data}
+
+
+def stream_sinks() -> dict:
+    """{app stream index: the sink index it plays through}."""
+    try:
+        data = json.loads(sh("pactl", "-f", "json", "list", "sink-inputs") or "[]")
+    except ValueError:
+        return {}
+    return {d.get("index"): d.get("sink") for d in data}
+
+
+def sound_cards() -> list:
+    """[(card name, what it is, active profile, [(profile, words)])] — the modes each sound
+    device can run in (HDMI or speakers, a headset's music or call mode, off)."""
+    try:
+        data = json.loads(sh("pactl", "-f", "json", "list", "cards") or "[]")
+    except ValueError:
+        return []
+    out = []
+    for c in data:
+        profs = [(n, p.get("description") or n) for n, p in (c.get("profiles") or {}).items()
+                 if p.get("available", True)]
+        if len(profs) < 2:
+            continue                       # nothing to choose
+        desc = (c.get("properties") or {}).get("device.description") or c.get("name", "")
+        out.append((c.get("name", ""), desc, c.get("active_profile", ""), profs))
+    return out
+
+
+def cameras() -> list:
+    """[(device, name)] for each camera (one per camera: its first capture node)."""
+    base = f"{SYS}/sys/class/video4linux"
+    out = []
+    try:
+        names = sorted(os.listdir(base), key=lambda n: int(re.sub(r"\D", "", n) or 0))
+    except OSError:
+        return []
+    for d in names:
+        idx = read(os.path.join(base, d, "index"))
+        if idx not in ("", "0"):
+            continue                       # extra nodes of the same camera (metadata)
+        out.append((f"/dev/{d}", read(os.path.join(base, d, "name")) or "Camera"))
+    return out
+
+
+def camera_users() -> list:
+    """Names of the apps using a camera right now (the ones this account can see)."""
+    users = set()
+    for pid in os.listdir(f"{SYS}/proc") if os.path.isdir(f"{SYS}/proc") else []:
+        if not pid.isdigit():
+            continue
+        fd = f"{SYS}/proc/{pid}/fd"
+        try:
+            links = [os.readlink(os.path.join(fd, f)) for f in os.listdir(fd)]
+        except OSError:
+            continue
+        if any(re.fullmatch(r"/dev/video\d+", l) for l in links):
+            users.add(read(f"{SYS}/proc/{pid}/comm") or pid)
+    return sorted(users)
+
+
+def nm_fields(line: str) -> list:
+    """nmcli -t splits on ':' and escapes ':' and '\\' inside values."""
+    return [f.replace("\\:", ":").replace("\\\\", "\\") for f in re.split(r"(?<!\\):", line)]
+
+
+def nm_connections() -> list:
+    """[(name, kind, active)] for saved connections: kind is wifi, vpn, wired or other."""
+    kinds = {"802-11-wireless": "wifi", "vpn": "vpn", "wireguard": "vpn", "802-3-ethernet": "wired"}
+    out = []
+    for line in sh("nmcli", "-t", "-f", "NAME,TYPE,ACTIVE", "connection", "show").splitlines():
+        f = nm_fields(line)
+        if len(f) >= 3 and f[0]:
+            out.append((f[0], kinds.get(f[1], "other"), f[2] == "yes"))
+    return out
+
+
+def vpn_file_type(path: str) -> str:
+    """What kind of VPN file this is (nmcli import type), or "" if Prime can't tell."""
+    low = path.lower()
+    if low.endswith(".ovpn"):
+        return "openvpn"
+    if low.endswith(".conf"):
+        try:
+            text = open(path, errors="replace").read(20000)
+        except OSError:
+            return ""
+        if "[Interface]" in text and "PrivateKey" in text:
+            return "wireguard"
+        if re.search(r"^\s*(remote|client)\b", text, re.M):
+            return "openvpn"
+    return ""
+
+
+def printers() -> tuple:
+    """([(name, ready?)], default name) from CUPS."""
+    names = []
+    for l in sh("lpstat", "-p").splitlines():
+        m = re.match(r"printer (\S+) (.*)", l)
+        if m:
+            names.append((m.group(1), "disabled" not in m.group(2)))
+    default = ""
+    m = re.search(r":\s*(\S+)\s*$", sh("lpstat", "-d"))
+    if m and "no system default" not in sh("lpstat", "-d"):
+        default = m.group(1)
+    return names, default
+
+
+def print_jobs() -> list:
+    """[(job id, printer)] waiting or printing."""
+    out = []
+    for l in sh("lpstat", "-o").splitlines():
+        f = l.split()
+        if f and "-" in f[0]:
+            out.append((f[0], f[0].rsplit("-", 1)[0]))
+    return out
+
+
+def printers_nearby() -> list:
+    """[(name, address)] for printers on the network that need no driver (nearly every
+    printer made since 2012) and aren't added yet."""
+    added = {n for n, _ in printers()[0]}
+    out = []
+    for uri in sh("driverless", timeout=20).splitlines():
+        uri = uri.strip()
+        if not uri.startswith(("ipp://", "ipps://")):
+            continue
+        m = re.match(r"ipps?://([^/:.]+)", uri)
+        raw = urllib.parse.unquote(m.group(1)) if m else "Printer"
+        name = re.sub(r"[^A-Za-z0-9_-]+", "_", raw).strip("_")[:60] or "Printer"
+        if name not in added and all(name != n for n, _ in out):
+            out.append((name, uri))
+    return out
+
+
+# ── graphics cards and the processor, live ──────────────────────────────────────
+
+SYS = os.environ.get("PRIME_SYS_ROOT", "")     # tests point this at a made-up /sys
+
+
+def gpu_cards() -> list:
+    """Every graphics card with its live numbers (where the driver reports them)."""
+    out = []
+    drm = f"{SYS}/sys/class/drm"
+    for card in sorted(os.listdir(drm)) if os.path.isdir(drm) else []:
+        if not re.fullmatch(r"card\d+", card):
+            continue
+        dev = f"{drm}/{card}/device"
+        driver = os.path.basename(os.path.realpath(f"{dev}/driver")) if os.path.exists(f"{dev}/driver") else ""
+        info = {"card": card, "driver": driver}
+        vt, vu = read(f"{dev}/mem_info_vram_total"), read(f"{dev}/mem_info_vram_used")
+        if vt.isdigit() and int(vt):
+            info["vram"] = (int(vu) if vu.isdigit() else 0, int(vt))
+        busy = read(f"{dev}/gpu_busy_percent")
+        if busy.isdigit():
+            info["busy"] = int(busy)
+        for hw in sorted(os.listdir(f"{dev}/hwmon")) if os.path.isdir(f"{dev}/hwmon") else []:
+            t = read(f"{dev}/hwmon/{hw}/temp1_input")
+            if t.isdigit():
+                info["temp"] = int(t) // 1000
+            pw = read(f"{dev}/hwmon/{hw}/power1_average") or read(f"{dev}/hwmon/{hw}/power1_input")
+            if pw.isdigit():
+                info["watts"] = int(pw) / 1e6
+        clk = re.search(r"(\d+)Mhz \*", read(f"{dev}/pp_dpm_sclk"))
+        if clk:
+            info["clock"] = int(clk.group(1))
+        info["level"] = read(f"{dev}/power_dpm_force_performance_level")
+        out.append(info)
+    return out
+
+
+def package_versions(*names) -> str:
+    out = sh("pacman", "-Q", *names)
+    return " · ".join(" ".join(l.split()[:2]) for l in out.splitlines() if l.strip())
+
+
+def cpu_live() -> dict:
+    """Speed now (average of every core), the most it can boost to, and how it's tuned."""
+    base = f"{SYS}/sys/devices/system/cpu"
+    freqs = []
+    for c in os.listdir(base) if os.path.isdir(base) else []:
+        f = read(f"{base}/{c}/cpufreq/scaling_cur_freq")
+        if re.fullmatch(r"cpu\d+", c) and f.isdigit():
+            freqs.append(int(f))
+    mx = read(f"{base}/cpu0/cpufreq/cpuinfo_max_freq")
+    temp = ""
+    hwm = f"{SYS}/sys/class/hwmon"
+    for hw in sorted(os.listdir(hwm)) if os.path.isdir(hwm) else []:
+        if read(f"{hwm}/{hw}/name") in ("k10temp", "coretemp", "zenpower"):
+            t = read(f"{hwm}/{hw}/temp1_input")
+            if t.isdigit():
+                temp = f"{int(t) // 1000} °C"
+                break
+    return {"ghz": (sum(freqs) / len(freqs) / 1e6) if freqs else 0.0,
+            "max": int(mx) / 1e6 if mx.isdigit() else 0.0,
+            "driver": read(f"{base}/cpu0/cpufreq/scaling_driver"),
+            "governor": read(f"{base}/cpu0/cpufreq/scaling_governor"),
+            "epp": read(f"{base}/cpu0/cpufreq/energy_performance_preference"),
+            "temp": temp}
+
+
+def memory() -> dict:
+    m = {k: int(v.split()[0]) * 1024 for k, v in (l.split(":", 1) for l in read("/proc/meminfo").splitlines() if ":" in l)
+         if v.split() and v.split()[0].isdigit()}
+    return {"total": m.get("MemTotal", 0), "available": m.get("MemAvailable", 0),
+            "swap_total": m.get("SwapTotal", 0), "swap_free": m.get("SwapFree", 0)}
+
+
+# ── the pages: id, title, icon, search words ──────────────────────────────────
+
+PAGES = [
+    ("network", "Wi-Fi & Network", "network-wireless-symbolic", "wifi internet wireless ethernet cable vpn wireguard openvpn hotspot share hidden saved forget ip"),
+    ("bluetooth", "Bluetooth", "bluetooth-symbolic", "headphones mouse speaker pair devices"),
+    ("sound", "Sound", "audio-volume-high-symbolic", "volume speakers headphones microphone mute output input hdmi headset mode per app mixer"),
+    ("display", "Displays", "video-display-symbolic", "screen monitor resolution scale brightness night light refresh hz screenshot snip print capture"),
+    ("appearance", "Appearance", "preferences-desktop-appearance-symbolic", "theme wallpaper background accent colour color dark text size corners animations window layout tiling tile float floating tidy"),
+    ("notifications", "Notifications", "preferences-system-notifications-symbolic", "do not disturb alerts banners"),
+    ("power", "Power & Battery", "battery-full-symbolic", "battery sleep performance power saver keep awake laptop"),
+    ("camera", "Camera & Microphone", "camera-web-symbolic", "camera webcam microphone mic test check call video meeting zoom teams meet discord"),
+    ("mouse", "Mouse & Touchpad", "input-mouse-symbolic", "pointer speed acceleration scrolling natural tap click left handed trackpad"),
+    ("keyboard", "Keyboard", "input-keyboard-symbolic", "layout language repeat shortcuts keys typing"),
+    ("processor", "Processor", "cpu-symbolic", "cpu cores speed temperature usage activity performance"),
+    ("graphics", "Graphics", "video-display-symbolic", "gpu graphics card driver nvidia amd intel vram"),
+    ("storage", "Storage", "drive-harddisk-symbolic", "disk space free full trash file history snapshots cleanup"),
+    ("gaming", "Gaming", "input-gaming-symbolic", "steam games performance fps overlay mangohud gamemode proton"),
+    ("assistant", "AI Assistant", "user-available-symbolic", "ai ask prime model chat assistant permissions autonomy"),
+    ("apps", "Apps", "view-app-grid-symbolic", "default browser file manager startup autostart packs add-ons app store"),
+    ("updates", "Updates", "software-update-available-symbolic", "update upgrade automatic nightly undo rollback snapshot"),
+    ("security", "Privacy & Security", "security-high-symbolic", "firewall ssh remote login password encryption permissions"),
+    ("printers", "Printers", "printer-symbolic", "print printer paper ink add default test page queue cancel"),
+    ("datetime", "Date & Time", "preferences-system-time-symbolic", "clock time zone timezone date ntp timetable schedule classes lessons reminders"),
+    ("region", "Language & Region", "preferences-desktop-locale-symbolic", "language locale region format"),
+    ("accounts", "Users & Accounts", "system-users-symbolic", "account name password user login"),
+    ("accessibility", "Accessibility", "preferences-desktop-accessibility-symbolic", "text size larger motion animations zoom contrast"),
+    ("about", "About & Help", "help-about-symbolic", "about version computer specs help support repair health check report restore"),
+]
+
+
+def gui(page: str = "", screenshots: str = "", selftest: bool = False) -> int:
+    import gi
+    gi.require_version("Gtk", "4.0")
+    gi.require_version("Adw", "1")
+    from gi.repository import Adw, Gdk, Gio, GLib, Gtk
+
+    CSS = """
+    .settings-sidebar row { padding: 2px 0; }
+    .page-intro { opacity: 0.75; }
+    .big-number { font-size: 1.6em; font-weight: 700; }
+    .bar-track { background: alpha(currentColor, 0.12); border-radius: 99px; min-height: 8px; }
+    .bar-fill { background: @accent_bg_color; border-radius: 99px; min-height: 8px; }
+    .bar-fill.warn { background: #f59e0b; }
+    """
+
+    class Settings(Adw.ApplicationWindow):
+        def __init__(self, app):
+            super().__init__(application=app, title="Settings")
+            self.set_default_size(1000, 720)
+            self.toasts = Adw.ToastOverlay()
+            self.split = Adw.NavigationSplitView()
+            self.split.set_min_sidebar_width(250)
+            self.toasts.set_child(self.split)
+            self.set_content(self.toasts)
+
+            # sidebar: search + sections
+            side = Adw.ToolbarView()
+            hb = Adw.HeaderBar()
+            hb.set_title_widget(Adw.WindowTitle(title="Settings", subtitle="Prime"))
+            side.add_top_bar(hb)
+            box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+            self.search = Gtk.SearchEntry(placeholder_text="Find a setting")
+            self.search.set_margin_start(10)
+            self.search.set_margin_end(10)
+            self.search.update_property([Gtk.AccessibleProperty.LABEL], ["Find a setting"])
+            self.search.connect("search-changed", lambda *_: self.list.invalidate_filter())
+            self.search.connect("activate", self.open_first_match)
+            box.append(self.search)
+            self.list = Gtk.ListBox()
+            self.list.add_css_class("navigation-sidebar")
+            self.list.add_css_class("settings-sidebar")
+            self.list.update_property([Gtk.AccessibleProperty.LABEL], ["Settings sections"])
+            self.rows = {}
+            for pid, title, icon, words in PAGES:
+                row = Gtk.ListBoxRow()
+                row.pid, row.words = pid, f"{title} {words}".lower()
+                h = Gtk.Box(spacing=12, margin_top=6, margin_bottom=6, margin_start=6)
+                h.append(Gtk.Image.new_from_icon_name(icon))
+                h.append(Gtk.Label(label=title, xalign=0))
+                row.set_child(h)
+                row.update_property([Gtk.AccessibleProperty.LABEL], [title])
+                self.list.append(row)
+                self.rows[pid] = row
+            self.list.set_filter_func(self.matches)
+            self.list.connect("row-activated", lambda _l, r: self.show(r.pid))
+            sc = Gtk.ScrolledWindow(vexpand=True)
+            sc.set_child(self.list)
+            box.append(sc)
+            side.set_content(box)
+            self.split.set_sidebar(Adw.NavigationPage(title="Settings", child=side))
+
+            self.content_view = Adw.ToolbarView()
+            self.content_bar = Adw.HeaderBar()
+            self.content_view.add_top_bar(self.content_bar)
+            self.content = Adw.NavigationPage(title="", child=self.content_view)
+            self.split.set_content(self.content)
+            self.built = {}
+            self.show(page if page in self.rows else "network")
+
+        # sidebar search
+        def matches(self, row) -> bool:
+            q = self.search.get_text().strip().lower()
+            return not q or all(w in row.words for w in q.split())
+
+        def open_first_match(self, *_a):
+            for pid, *_ in PAGES:
+                if self.matches(self.rows[pid]):
+                    self.list.select_row(self.rows[pid])
+                    self.show(pid)
+                    return
+
+        def toast(self, text: str):
+            self.toasts.add_toast(Adw.Toast(title=GLib.markup_escape_text(text), timeout=4))
+
+        def show(self, pid: str):
+            title = next(t for p, t, *_ in PAGES if p == pid)
+            try:
+                page = BUILDERS[pid](self)
+            except Exception as e:                     # noqa: BLE001 — one page never takes the window down
+                page = Adw.PreferencesPage()
+                g = Adw.PreferencesGroup(title="This page couldn't load")
+                # &amp;, not &: Adw row text is parsed as Pango markup, and a bare
+                # ampersand aborts the parse — the row then renders empty, which is
+                # exactly the case where something has already gone wrong.
+                g.add(Adw.ActionRow(title=str(e)[:200], subtitle="About &amp; Help → Get help makes a report you can send"))
+                page.add(g)
+            page.update_property([Gtk.AccessibleProperty.LABEL], [title])
+            self.built[pid] = page
+            self.content.set_title(title)
+            self.content_view.set_content(page)
+            self.list.select_row(self.rows[pid])
+            self.split.set_show_content(True)
+
+        def refresh(self):
+            row = self.list.get_selected_row()
+            if row is not None:
+                self.show(row.pid)
+
+    # ── row helpers ────────────────────────────────────────────────────────
+    def group(page, title="", description=""):
+        g = Adw.PreferencesGroup(title=GLib.markup_escape_text(title), description=GLib.markup_escape_text(description))
+        page.add(g)
+        return g
+
+    def info(g, title, value, icon=None):
+        r = Adw.ActionRow(title=GLib.markup_escape_text(title), subtitle=GLib.markup_escape_text(str(value or "—")))
+        r.set_subtitle_selectable(True)
+        if icon:
+            r.add_prefix(Gtk.Image.new_from_icon_name(icon))
+        g.add(r)
+        return r
+
+    def opener(g, title, subtitle, cmd, label="Open"):
+        r = Adw.ActionRow(title=GLib.markup_escape_text(title), subtitle=GLib.markup_escape_text(subtitle))
+        b = Gtk.Button(label=label, valign=Gtk.Align.CENTER)
+        b.update_property([Gtk.AccessibleProperty.LABEL], [f"{label}: {title}"])
+        b.connect("clicked", lambda *_: launch(*cmd))
+        r.add_suffix(b)
+        r.set_activatable_widget(b)
+        g.add(r)
+        return r
+
+    def goto(win, g, title, subtitle, pid, label="Open"):
+        """A row that opens another page of this window."""
+        r = Adw.ActionRow(title=GLib.markup_escape_text(title), subtitle=GLib.markup_escape_text(subtitle))
+        b = Gtk.Button(label=label, valign=Gtk.Align.CENTER)
+        b.update_property([Gtk.AccessibleProperty.LABEL], [f"{label}: {title}"])
+        b.connect("clicked", lambda *_: GLib.idle_add(lambda: win.show(pid) and False))
+        r.add_suffix(b)
+        r.set_activatable_widget(b)
+        g.add(r)
+        return r
+
+    def buttons_row(g, title, subtitle, buttons, icon=None):
+        """A row with one or more buttons: [(label, callback, style)] — style "", "suggested" or "destructive"."""
+        r = Adw.ActionRow(title=GLib.markup_escape_text(title), subtitle=GLib.markup_escape_text(subtitle))
+        if icon:
+            r.add_prefix(Gtk.Image.new_from_icon_name(icon))
+        for label, cb, style in buttons:
+            b = Gtk.Button(label=label, valign=Gtk.Align.CENTER)
+            if style:
+                b.add_css_class(f"{style}-action")
+            b.update_property([Gtk.AccessibleProperty.LABEL], [f"{label}: {title}"])
+            b.connect("clicked", lambda _b, cb=cb: cb())
+            r.add_suffix(b)
+        g.add(r)
+        return r
+
+    def background(win, work, yes, no="That didn't work", refresh=True):
+        """Run a slow change (connecting, adding a printer) without freezing the window;
+        say how it went, then show the page again."""
+        win.toast("Working on it…")
+
+        def run():
+            try:
+                good, why = work()
+            except Exception as e:                  # noqa: BLE001 — say it, don't crash the window
+                good, why = False, str(e)
+            def report():
+                win.toast(yes if good else f"{no}{' — ' + why[:120] if why else ''}")
+                if refresh:
+                    win.refresh()
+                return False
+            GLib.idle_add(report)
+        threading.Thread(target=run, daemon=True).start()
+
+    def form_dialog(win, title, intro, fields, button, on_ok):
+        """A small window asking for a few things: fields = [(label, is_password)];
+        on_ok(values) → (ok, message). Passwords are never shown or logged."""
+        d = Adw.Window(transient_for=win, modal=True, title=title)
+        d.set_default_size(440, -1)
+        tv = Adw.ToolbarView()
+        tv.add_top_bar(Adw.HeaderBar())
+        pg = Adw.PreferencesPage()
+        g = Adw.PreferencesGroup(description=GLib.markup_escape_text(intro))
+        rows = [Adw.PasswordEntryRow(title=lab) if pw else Adw.EntryRow(title=lab) for lab, pw in fields]
+        for r in rows:
+            g.add(r)
+        pg.add(g)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        box.append(pg)
+        bt = Gtk.Button(label=button, halign=Gtk.Align.END, margin_end=16, margin_bottom=16)
+        bt.add_css_class("suggested-action")
+        box.append(bt)
+        tv.set_content(box)
+        d.set_content(tv)
+
+        def go(*_a):
+            d.close()
+            on_ok([r.get_text() for r in rows])
+        bt.connect("clicked", go)
+        rows[-1].connect("entry-activated", go)
+        d.present()
+        return d
+
+    def pick_file(win, title, on_file):
+        """The file picker: on_file(path)."""
+        if hasattr(Gtk, "FileDialog"):
+            fd = Gtk.FileDialog(title=title)
+
+            def got(dlg, res):
+                try:
+                    f = dlg.open_finish(res)
+                except GLib.Error:
+                    return                          # cancelled
+                if f is not None and f.get_path():
+                    on_file(f.get_path())
+            fd.open(win, None, got)
+        else:
+            fc = Gtk.FileChooserNative(title=title, transient_for=win, action=Gtk.FileChooserAction.OPEN)
+
+            def resp(n, r):
+                if r == Gtk.ResponseType.ACCEPT and n.get_file():
+                    on_file(n.get_file().get_path())
+            fc.connect("response", resp)
+            fc.show()
+
+    def switch(win, g, title, subtitle, current, on_change):
+        r = Adw.SwitchRow(title=GLib.markup_escape_text(title), subtitle=GLib.markup_escape_text(subtitle))
+        r.set_active(bool(current))
+
+        def changed(row, _p):
+            ok_, msg = on_change(row.get_active())
+            if msg:
+                win.toast(msg)
+            if not ok_:
+                row.handler_block(hid)
+                row.set_active(not row.get_active())
+                row.handler_unblock(hid)
+        hid = r.connect("notify::active", changed)
+        g.add(r)
+        return r
+
+    def choice(win, g, title, subtitle, options, current, on_change):
+        r = Adw.ComboRow(title=GLib.markup_escape_text(title), subtitle=GLib.markup_escape_text(subtitle))
+        r.set_model(Gtk.StringList.new([lab for lab, _ in options]))
+        values = [v for _, v in options]
+        if current in values:
+            r.set_selected(values.index(current))
+        else:
+            r.set_selected(Gtk.INVALID_LIST_POSITION)
+
+        def changed(row, _p):
+            i = row.get_selected()
+            if 0 <= i < len(values):
+                _ok, msg = on_change(values[i])
+                if msg:
+                    win.toast(msg)
+        r.connect("notify::selected", changed)
+        g.add(r)
+        return r
+
+    def slider(win, g, title, subtitle, lo, hi, step, value, on_done, fmt=lambda v: f"{v:.0f}"):
+        r = Adw.ActionRow(title=GLib.markup_escape_text(title), subtitle=GLib.markup_escape_text(subtitle))
+        s = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, lo, hi, step)
+        s.set_value(value)
+        s.set_size_request(260, -1)
+        s.set_draw_value(True)
+        s.set_format_value_func(lambda _s, v: fmt(v))
+        s.update_property([Gtk.AccessibleProperty.LABEL], [title])
+        pending = {"id": 0}
+
+        def settle():
+            pending["id"] = 0
+            _ok, msg = on_done(s.get_value())
+            if msg:
+                win.toast(msg)
+            return False
+
+        def moved(*_a):   # apply once the hand stops moving, not on every pixel
+            if pending["id"]:
+                GLib.source_remove(pending["id"])
+            pending["id"] = GLib.timeout_add(450, settle)
+        s.connect("value-changed", moved)
+        r.add_suffix(s)
+        g.add(r)
+        return r
+
+    def usage_bar(g, title, used, total, warn_at=0.9):
+        r = Adw.ActionRow(title=GLib.markup_escape_text(title),
+                          subtitle=f"{gb(total - used)} free of {gb(total)}")
+        frac = used / total if total else 0
+        track = Gtk.Box(valign=Gtk.Align.CENTER)
+        track.add_css_class("bar-track")
+        track.set_size_request(220, 8)
+        fill = Gtk.Box()
+        fill.add_css_class("bar-fill")
+        if frac >= warn_at:
+            fill.add_css_class("warn")
+        fill.set_size_request(max(4, int(220 * frac)), 8)
+        track.append(fill)
+        lab = Gtk.Label(label=f"{frac * 100:.0f}% used" + (" — almost full" if frac >= warn_at else ""))
+        r.add_suffix(track)
+        r.add_suffix(lab)
+        r.update_property([Gtk.AccessibleProperty.DESCRIPTION], [f"{frac * 100:.0f} percent used" + (", almost full" if frac >= warn_at else "")])
+        g.add(r)
+        return r
+
+    CORE_SECTIONS = {"apps", "settings", "toggles", "tools", "style", "update", "power", "about"}
+
+    def registry() -> list:
+        """Every row Prime knows (its own, each enabled pack's, your own menu.json)."""
+        try:
+            return json.loads(sh("prime-menu", "--json", timeout=8) or "{}").get("sections", [])
+        except ValueError:
+            return []
+
+    def pack_group(page, sec, title="", skip=()):
+        rows = [it for it in sec.get("items", []) if it.get("id") not in skip]
+        if not rows:
+            return None
+        g = group(page, title or re.sub(r"^\W+", "", sec.get("label", "")).strip())
+        for it in rows:
+            opener(g, it.get("label", ""), it.get("hint", ""), ["prime-menu", "--run", it["id"]],
+                   "Show" if it.get("kind") in ("panel", "term") else "Open")
+        return g
+
+    def missing(g, what):
+        g.add(Adw.ActionRow(title=GLib.markup_escape_text(what), subtitle="Not on this computer"))
+
+    def tb(setting, value):
+        return toolbox("change_setting", {"setting": setting, "value": value})
+
+    def pack(on, name, title):
+        """Packs install in their own Prime window (it shows progress and asks for the password)."""
+        launch("prime-panel", "--title", title, "--", os.path.join(BIN, "prime-addon"),
+               "enable" if on else "disable", name)
+        return True, "Working on it in its own window…"
+
+    def done(flag, yes, no="That didn't change — try again, or Get help"):
+        return (True, yes) if flag else (False, no)
+
+    # ── pages ───────────────────────────────────────────────────────────────
+    def p_network(win):
+        page = Adw.PreferencesPage()
+        g = group(page, "Wi-Fi")
+        if has("nmcli"):
+            radio = sh("nmcli", "-t", "-f", "WIFI", "radio")
+            conn = sh("nmcli", "-t", "-f", "NAME,TYPE,DEVICE", "connection", "show", "--active")
+            wifi_name = next((l.split(":")[0] for l in conn.splitlines() if ":802-11-wireless:" in l), "")
+            wired = any(":802-3-ethernet:" in l for l in conn.splitlines())
+            switch(win, g, "Wi-Fi", f"Connected to {wifi_name}" if wifi_name else "Not connected to a Wi-Fi network",
+                   radio == "enabled", lambda on: done(ok("nmcli", "radio", "wifi", "on" if on else "off"),
+                                                        f"Wi-Fi is {'on' if on else 'off'}"))
+            opener(g, "Choose a network", "See the networks around you and join one", ["prime-wifi"], "Choose")
+            g2 = group(page, "Connection")
+            info(g2, "Cable (Ethernet)", "Connected" if wired else "Not connected")
+            ip = sh("ip", "-4", "-brief", "address", "show", "scope", "global")
+            info(g2, "This computer's address on the network", " · ".join(l.split()[2].split("/")[0] for l in ip.splitlines() if len(l.split()) > 2) or "none")
+            conns = nm_connections()
+            # saved Wi-Fi: forget the ones you don't use (and the wrong password for one)
+            gs = group(page, "Saved Wi-Fi networks", "This computer joins these by itself when they're near")
+            saved = [(n, act_) for n, k, act_ in conns if k == "wifi"]
+            for n, active in saved:
+                buttons_row(gs, n, "Connected now" if active else "Saved",
+                            [("Forget", lambda n=n: background(win, lambda: act("nmcli", "connection", "delete", "id", n),
+                                                               f"Forgot {n}", f"Couldn't forget {n}"), "")],
+                            "network-wireless-symbolic")
+            if not saved:
+                info(gs, "No saved networks yet", "Choose a network above and it's saved here")
+
+            def join_hidden(vals):
+                ssid, pw = vals[0].strip(), vals[1]
+                if not ssid:
+                    win.toast("Type the network's name first")
+                    return
+                background(win, lambda: act("nmcli", "--ask", "device", "wifi", "connect", ssid, "hidden", "yes",
+                                            stdin=(pw + "\n") if pw else "\n", timeout=60),
+                           f"Joined {ssid}", f"Couldn't join {ssid} (check the name and password)")
+            buttons_row(gs, "Join a hidden network", "One that doesn't show in the list — type its exact name",
+                        [("Join…", lambda: form_dialog(win, "Join a hidden network",
+                                                         "Type the network's name exactly as it is written (capitals count).",
+                                                         [("Network name", False), ("Password", True)], "Join", join_hidden), "")])
+
+            # VPN: a school's or work's VPN arrives as a file — add it, then switch it on and off here
+            gv = group(page, "VPN", "A private connection to your school or work. They give you a file to add")
+            vpns = [(n, act_) for n, k, act_ in conns if k == "vpn"]
+            for n, active in vpns:
+                switch(win, gv, n, "Connected" if active else "Off", active,
+                       lambda on, n=n: (background(win, lambda: act("nmcli", "connection", "up" if on else "down", "id", n, timeout=90),
+                                                   f"{n} is {'connected' if on else 'off'}", f"{n} didn't {'connect' if on else 'switch off'}"),
+                                        (True, ""))[1])
+                buttons_row(gv, f"Remove {n}", "", [("Remove", lambda n=n: background(win, lambda: act("nmcli", "connection", "delete", "id", n),
+                                                                                      f"{n} removed", f"Couldn't remove {n}"), "")])
+
+            def add_vpn(path):
+                kind = vpn_file_type(path)
+                if not kind:
+                    win.toast("That file isn't a VPN file Prime knows (.ovpn or a WireGuard .conf)")
+                    return
+                background(win, lambda: act("nmcli", "connection", "import", "type", kind, "file", path),
+                           "VPN added — switch it on above", "Couldn't add that VPN (OpenVPN needs Update everything first)")
+            buttons_row(gv, "Add a VPN from a file", "An .ovpn (OpenVPN) or .conf (WireGuard) file",
+                        [("Choose file…", lambda: pick_file(win, "Choose the VPN file", add_vpn), "")])
+
+            # hotspot: share this computer's internet with a phone or tablet
+            gh = group(page, "Hotspot", "Share this computer's internet with a phone or another computer")
+            hot = any(n == "Hotspot" and act_ for n, _k, act_ in conns)
+
+            def hotspot(on):
+                if on:
+                    def work():
+                        good, why = act("nmcli", "device", "wifi", "hotspot", timeout=40)
+                        if good:
+                            pw = re.search(r"Password:\s*(\S+)", sh("nmcli", "device", "wifi", "show-password"))
+                            GLib.idle_add(lambda: win.toast(f"Hotspot on — password: {pw.group(1)}" if pw else "Hotspot on") and False)
+                        return good, why
+                    background(win, work, "Hotspot on — the password is shown on this page",
+                               "This Wi-Fi card can't share right now (it may be connected elsewhere)")
+                else:
+                    background(win, lambda: act("nmcli", "connection", "down", "id", "Hotspot"), "Hotspot off")
+                return True, ""
+            switch(win, gh, "Hotspot", "While it's on, this computer's Wi-Fi is used for sharing", hot, hotspot)
+            if hot:
+                pw = re.search(r"Password:\s*(\S+)", sh("nmcli", "device", "wifi", "show-password"))
+                ssid = re.search(r"SSID:\s*(.+)", sh("nmcli", "device", "wifi", "show-password"))
+                info(gh, "Join it with", f"{ssid.group(1).strip() if ssid else 'Hotspot'} · password {pw.group(1) if pw else '—'}")
+
+            g3 = group(page, "More")
+            opener(g3, "Advanced network settings", "A fixed address, proxy and other rare settings — opens the system's own tool, which looks different and uses more technical words",
+                   ["nm-connection-editor"])
+        else:
+            missing(g, "Network settings")
+        return page
+
+    def p_bluetooth(win):
+        page = Adw.PreferencesPage()
+        g = group(page, "Bluetooth")
+        if has("bluetoothctl") and os.path.isdir("/sys/class/bluetooth") and os.listdir("/sys/class/bluetooth"):
+            on = "Powered: yes" in sh("bluetoothctl", "show")
+            switch(win, g, "Bluetooth", "Lets headphones, mice, speakers and phones connect", on,
+                   lambda v: done(ok("bluetoothctl", "power", "on" if v else "off"), f"Bluetooth is {'on' if v else 'off'}"))
+            devs = sh("bluetoothctl", "devices", "Connected")
+            g2 = group(page, "Connected now")
+            names = [l.split(" ", 2)[2] for l in devs.splitlines() if l.startswith("Device ") and len(l.split(" ", 2)) == 3]
+            for n in names or ["Nothing connected"]:
+                info(g2, n, "Connected" if names else "")
+            g3 = group(page, "Devices")
+            opener(g3, "Connect a device", "Your paired devices, one click to connect", ["prime-bluetooth"], "Connect")
+            opener(g3, "Pair a new device", "Put the device in pairing mode first", ["blueman-manager"], "Pair")
+        else:
+            missing(g, "Bluetooth")
+        return page
+
+    def p_sound(win):
+        page = Adw.PreferencesPage()
+        if not has("wpctl"):
+            missing(group(page, "Sound"), "Sound")
+            return page
+        g = group(page, "Output", "Where sound plays")
+        outs, out_default = audio_devices("Sinks")
+        if outs:
+            choice(win, g, "Play sound through", "Speakers, headphones, the screen's speakers…",
+                   [(n, i) for i, n in outs], out_default,
+                   lambda i: done(ok("wpctl", "set-default", i), "Sound now plays there"))
+        v = sh("wpctl", "get-volume", "@DEFAULT_AUDIO_SINK@")
+        m = re.search(r"Volume:\s*([0-9.]+)", v)
+        slider(win, g, "Volume", "", 0, 150, 1, round(float(m.group(1)) * 100) if m else 50,
+               lambda x: done(ok("wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", f"{x / 100:.2f}"), ""),
+               fmt=lambda x: f"{x:.0f}%")
+        switch(win, g, "Mute", "Silence everything", "[MUTED]" in v,
+               lambda on: done(ok("wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", "1" if on else "0"),
+                               "Muted" if on else "Sound is on"))
+        gi_ = group(page, "Input", "The microphone apps hear")
+        ins, in_default = audio_devices("Sources")
+        if ins:
+            choice(win, gi_, "Microphone", "", [(n, i) for i, n in ins], in_default,
+                   lambda i: done(ok("wpctl", "set-default", i), "Microphone changed"))
+        mv = sh("wpctl", "get-volume", "@DEFAULT_AUDIO_SOURCE@")
+        mm = re.search(r"Volume:\s*([0-9.]+)", mv)
+        slider(win, gi_, "Microphone level", "How loud you are to others", 0, 150, 1,
+               round(float(mm.group(1)) * 100) if mm else 100,
+               lambda x: done(ok("wpctl", "set-volume", "@DEFAULT_AUDIO_SOURCE@", f"{x / 100:.2f}"), ""),
+               fmt=lambda x: f"{x:.0f}%")
+        switch(win, gi_, "Microphone off", "Nobody can hear you until you switch it back", "[MUTED]" in mv,
+               lambda on: done(ok("wpctl", "set-mute", "@DEFAULT_AUDIO_SOURCE@", "1" if on else "0"),
+                               "Microphone off" if on else "Microphone on"))
+        ga = group(page, "Apps playing sound", "Each app's own volume, and where it plays — music on the speakers, "
+                   "a call in the headphones")
+        streams = app_streams()
+        sinks, where = sink_names(), stream_sinks()
+        for idx, name, vol in streams:
+            slider(win, ga, name, "", 0, 150, 1, vol,
+                   lambda x, idx=idx: done(ok("pactl", "set-sink-input-volume", str(idx), f"{x:.0f}%"), ""),
+                   fmt=lambda x: f"{x:.0f}%")
+            if len(sinks) > 1:
+                choice(win, ga, f"{name} plays through", "", [(d, n) for n, d in sinks.values()],
+                       sinks.get(where.get(idx), ("", ""))[0],
+                       lambda sink, idx=idx, name=name: done(act("pactl", "move-sink-input", str(idx), sink)[0],
+                                                             f"{name} moved"))
+        if not streams:
+            info(ga, "Nothing is playing right now", "Apps show up here while they play sound")
+        cards = sound_cards()
+        if cards:
+            gc = group(page, "Sound devices", "How each one is used — for example the screen's speakers (HDMI) "
+                       "or the computer's own, or a headset's music mode or call mode (with its microphone)")
+            for card, desc, active, profs in cards:
+                choice(win, gc, desc, "", [(w, n) for n, w in profs], active,
+                       lambda prof, card=card, desc=desc: done(act("pactl", "set-card-profile", card, prof)[0],
+                                                               f"{desc} changed"))
+        g3 = group(page, "More")
+        opener(g3, "Advanced mixer", "Rare settings such as balance per device — opens the system's own tool, which looks different and uses more technical words", ["pavucontrol"])
+        return page
+
+    def keep_or_revert(win, name, new_line, old_line):
+        """Like a Mac: a new screen setting is tried at once and goes back by itself in 15 s
+        unless you keep it — a mode the screen can't show never leaves you stuck."""
+        if os.environ.get("PRIME_SETTINGS_DRY"):
+            print("MONITOR", new_line, flush=True)
+            return True, ""
+        if not ok(HYPRCTL, "keyword", "monitor", new_line):
+            return False, "The screen didn't accept that — nothing changed"
+        state = {"left": 15, "done": False}
+        Dialog = getattr(Adw, "AlertDialog", None) or Adw.MessageDialog
+        d = Dialog(heading="Keep these display settings?", body="Going back in 15 seconds…")
+        d.add_response("revert", "Go back")
+        d.add_response("keep", "Keep")
+        d.set_response_appearance("keep", Adw.ResponseAppearance.SUGGESTED)
+        d.set_default_response("keep")
+        d.set_close_response("revert")
+
+        def finish(keep):
+            if state["done"]:
+                return
+            state["done"] = True
+            if keep:
+                save_monitor(name, new_line)
+                win.toast("Saved — it stays like this")
+            else:
+                ok(HYPRCTL, "keyword", "monitor", old_line)
+                win.toast("Back to how it was")
+            GLib.timeout_add(300, lambda: win.refresh() and False)
+
+        def countdown():
+            if state["done"]:
+                return False
+            state["left"] -= 1
+            if state["left"] <= 0:
+                finish(False)
+                (d.force_close() if hasattr(d, "force_close") else d.close())
+                return False
+            d.set_body(f"Going back in {state['left']} seconds…")
+            return True
+        d.connect("response", lambda _d, r: finish(r == "keep"))
+        GLib.timeout_add_seconds(1, countdown)
+        if Dialog is getattr(Adw, "AlertDialog", None):
+            d.present(win)
+        else:
+            missing(g, "Sound")
+        return page
+
+    def p_display(win):
+        page = Adw.PreferencesPage()
+        g = group(page, "Screens")
+        mons = []
+        try:
+            mons = json.loads(sh("hyprctl", "monitors", "-j") or "[]")
+        except ValueError:
+            pass
+        for mo in mons:
+            desc = (mo.get("description") or mo.get("name") or "Screen").split(" 0x")[0]
+            info(g, desc, f"{mo.get('width')}×{mo.get('height')} at {round(mo.get('refreshRate', 0))} Hz · "
+                          f"scale {mo.get('scale', 1):g}", "video-display-symbolic")
+        if not mons:
+            info(g, "Screens", "Shown here while you're on the Prime desktop")
+        opener(g, "Arrange screens", "Resolution, refresh rate, scale, and where each screen sits", ["nwg-displays"], "Arrange")
+        g2 = group(page, "Comfort")
+        if has("brightnessctl") and sh("brightnessctl", "-m", "-c", "backlight", "info"):
+            cur = sh("brightnessctl", "-m", "-c", "backlight", "info").split(",")
+            pct = int(cur[3].rstrip("%")) if len(cur) > 3 and cur[3].rstrip("%").isdigit() else 50
+            slider(win, g2, "Brightness", "", 5, 100, 1, pct,
+                   lambda x: done(ok("brightnessctl", "-c", "backlight", "set", f"{x:.0f}%"), ""),
+                   fmt=lambda x: f"{x:.0f}%")
+        st = managed()
+        switch(win, g2, "Night light", "Warmer colours in the evening, easier on the eyes",
+               st.get("night_light", "off") != "off", lambda on: tb("night_light", "on" if on else "off"))
+        g3 = group(page, "Screenshots", "Print Screen or Super+Shift+S: the picture is saved in Pictures › Screenshots "
+                   "and copied, straight away")
+        after = [("Show what I can do next (Edit, Show, Delete…)", "buttons"), ("Just save and copy it", "save")]
+        if "ai" in enabled_addons():
+            after.insert(1, ("Ask Prime about it", "ask"))
+            after[0] = ("Show what I can do next (Edit, Ask Prime…)", "buttons")
+        choice(win, g3, "After a screenshot", "", after, st.get("after_screenshot", "buttons"),
+               lambda v: tb("after_screenshot", v))
+        opener(g3, "Take a screenshot now", "Drag over the part you want", ["prime-snip", "area"], "Take")
+        g4 = group(page, "Recording and colours")
+        opener(g4, "Record part of the screen", "Super+Shift+R; press it again to stop", ["prime-record", "area"], "Record")
+        opener(g4, "Record the whole screen with sound", "Super+Ctrl+Shift+R", ["prime-record", "screen", "--sound"], "Record")
+        opener(g4, "Pick a colour from the screen", "Copies its code (Super+Shift+C)", ["prime-colour"], "Pick")
+        return page
+
+    def p_appearance(win):
+        page = Adw.PreferencesPage()
+        th, st = theme_conf(), managed()
+        g = group(page, "Look")
+        opener(g, "Wallpaper", os.path.basename(th.get("WALL", "")) or "Prime's own", ["prime-theme", "--wallpaper"], "Choose")
+        choice(win, g, "Accent colour", "Used across the bar, menus, borders and the lock screen", ACCENTS, th.get("ACCENT", ""),
+               lambda h: done(ok("prime-theme", "--set-accent", h), "Accent colour changed"))
+        choice(win, g, "Text size", "One size for the whole desktop", TEXT_SIZES, th.get("TEXT", "default"),
+               lambda t: done(ok("prime-theme", "--set-text", t), "Text size changed"))
+        choice(win, g, "Window layout", "Free: windows float and open in the middle, like a Mac or Windows. "
+               "Tidy: they sit side by side. Super+Shift+V flips one window either way.",
+               [("Free (like a Mac or Windows)", "free"), ("Tidy (side by side)", "tidy")],
+               st.get("window_layout", "free"), lambda v: tb("window_layout", v))
+        choice(win, g, "Window style", "Corners and the space between windows", LOOKS, st.get("look", ""),
+               lambda p: toolbox("set_look", {"preset": p}))
+        g2 = group(page, "Motion")
+        switch(win, g2, "Animations", "Windows slide and fade; off is calmer and faster",
+               st.get("animations", "on") != "off", lambda on: tb("animations", "on" if on else "off"))
+        g4 = group(page, "Advanced")
+        opener(g4, "Edit the window & keyboard settings file", "Your own lines win over Prime's", ["gnome-text-editor",
+               os.path.join(HOME, ".config/hypr/hyprland.conf")], "Edit")
+        g3 = group(page, "Screen saver")
+        opener(g3, "Preview the screen saver", "What shows before the screen locks", ["prime-screensaver"], "Preview")
+        return page
+
+    def p_notifications(win):
+        page = Adw.PreferencesPage()
+        g = group(page, "Notifications")
+        dnd = sh("prime-toggle", "status", "dnd") == "on"
+        switch(win, g, "Do not disturb", "Notifications wait quietly in the notification centre", dnd,
+               lambda on: done(ok("prime-toggle", "dnd", "on" if on else "off"),
+                               "Do not disturb is " + ("on" if on else "off")))
+        opener(g, "Open the notification centre", "Everything that arrived (Super+K)", ["swaync-client", "-t", "-sw"])
+        return page
+
+    def p_power(win):
+        page = Adw.PreferencesPage()
+        bat = battery()
+        if bat:
+            g = group(page, "Battery")
+            info(g, "Charge", f"{bat['percent']}% · {bat['status'].lower()}", "battery-good-symbolic")
+            if bat.get("health"):
+                info(g, "Battery health", f"holds {bat['health']} of what it did when new")
+        g2 = group(page, "Power mode")
+        cur = sh("prime-power-profile", "current")
+        if cur:
+            choice(win, g2, "Power mode", "Battery saver lasts longer; Performance is fastest", POWER, cur,
+                   lambda p: done(ok("prime-power-profile", p), "Power mode changed"))
+        else:
+            missing(g2, "Power modes")
+        idle = sh("prime-toggle", "status", "idle") == "on"
+        switch(win, g2, "Keep awake", "No dimming, locking or screen-off until you log out", idle,
+               lambda on: done(ok("prime-toggle", "idle", "on" if on else "off"),
+                               "Keep awake is " + ("on" if on else "off")))
+        g3 = group(page, "Lock and sleep")
+        opener(g3, "Lock, sleep, restart or shut down", "", ["prime-power-menu"])
+        return page
+
+    def p_camera(win):
+        page = Adw.PreferencesPage()
+        g = group(page, "Camera", "Check it before a call or a lesson")
+        cams = cameras()
+        for dev, name in cams:
+            info(g, name, "Ready", "camera-web-symbolic")
+        if not cams:
+            info(g, "No camera found", "A USB camera shows up here as soon as it's plugged in")
+        users = camera_users()
+        # Read once when the page opens, rather than polled. The branch this page
+        # came from had a live() helper backed by a 2-second refresh on the window;
+        # that plumbing does not exist here, and one row is not worth it. Reopening
+        # the page re-reads it.
+        info(g, "Using the camera now", ", ".join(camera_users()) or "Nothing", "camera-web-symbolic")
+        app = next((a for a in ("snapshot", "cheese") if has(a)), "")
+        if cams and app:
+            opener(g, "Test the camera", "See yourself — the light next to the camera comes on", [app], "Test")
+        elif cams:
+            missing(g, "The camera test app (Update everything adds it)")
+        gm = group(page, "Microphone", "Hear yourself the way others will")
+        ins, in_default = audio_devices("Sources")
+        if ins:
+            choice(win, gm, "Microphone", "", [(n, i) for i, n in ins], in_default,
+                   lambda i: done(ok("wpctl", "set-default", i), "Microphone changed"))
+        mv = sh("wpctl", "get-volume", "@DEFAULT_AUDIO_SOURCE@")
+        if "[MUTED]" in mv:
+            def mic_on():
+                win.toast("Microphone on" if ok("wpctl", "set-mute", "@DEFAULT_AUDIO_SOURCE@", "0") else "That didn't work")
+                win.refresh()
+            buttons_row(gm, "The microphone is off", "Nobody can hear you",
+                        [("Switch on", mic_on, "suggested")], "microphone-disabled-symbolic")
+        clip = os.path.join(os.environ.get("XDG_RUNTIME_DIR") or "/tmp", "prime-mic-test.wav")
+
+        def mic_test():
+            def work():
+                good, why = act("sh", "-c", f"timeout 5 pw-record '{clip}'; pw-play '{clip}'; rm -f '{clip}'", timeout=30)
+                return good or "Terminated" in why or why == "", why
+            background(win, work, "That's how you sound", "The microphone test didn't work", refresh=False)
+            win.toast("Recording for 5 seconds — say something…")
+        if has("pw-record"):
+            buttons_row(gm, "Test the microphone", "Records 5 seconds, then plays it back",
+                        [("Record", mic_test, "")], "audio-input-microphone-symbolic")
+        goto(win, gm, "More sound settings", "Volume, speakers and each app", "sound")
+        if users:
+            g.set_description("Check it before a call or a lesson. The camera is in use right now")
+        return page
+
+    def p_mouse(win):
+        page = Adw.PreferencesPage()
+        st = managed()
+        g = group(page, "Mouse", "Changes are saved and can be undone (About & Help → Undo the last change)")
+        slider(win, g, "Pointer speed", "Slower ← → faster", -1, 1, 0.05, float(st.get("mouse_speed", 0)),
+               lambda x: tb("mouse_speed", f"{x:.2f}"), fmt=lambda x: f"{x:+.2f}")
+        switch(win, g, "Acceleration", "The pointer goes further when you move the mouse faster",
+               st.get("mouse_acceleration", "off") == "on", lambda on: tb("mouse_acceleration", "on" if on else "off"))
+        switch(win, g, "Left-handed", "Swap the left and right buttons",
+               st.get("left_handed", "off") == "on", lambda on: tb("left_handed", "on" if on else "off"))
+        switch(win, g, "Natural scrolling", "Content follows your fingers, like on a phone",
+               st.get("natural_scroll", "on") == "on", lambda on: tb("natural_scroll", "on" if on else "off"))
+        g2 = group(page, "Touchpad")
+        switch(win, g2, "Tap to click", "A light tap counts as a click",
+               st.get("tap_to_click", "on") == "on", lambda on: tb("tap_to_click", "on" if on else "off"))
+        switch(win, g2, "Touchpad works while typing", "Off: a palm on the touchpad can't move the cursor while you type",
+               st.get("touchpad_while_typing", "off") == "on", lambda on: tb("touchpad_while_typing", "on" if on else "off"))
+        g3 = group(page, "Gestures")
+        info(g3, "Swipe with three fingers", "Left or right moves between workspaces")
+        return page
+
+    def p_keyboard(win):
+        page = Adw.PreferencesPage()
+        st = managed()
+        g = group(page, "Layouts")
+        info(g, "In use", sh("prime-keyboard", "current") or "us", "input-keyboard-symbolic")
+        opener(g, "Add or remove layouts", "Languages you type in; Super+Ctrl+Space switches", ["prime-keyboard"], "Change")
+        g2 = group(page, "Typing")
+        slider(win, g2, "Repeat delay", "How long to hold a key before it repeats", 150, 1000, 25,
+               float(st.get("key_repeat_delay", 600)), lambda x: tb("key_repeat_delay", int(round(x))),
+               fmt=lambda x: f"{x:.0f} ms")
+        slider(win, g2, "Repeat speed", "How fast a held key repeats", 10, 80, 1,
+               float(st.get("key_repeat_rate", 25)), lambda x: tb("key_repeat_rate", int(round(x))),
+               fmt=lambda x: f"{x:.0f} a second")
+        g3 = group(page, "Shortcuts")
+        opener(g3, "Every keyboard shortcut", "Searchable; pick one to run it (Super+/)", ["prime-keys"], "Show")
+        g4 = group(page, "Typing tools")
+        opener(g4, "Emoji", "Super+Ctrl+E", ["prime-emoji"], "Open")
+        opener(g4, "Clipboard history", "Everything you copied recently (Super+V)", ["prime-clip-picker"], "Open")
+        return page
+
+    def p_processor(win):
+        page = Adw.PreferencesPage()
+        c = cpu_info()
+        g = group(page, "Processor")
+        info(g, "Model", c["model"], "cpu-symbolic")
+        info(g, "Cores", f"{c['cores']} (threads the processor can run at once)")
+        info(g, "How busy, right now", f"{c['busy']}% of its capacity" + (f" · {c['speed']}" if c["speed"] else ""))
+        if c["temp"]:
+            info(g, "Temperature", c["temp"])
+        g2 = group(page, "Speed and power")
+        cur = sh("prime-power-profile", "current")
+        if cur:
+            choice(win, g2, "Power mode", "Performance runs the processor fastest", POWER, cur,
+                   lambda p: done(ok("prime-power-profile", p), "Power mode changed"))
+        opener(g2, "What's using it", "Every app, busiest first — quit a stuck one (Ctrl+Shift+Esc)", ["prime-activity"])
+        return page
+
+    def p_graphics(win):
+        page = Adw.PreferencesPage()
+        g = group(page, "Graphics cards")
+        cards = gpus()
+        for name, drv in cards or [("Graphics", "")]:
+            info(g, name, f"driver: {drv}" if drv else "driver: not reported", "video-display-symbolic")
+        load = sh("prime-gpu-monitor")
+        if load:
+            try:
+                j = json.loads(load)
+                info(g, "How busy, right now", re.sub(r"<[^>]+>", "", j.get("tooltip") or j.get("text", "")))
+            except ValueError:
+                pass
+        hw = read(os.path.join(HOME, ".config/hypr/hardware.conf"))
+        g2 = group(page, "Video decoding")
+        m = re.search(r"LIBVA_DRIVER_NAME,(\S+)", hw)
+        info(g2, "Hardware video decoding", f"on ({m.group(1)})" if m else "default")
+        if any("nvidia" in n.lower() for n, _ in cards):
+            info(g2, "NVIDIA", "Prime set the NVIDIA options the desktop needs when it was installed")
+        return page
+
+    def p_storage(win):
+        page = Adw.PreferencesPage()
+        g = group(page, "Disks")
+        for label, total, free in disks():
+            usage_bar(g, label, total - free, total)
+        g2 = group(page, "Make room")
+        trash = os.path.join(HOME, ".local/share/Trash/files")
+        n = len(os.listdir(trash)) if os.path.isdir(trash) else 0
+        r = Adw.ActionRow(title="Trash", subtitle="Empty" if n == 0 else f"{n} item" + ("s" if n != 1 else ""))
+        b = Gtk.Button(label="Empty", valign=Gtk.Align.CENTER, sensitive=n > 0)
+        b.update_property([Gtk.AccessibleProperty.LABEL], ["Empty the Trash"])
+
+        def empty(*_a):
+            win.toast("Trash emptied" if ok("gio", "trash", "--empty") else "Couldn't empty the Trash")
+            win.refresh()
+        b.connect("clicked", empty)
+        r.add_suffix(b)
+        g2.add(r)
+        opener(g2, "Open the file manager", "See what's in your folders", ["xdg-open", HOME])
+        g3 = group(page, "File History")
+        fh = sh("prime-file-history", "status", "--tsv").split("\t")
+        info(g3, "Snapshots of your files", fh[1] if len(fh) > 1 else "—")
+        opener(g3, "Get a file back", "Your files as they were an hour, a day or a week ago", ["prime-file-history"], "Open")
+        return page
+
+    def p_gaming(win):
+        page = Adw.PreferencesPage()
+        on = "gaming" in enabled_addons()
+        g = group(page, "Gaming pack", "Steam, Proton, GameMode, an FPS overlay and a performance switch")
+        switch(win, g, "Gaming pack", "Installs what games need (asks for your password)", on,
+               lambda v: pack(v, "gaming", "Gaming pack"))
+        if on and os.access(os.path.join(LAYER, "addons/gaming/bin/prime-gaming"), os.X_OK):
+            pg = os.path.join(LAYER, "addons/gaming/bin/prime-gaming")
+            g2 = group(page, "While playing")
+            switch(win, g2, "Performance mode", "Fastest power profile while you play (Super+Alt+P)",
+                   sh(pg, "perf", "status") == "performance",
+                   lambda v: done(ok(pg, "perf", "on" if v else "off"), "Performance mode " + ("on" if v else "off")))
+            switch(win, g2, "FPS overlay", "Frames per second and temperatures in games (Super+Alt+H)",
+                   sh(pg, "hud", "status") == "on",
+                   lambda v: done(ok(pg, "hud", "on" if v else "off"), "FPS overlay " + ("on" if v else "off")))
+            opener(g2, "Tips for the best performance", "", ["prime-panel", "--title", "Gaming tips", "--", pg, "tips"])
+        for sec in registry():
+            if sec.get("id") == "gaming":
+                pack_group(page, sec, "Games and tools", skip=("game.perf", "game.hud", "game.tips"))
+        g3 = group(page, "Graphics")
+        for name, drv in gpus()[:2]:
+            info(g3, name, f"driver: {drv}" if drv else "")
+        return page
+
+    def p_assistant(win):
+        page = Adw.PreferencesPage()
+        on = "ai" in enabled_addons()
+        g = group(page, "Ask Prime", "Optional. Nothing is sent anywhere until you connect a model.")
+        switch(win, g, "AI assistant", "Ask Prime from Spotlight, right-click menus and Super+Shift+Space", on,
+               lambda v: pack(v, "ai", "AI assistant"))
+        conf = read(os.path.join(CFG, "ai.conf"))
+        mm = re.search(r"^MODEL=(.*)$", conf, re.M)
+        info(g, "Model", mm.group(1) if mm and mm.group(1) else "not connected yet")
+        opener(g, "Change the model", "On this computer, on your network, or a service",
+               [os.path.join(LAYER, "addons/ai/bin/prime-ai-setup")], "Change")
+        g2 = group(page, "What Prime may do on its own")
+        cur = sh("prime-settings", "autonomy").split(" ")[0] if has("prime-settings") else ""
+        choice(win, g2, "Permission", "Destructive changes and passwords always ask, whatever this says",
+               AUTONOMY, cur, lambda lv: done(ok("prime-settings", "autonomy", lv), "Saved"))
+        opener(g2, "What Prime changed", "Every change, in plain words, and how to undo it",
+               ["prime-panel", "--title", "What Prime changed", "--", os.path.join(BIN, "prime-settings"), "log", "30"], "Show")
+        if on:
+            for sec in registry():
+                if sec.get("id") == "prime":
+                    pack_group(page, sec, "Ask Prime")
+        return page
+
+    def p_apps(win):
+        page = Adw.PreferencesPage()
+        g = group(page, "Getting apps")
+        opener(g, "App Store", "Install apps with a click", ["gnome-software"])
+        opener(g, "Packs and add-ons", "Gaming, coding, creating, studying, the AI assistant", ["prime-addon", "pick"], "Choose")
+        opener(g, "Make a website into an app", "WhatsApp, YouTube, Gmail… in their own windows", ["prime-webapp"], "Make")
+        g2 = group(page, "Default apps")
+        br = sh("xdg-settings", "get", "default-web-browser").removesuffix(".desktop")
+        fm = sh("xdg-mime", "query", "default", "inode/directory").removesuffix(".desktop")
+        info(g2, "Web browser", br or "not set")
+        info(g2, "File manager", fm or "not set")
+        opener(g2, "Change the default apps", "", ["prime-default-apps"], "Change")
+        g3 = group(page, "Start with the computer", "Apps that open by themselves when you log in")
+        auto = os.path.join(HOME, ".config/autostart")
+        entries = sorted(f for f in os.listdir(auto) if f.endswith(".desktop")) if os.path.isdir(auto) else []
+        shown = 0
+        for f in entries:
+            path = os.path.join(auto, f)
+            text = read(path)
+            if "hidden by Prime" in text:
+                continue
+            name = (re.search(r"^Name=(.*)$", text, re.M) or [None, f[:-8]])[1]
+            hidden = re.search(r"^Hidden=true", text, re.M) is not None
+
+            def flip(on, path=path):
+                t = read(path)
+                t = re.sub(r"^Hidden=.*\n?", "", t, flags=re.M).rstrip("\n") + ("\n" if on else "\nHidden=true\n")
+                try:
+                    open(path, "w").write(t)
+                    return True, "Saved — it applies from your next login"
+                except OSError:
+                    return False, "Couldn't change that file"
+            switch(win, g3, name, f, not hidden, flip)
+            shown += 1
+        if not shown:
+            info(g3, "Nothing extra starts with the computer", "Apps you set to start by themselves show up here")
+        for sec in registry():               # Coding, Creating, Studying… (Gaming and AI have their own pages)
+            if sec.get("id") not in CORE_SECTIONS | {"gaming", "prime"}:
+                pack_group(page, sec)
+        return page
+
+    def p_updates(win):
+        page = Adw.PreferencesPage()
+        g = group(page, "Updates")
+        info(g, "Now", sh("prime-update-policy", "describe") or "—", "software-update-available-symbolic")
+        choice(win, g, "Install updates", "A snapshot is taken first, so an update can always be undone",
+               POLICIES, sh("prime-update-policy", "get"),
+               lambda p: done(ok("prime-update-policy", "set", p, timeout=120), "Saved", "Not changed (the password was cancelled?)"))
+        g2 = group(page, "Now")
+        opener(g2, "Update everything", "The system, apps and Prime", ["prime-update"], "Update")
+        opener(g2, "What's waiting", "Nothing changes until you choose to", ["prime-update", "--check"], "Show")
+        opener(g2, "Undo the last update", "Go back to how things were before it", ["prime-update", "--undo"], "Undo")
+        opener(g2, "System snapshots", "Every saved state of the system, newest first", ["prime-snapshots"], "Show")
+        return page
+
+    def p_security(win):
+        page = Adw.PreferencesPage()
+        g = group(page, "Safety check", "What protects this computer, in plain words")
+        rows = [l.split("\t") for l in sh("prime-security", "status", "--tsv", timeout=20).splitlines() if "\t" in l]
+        icons = {"ok": "emblem-ok-symbolic", "warn": "dialog-warning-symbolic", "bad": "dialog-error-symbolic",
+                 "info": "dialog-information-symbolic"}
+        words = {"ok": "OK", "warn": "Worth a look", "bad": "Needs you", "info": "Note"}
+        for r in rows:
+            lvl, msg = r[0], r[1]
+            fix = r[2] if len(r) > 2 else ""
+            row = info(g, msg, f"{words.get(lvl, '')}{' — ' + fix if fix else ''}", icons.get(lvl))
+            row.update_property([Gtk.AccessibleProperty.DESCRIPTION], [words.get(lvl, "")])
+        if not rows:
+            info(g, "Safety check", "Couldn't read it right now")
+        g2 = group(page, "More")
+        opener(g2, "Full security check", "With the fix for anything that needs you",
+               ["prime-panel", "--title", "Security check", "--", os.path.join(BIN, "prime-security"), "status"], "Open")
+        opener(g2, "Get a file back", "File History", ["prime-file-history"], "Open")
+        return page
+
+    def p_printers(win):
+        page = Adw.PreferencesPage()
+        if not has("lpstat"):
+            missing(group(page, "Printers"), "Printing")
+            return page
+        g = group(page, "Your printers")
+        names, default = printers()
+
+        def quick(good, yes):
+            win.toast(yes if good else "That didn't work — try again")
+            win.refresh()
+        test_page = next((f for f in ("/usr/share/cups/data/testprint", "/usr/share/cups/data/default-testpage.pdf")
+                          if os.path.exists(f)), "")
+        for n, ready in names:
+            nice = n.replace("_", " ")
+            btns = []
+            if n != default:
+                btns.append(("Make default", lambda n=n, nice=nice: quick(act("lpoptions", "-d", n)[0],
+                                                                          f"{nice} is the default printer"), ""))
+            if test_page:
+                btns.append(("Test page", lambda n=n, nice=nice: background(win, lambda: act("lp", "-d", n, test_page),
+                                                                            f"Test page sent to {nice}", f"{nice} didn't take it", False), ""))
+            btns.append(("Remove", lambda n=n: launch("prime-printer", "remove", n), ""))
+            buttons_row(g, nice, ("Default printer · " if n == default else "") + ("Ready" if ready else "Paused or not answering"),
+                        btns, "printer-symbolic")
+        if not names:
+            info(g, "No printers yet", "Printers on your Wi-Fi show up below")
+
+        gn = group(page, "Printers on your network", "Ones that need no driver — nearly every printer made in the last ten years. "
+                   "Adding one asks for your password")
+        state = {"shown": False}
+
+        def look():
+            def work():
+                found = printers_nearby()
+                def show():
+                    for child in list(state.get("rows", [])):
+                        gn.remove(child)
+                    state["rows"] = []
+                    for name, uri in found:
+                        state["rows"].append(buttons_row(gn, name.replace("_", " "), uri.split("/")[2] if "//" in uri else uri,
+                                                         [("Add", lambda name=name, uri=uri: launch("prime-printer", "add", name, uri), "suggested")],
+                                                         "printer-network-symbolic"))
+                    if not found:
+                        state["rows"].append(info(gn, "None found", "Check the printer is on and on the same Wi-Fi; a USB printer: plug it in and look again"))
+                    win.toast(f"Found {len(found)} printer(s)" if found else "No new printers found")
+                    return False
+                GLib.idle_add(show)
+                return True, ""
+            threading.Thread(target=work, daemon=True).start()
+            win.toast("Looking for printers…")
+        buttons_row(gn, "Look for printers", "Takes a few seconds", [("Look", look, "")])
+
+        jobs = print_jobs()
+        gq = group(page, "Printing now", "What is waiting to print")
+        for job, prn in jobs:
+            buttons_row(gq, prn.replace("_", " "), f"Job {job.rsplit('-', 1)[-1]}",
+                        [("Cancel", lambda job=job: quick(act("cancel", job)[0], "Cancelled"), "")])
+        if not jobs:
+            info(gq, "Nothing waiting to print", "")
+        g3 = group(page, "More")
+        opener(g3, "Advanced printer settings", "A USB printer that needs a driver, paper and ink options — opens the system's own tool, "
+               "which looks different and uses more technical words", ["system-config-printer"], "Open")
+        return page
+
+    def p_datetime(win):
+        page = Adw.PreferencesPage()
+        g = group(page, "Date & time")
+        props = dict(l.split("=", 1) for l in sh("timedatectl", "show").splitlines() if "=" in l)
+        info(g, "Time zone", props.get("Timezone", "—"), "preferences-system-time-symbolic")
+        switch(win, g, "Set the time automatically", "From the internet, always exact",
+               props.get("NTP", "no") == "yes",
+               lambda on: done(ok("timedatectl", "set-ntp", "true" if on else "false", timeout=120), "Saved"))
+        zones = sh("timedatectl", "list-timezones").splitlines()
+        if zones:
+            choice(win, g, "Change time zone", "Asks for your password", [(z.replace("_", " "), z) for z in zones],
+                   props.get("Timezone", ""),
+                   lambda z: done(ok("timedatectl", "set-timezone", z, timeout=120), f"Time zone: {z}"))
+        g2 = group(page, "Timetable & reminders", "Your classes for the week, with a note before each one")
+        nxt = sh("prime-timetable", "--next")
+        info(g2, "Next today", nxt or "No more classes today")
+        opener(g2, "Open Timetable", "Add your classes and reminders — or type “remind me to … at 5pm” in Prime Search",
+               ["prime-timetable"], "Open")
+        return page
+
+    def p_region(win):
+        page = Adw.PreferencesPage()
+        g = group(page, "Language & region")
+        loc = dict(l.split("=", 1) for l in sh("localectl", "status").replace(": ", "=").splitlines() if "=" in l)
+        lang = os.environ.get("LANG", "") or loc.get("System Locale", "").replace("LANG=", "")
+        info(g, "Language and formats", lang or "—", "preferences-desktop-locale-symbolic")
+        info(g, "Keyboard layouts", sh("prime-keyboard", "current") or "—")
+        opener(g, "Keyboard layouts", "", ["prime-keyboard"], "Change")
+        return page
+
+    def p_accounts(win):
+        page = Adw.PreferencesPage()
+        g = group(page, "You")
+        name = ""
+        m = re.search(r'^name:\s*"?([^"\n]*)"?', read(os.path.join(CFG, "identity.yaml")), re.M)
+        if m:
+            name = m.group(1).strip()
+        info(g, "Name", name or os.environ.get("USER", ""), "avatar-default-symbolic")
+        info(g, "Account", os.environ.get("USER", "") or os.path.basename(HOME))
+        opener(g, "Set up my computer again", "Your name, look, packs and updates — the Welcome app", ["prime-welcome"], "Open")
+        g2 = group(page, "Password")
+        r = Adw.ActionRow(title="Change your password", subtitle="The one you log in and unlock with")
+        b = Gtk.Button(label="Change", valign=Gtk.Align.CENTER)
+        b.update_property([Gtk.AccessibleProperty.LABEL], ["Change your password"])
+        b.connect("clicked", lambda *_: password_dialog(win))
+        r.add_suffix(b)
+        r.set_activatable_widget(b)
+        g2.add(r)
+        return page
+
+    def password_dialog(win):
+        d = Adw.Window(transient_for=win, modal=True, title="Change your password")
+        d.set_default_size(420, -1)
+        tv = Adw.ToolbarView()
+        tv.add_top_bar(Adw.HeaderBar())
+        pg = Adw.PreferencesPage()
+        g = Adw.PreferencesGroup(description="Use the new one next time you log in or unlock the screen.")
+        rows = [Adw.PasswordEntryRow(title=t) for t in ("Current password", "New password", "New password again")]
+        for r in rows:
+            g.add(r)
+        msg = Gtk.Label(wrap=True, xalign=0, margin_top=8)
+        g.add(msg)
+        pg.add(g)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        box.append(pg)
+        bt = Gtk.Button(label="Change password", halign=Gtk.Align.END, margin_end=16, margin_bottom=16)
+        bt.add_css_class("suggested-action")
+        box.append(bt)
+        tv.set_content(box)
+        d.set_content(tv)
+
+        def go(*_a):
+            text = "".join(r.get_text() + "\n" for r in rows)
+            if os.environ.get("PRIME_SETTINGS_DRY"):
+                print("TOOL prime-passwd (3 lines on stdin)", flush=True)
+                good, out = True, "Password changed."
+            else:
+                try:
+                    p = subprocess.run([os.path.join(BIN, "prime-passwd")], input=text, capture_output=True,
+                                       text=True, timeout=60)
+                    good, out = p.returncode == 0, p.stdout.strip()
+                except (OSError, subprocess.TimeoutExpired):
+                    good, out = False, "The password wasn't changed — try again."
+            if good:
+                win.toast(out)
+                d.close()
+            else:
+                msg.set_text(out)
+        bt.connect("clicked", go)
+        rows[-1].connect("entry-activated", go)
+        d.present()
+        return d
+
+    def p_accessibility(win):
+        page = Adw.PreferencesPage()
+        th, st = theme_conf(), managed()
+        g = group(page, "Seeing")
+        choice(win, g, "Text size", "Bar, menus, notifications, lock screen and apps", TEXT_SIZES,
+               th.get("TEXT", "default"), lambda t: done(ok("prime-theme", "--set-text", t), "Text size changed"))
+        switch(win, g, "Reduce motion", "No sliding or fading animations",
+               st.get("animations", "on") == "off", lambda on: tb("animations", "off" if on else "on"))
+        g2 = group(page, "Keyboard")
+        opener(g2, "Use the bar from the keyboard", "Every bar item and its menu (Super+Alt+B)", ["prime-bar", "--keys"])
+        opener(g2, "Every keyboard shortcut", "(Super+/)", ["prime-keys"], "Show")
+        return page
+
+    def p_about(win):
+        page = Adw.PreferencesPage()
+        g = group(page, "This computer")
+        c = cpu_info()
+        model = " ".join(x for x in (read("/sys/devices/virtual/dmi/id/sys_vendor"),
+                                     read("/sys/devices/virtual/dmi/id/product_name")) if x)
+        info(g, "Computer", model or "—", "computer-symbolic")
+        info(g, "Processor", f"{c['model']} · {c['cores']} cores")
+        info(g, "Graphics", " · ".join(n for n, _ in gpus()) or "—")
+        mem = re.search(r"MemTotal:\s*(\d+)", read("/proc/meminfo"))
+        info(g, "Memory", gb(int(mem.group(1)) * 1024) if mem else "—")
+        os_name = re.search(r'^PRETTY_NAME="?([^"\n]*)', read("/etc/os-release"), re.M)
+        info(g, "System", f"Prime on {os_name.group(1) if os_name else 'Linux'}")
+        ver = sh("git", "-C", os.path.dirname(LAYER), "describe", "--tags", "--always")
+        info(g, "Prime version", ver or "—")
+        g2 = group(page, "Help")
+        opener(g2, "Check and fix the desktop", "Repairs what it safely can (Super+H)", ["prime-doctor"], "Check")
+        opener(g2, "Get help", "A report to send to whoever helps you — no passwords, no files", ["prime-help"], "Make")
+        opener(g2, "Restore desktop settings", "Back to a copy saved before an update", ["prime-desktop-backup", "restore"], "Restore")
+        r = Adw.ActionRow(title="Undo the last change made here", subtitle="Mouse, keyboard, look and the other saved settings")
+        b = Gtk.Button(label="Undo", valign=Gtk.Align.CENTER)
+        b.connect("clicked", lambda *_: (win.toast(toolbox("undo_last", {})[1] or "Undone"), win.refresh()))
+        r.add_suffix(b)
+        g2.add(r)
+        opener(g2, "About Prime", "P.R.I.M.E — Please Relax I'll Manage Everything", ["prime-about"])
+        g3 = group(page, "Repair")
+        opener(g3, "Save desktop settings now", "A copy you can restore later", ["prime-menu", "--run", "style.save"], "Save")
+        opener(g3, "Restart the bar", "If the bar froze or vanished (Super+W)", ["prime-bar", "restart"], "Restart")
+        opener(g3, "Reload window settings", "After editing the settings file by hand", ["prime-menu", "--run", "style.reload"], "Reload")
+        return page
+
+    BUILDERS = {"network": p_network, "bluetooth": p_bluetooth, "sound": p_sound, "display": p_display,
+                "appearance": p_appearance,
+                "notifications": p_notifications, "power": p_power,
+                "camera": p_camera, "mouse": p_mouse, "keyboard": p_keyboard, "processor": p_processor, "graphics": p_graphics,
+                "storage": p_storage, "gaming": p_gaming, "assistant": p_assistant, "apps": p_apps,
+                "updates": p_updates, "security": p_security, "printers": p_printers, "datetime": p_datetime, "region": p_region,
+                "accounts": p_accounts, "accessibility": p_accessibility, "about": p_about}
+    assert set(BUILDERS) == {p for p, *_ in PAGES}
+
+    # ── run ─────────────────────────────────────────────────────────────────
+    result = {"code": 0}
+
+    def snap(win, path):
+        w, h = win.get_width(), win.get_height()
+        p = Gtk.WidgetPaintable.new(win)
+        s = Gtk.Snapshot()
+        p.snapshot(s, w, h)
+        node = s.to_node()
+        if node:
+            win.get_renderer().render_texture(node, None).save_to_png(path)
+            return True
+        return False
+
+    def run_selftest(win):
+        fails = []
+        for pid, title, *_ in PAGES:
+            win.show(pid)
+            page = win.built[pid]
+            bad = isinstance(page, Adw.PreferencesPage) and "couldn't load" in str(
+                [g.get_title() for g in _groups(page)])
+            print(f"  {'FAIL' if bad else 'PASS'}  {title}")
+            if bad:
+                fails.append(pid)
+        win.search.set_text("touchpad")
+        visible = [pid for pid, *_ in PAGES if win.matches(win.rows[pid])]
+        good = visible == ["mouse"]
+        print(f"  {'PASS' if good else 'FAIL'}  search 'touchpad' finds Mouse & Touchpad — {visible}")
+        if not good:
+            fails.append("search")
+        print(f"\n{len(fails)} failure(s)")
+        result["code"] = 1 if fails else 0
+        win.get_application().quit()
+
+    def _groups(page):
+        out, child = [], page.get_first_child()
+        stack = [child]
+        while stack:
+            c = stack.pop()
+            if c is None:
+                continue
+            if isinstance(c, Adw.PreferencesGroup):
+                out.append(c)
+            stack.append(c.get_first_child())
+            stack.append(c.get_next_sibling())
+        return out
+
+    def run_screenshots(win, outdir):
+        os.makedirs(outdir, exist_ok=True)
+        order = [p for p, *_ in PAGES]
+
+        def step(i, tries=0):
+            if i >= len(order):
+                win.get_application().quit()
+                return False
+            win.show(order[i])
+
+            def take():
+                if not snap(win, os.path.join(outdir, f"settings-{i + 1:02d}-{order[i]}.png")) and tries < 10:
+                    GLib.timeout_add(200, step, i, tries + 1)
+                    return False
+                GLib.timeout_add(150, step, i + 1)
+                return False
+            GLib.timeout_add(500, take)
+            return False
+        GLib.timeout_add(700, step, 0)
+
+    Adw.init()
+    app = Adw.Application(application_id="org.primelinux.Settings",
+                          flags=Gio.ApplicationFlags.NON_UNIQUE if (screenshots or selftest) else Gio.ApplicationFlags.DEFAULT_FLAGS)
+
+    def activate(app_):
+        Adw.StyleManager.get_default().set_color_scheme(Adw.ColorScheme.FORCE_DARK)
+        prov = Gtk.CssProvider()
+        prov.load_from_string(CSS) if hasattr(prov, "load_from_string") else prov.load_from_data(CSS.encode())
+        Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(), prov, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+        # the exact accent and Prime's own surfaces, written by prime-theme (absent: libadwaita's)
+        adw = os.path.join(CFG, "theme/adw.css")
+        if os.path.exists(adw):
+            theme = Gtk.CssProvider()
+            theme.load_from_path(adw)
+            Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(), theme,
+                                                      Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+        win = app_.get_active_window() or Settings(app_)
+        if page and page in win.rows:
+            win.show(page)
+        win.present()
+        if selftest:
+            GLib.timeout_add(300, lambda: run_selftest(win) and False)
+        elif screenshots:
+            run_screenshots(win, screenshots)
+    app.connect("activate", activate)
+    rc = app.run([sys.argv[0]])
+    return result["code"] or rc
+
+
+def main(argv: list) -> int:
+    if "--list-pages" in argv:
+        for pid, title, _icon, words in PAGES:
+            print(f"{pid}\t{title}\t{words}")
+        return 0
+    page = argv[argv.index("--page") + 1] if "--page" in argv and argv.index("--page") + 1 < len(argv) else ""
+    if page and page not in {p for p, *_ in PAGES}:
+        print(f"no such page: {page} (see --list-pages)", file=sys.stderr)
+        return 2
+    shots = argv[argv.index("--screenshots") + 1] if "--screenshots" in argv else ""
+    return gui(page=page, screenshots=shots, selftest="--selftest" in argv)
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

@@ -279,6 +279,36 @@ end
 
 local COLOUR = "^(rgba?%b())$"
 
+-- The red, green and blue of a colour as 0..1, for the one place Prime has to
+-- reason about a colour rather than hand it over: rgb(RRGGBB), rgba(RRGGBBAA),
+-- rgb(r,g,b), rgba(r,g,b,a) and 0xAARRGGBB. nil when it isn't one of those.
+local function rgb_parts(c)
+  if type(c) ~= "string" then return nil end
+  local hex = c:match("^rgba?%(%s*(%x+)%s*%)$") or c:match("^0x(%x+)$")
+  if hex then
+    if #hex == 8 and c:match("^0x") then hex = hex:sub(3) end   -- 0xAARRGGBB: drop alpha
+    if #hex < 6 then return nil end
+    return tonumber(hex:sub(1, 2), 16) / 255, tonumber(hex:sub(3, 4), 16) / 255,
+           tonumber(hex:sub(5, 6), 16) / 255
+  end
+  local inner = c:match("^rgba?%((.*)%)$")
+  if not inner then return nil end
+  local n = {}
+  for p in inner:gmatch("[^,]+") do n[#n + 1] = tonumber((p:gsub("%s", ""))) end
+  if #n < 3 then return nil end
+  return n[1] / 255, n[2] / 255, n[3] / 255
+end
+
+-- hyprbars' own rule when a button line leaves the text colour out: white on a
+-- dark button, black on a light one (hyprbars barDeco.cpp, `button.userfg`).
+-- Its Lua add_button has no way to say "unspecified", so Prime works the
+-- default out itself rather than let the button fail to be added at all.
+local function button_fg(bg)
+  local r, g, b = rgb_parts(bg)
+  if not r then return "rgba(ffffffff)" end
+  return (r + g + b) < 1 and "rgba(ffffffff)" or "rgba(000000ff)"
+end
+
 -- "rgba(ffffff44) rgba(d4d4d866) 45deg" → { colors = {…}, angle = 45 }
 local function gradient(v)
   local w, colors, angle = {}, {}, nil
@@ -514,9 +544,11 @@ function Reader:keyword(where, kw, value)
   elseif kw == "hyprbars-button" then
     local f = split_n(value, 5)
     if not (hl.plugin and hl.plugin.hyprbars) then return end   -- not loaded yet
+    local fg = f[5]
+    if fg == nil or fg == "" then fg = button_fg(f[1]) end
     return try(where, hl.plugin.hyprbars.add_button, {
       bg_color = f[1], size = tonumber(f[2]), icon = f[3],
-      action = M.fix_cmd(f[4] or ""), fg_color = f[5] })
+      action = M.fix_cmd(f[4] or ""), fg_color = fg })
   end
   note(where, "unknown keyword '" .. kw .. "'")
 end

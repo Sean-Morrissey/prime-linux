@@ -107,6 +107,18 @@ HOME="$H" XDG_RUNTIME_DIR="$T/run" "$LUA" "$T/mock.lua" > "$O" 2>&1
 ck "a hex colour still keeps its one hash"          "grep -qF 'general.col.active_border=\"#ff0000\"' $O"
 ck "a comment after a setting is still trimmed"     "grep -qF 'general.gaps_in=4' $O"
 
+echo; echo "== a title-bar button that doesn't name a text colour"
+# hyprbars' hyprlang syntax lets the 5th field go; its Lua add_button doesn't —
+# it fails the whole button. hyprbars picks white on a dark button and black on
+# a light one when nobody said (barDeco.cpp, button.userfg), so Prime does too.
+sed 's|plugin = { load = rec("plugin.load") },|plugin = { load = rec("plugin.load"), hyprbars = { add_button = rec("hyprbars.add_button") } },|' "$T/mock.lua" > "$T/mock-bars.lua"
+printf 'plugin {\n    hyprbars {\n        hyprbars-button = rgb(ff5f57), 12, , hyprctl dispatch killactive\n        hyprbars-button = rgb(1a1a1a), 12, x, hyprctl dispatch fullscreen 1\n        hyprbars-button = rgb(28c840), 13, +, hyprctl dispatch fullscreen 1, rgba(0, 0, 0, 0.65)\n    }\n}\n' > "$H/.config/hypr/hyprland.conf"
+HOME="$H" XDG_RUNTIME_DIR="$T/run" "$LUA" "$T/mock-bars.lua" > "$O" 2>&1
+ck "the button is added, not dropped with an error" "grep -qx 'errors=0' $O && [ \"\$(grep -c 'hyprbars.add_button' $O)\" = 3 ]"
+ck "a light button gets dark text"                  "grep -F 'bg_color=\"rgb(ff5f57)\"' $O | grep -q 'fg_color=\"rgba(000000ff)\"'"
+ck "a dark button gets light text"                  "grep -F 'bg_color=\"rgb(1a1a1a)\"' $O | grep -q 'fg_color=\"rgba(ffffffff)\"'"
+ck "a colour that was named is left alone"          "grep -F 'bg_color=\"rgb(28c840)\"' $O | grep -qF 'fg_color=\"rgba(0, 0, 0, 0.65)\"'"
+
 echo; echo "== prime-hypr: the old words on old Hyprland, Lua on 0.57"
 F="$T/fake"; mkdir -p "$F"
 cat > "$F/hyprctl" <<EOF

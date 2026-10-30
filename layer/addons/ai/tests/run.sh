@@ -105,6 +105,22 @@ ck "fallback remembered for that model"             "grep -q json $H/.cache/prim
 ck "tutor: teaching persona, no tools"              "in_home python3 $ASK --tutor --answer 'help me with fractions' --new | grep -q 'Hello from the mock' && tail -1 $MOCKLOG | grep -q 'Prime Tutor' && ! tail -1 $MOCKLOG | grep -q '\"tools\"'"
 ck "tutor keeps its own conversation"               "[ -f $H/.cache/prime/tutor.json ]"
 
+echo "== who else you can ask (ask-ai: keys, on/off, status)"
+ASKAI="$L/addons/ai/bin/ask-ai"
+ck "every shipped row is listed, on by default"     "[ \$(in_home python3 $ASKAI --status | wc -l) -ge 5 ] && in_home python3 $ASKAI --status | awk -F'\t' '\$3!=\"on\"{bad=1} END{exit bad+0}'"
+ck "a service with no key says so, in plain words"  "in_home python3 $ASKAI --status | grep -P '^deepseek\t' | grep -q 'needs a key'"
+ck "…and never tells you to open the page you're on" "! in_home python3 $ASKAI --status | grep -q 'Settings →'"
+ck "a key goes in on stdin, never an argument"      "printf 'sk-test-123' | in_home python3 $ASKAI --set-key deepseek | grep -q 'Saved'"
+ck "it is stored where only you can read it"        "[ \"\$(stat -c %a $H/.config/prime/keys/deepseek.key)\" = 600 ] && grep -qx 'sk-test-123' $H/.config/prime/keys/deepseek.key"
+ck "and the row turns ready"                        "in_home python3 $ASKAI --status | grep -P '^deepseek\t' | grep -q 'ready'"
+ck "each service keeps its own key"                 "in_home python3 $ASKAI --status | grep -P '^chatgpt\t' | grep -q 'needs a key'"
+ck "forgetting it removes the file"                 "printf '' | in_home python3 $ASKAI --set-key deepseek >/dev/null && [ ! -e $H/.config/prime/keys/deepseek.key ]"
+ck "turning a row off writes YOUR list, not Prime's" "in_home python3 $ASKAI --disable chatgpt >/dev/null && grep -q '\"enabled\": false' $H/.config/prime/ask-providers.json && ! grep -q '\"enabled\": false' $L/addons/ai/ask-providers.json"
+ck "a row that is off is out of the pickers"        "! in_home python3 $ASKAI --list | grep -q '^chatgpt' && in_home python3 $ASKAI --status | grep -qP '^chatgpt\toff\t|\toff\t'"
+ck "turning it back on restores it"                 "in_home python3 $ASKAI --enable chatgpt >/dev/null && in_home python3 $ASKAI --list | grep -q '^chatgpt'"
+ck "the local model needs no key at all"            "in_home python3 $ASKAI --status | grep -qP '^local\t.*\tno$'"
+ck "asking with no key fails with a way forward"    "in_home python3 $ASKAI deepseek --chat 'hi' 2>&1 | grep -q 'no key for DeepSeek'"
+
 echo "== welcome (headless)"
 cat > "$T/answers.json" <<'EOF'
 {"name": "Alex", "accent": "2dd4bf", "accent_name": "Teal", "wallpaper": "prime-dune.jpg",

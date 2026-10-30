@@ -1,0 +1,86 @@
+{
+  "_comment": [
+    "Who 'Ask …' can ask besides Prime itself. Used by bin/ask-ai, by the rows",
+    "bin/prime-snip-actions adds to the snip sheet and right-click menus, and by",
+    "Settings → AI Assistant, which turns rows on and off and stores the keys.",
+    "",
+    "Prime's own assistant is separate and unchanged: it stays on whatever",
+    "~/.config/prime/ai.conf points at, and it is the only one allowed to change",
+    "settings. Everyone here is a read-only second opinion — they get the question",
+    "and the picture, nothing else.",
+    "",
+    "Picking a row opens a terminal with a live session, so you can ask follow-ups",
+    "in it; close it when you're done.",
+    "",
+    "Two kinds of provider:",
+    "  'session'  a CLI that is already signed in on this computer. Opened",
+    "             interactively and seeded with the question. A snip is passed as",
+    "             a file path for it to read.",
+    "  'model'    a model reached over the OpenAI-compatible API in base_url,",
+    "             opened in ask-ai's own chat loop (--chat). Needs a key.",
+    "",
+    "Keys: a provider's own 'key_file' is used when it has one, otherwise the",
+    "shared 'key_file' at the top of this file. Settings → AI Assistant writes",
+    "them (0600, in ~/.config/prime/keys/), so a key never has to live in a shell",
+    "profile. 'key_env' names an environment variable that wins over both, for",
+    "anyone who would rather keep it out of a file altogether.",
+    "",
+    "'enabled': false hides a row from the pickers without deleting it, which is",
+    "what the switches in Settings write. A missing 'enabled' counts as true.",
+    "",
+    "To change this list, copy it to ~/.config/prime/ask-providers.json and edit",
+    "that — yours is used instead and updates never overwrite it. Settings copies",
+    "it for you the first time you change anything. To add someone, copy a block",
+    "and give it a new key; the menus and the snip sheet pick it up with no",
+    "further change. The order here is the row order.",
+    "",
+    "A provider whose CLI isn't installed, or whose key is missing, is skipped",
+    "with a plain message rather than failing oddly: `ask-ai --list` shows what is",
+    "actually set up on this computer."
+  ],
+  "base_url": "https://openrouter.ai/api/v1",
+  "key_file": "~/.config/prime/keys/openrouter.key",
+  "key_env": "OPENROUTER_API_KEY",
+  "providers": {
+    "claude": {
+      "label": "Claude",
+      "icon": "󰚩",
+      "session": ["claude"],
+      "via": "the claude CLI, if it is signed in here",
+      "model": "anthropic/claude-sonnet-4.5",
+      "_note": "session first; if the CLI is missing, the model is used over base_url"
+    },
+    "gemini": {
+      "label": "Gemini",
+      "icon": "󰊭",
+      "session": ["gemini"],
+      "via": "the gemini CLI, if it is signed in here",
+      "model": "google/gemini-2.5-pro",
+      "_note": "same: the CLI when it works, otherwise the model over base_url"
+    },
+    "chatgpt": {
+      "label": "ChatGPT",
+      "icon": "󰭻",
+      "model": "openai/gpt-4o",
+      "via": "OpenRouter"
+    },
+    "deepseek": {
+      "label": "DeepSeek",
+      "icon": "󰡄",
+      "model": "deepseek-chat",
+      "base_url": "https://api.deepseek.com/v1",
+      "key_file": "~/.config/prime/keys/deepseek.key",
+      "key_env": "DEEPSEEK_API_KEY",
+      "via": "DeepSeek's own API"
+    },
+    "local": {
+      "label": "Local model",
+      "icon": "󰍹",
+      "model": "local",
+      "base_url": "http://127.0.0.1:8080/v1",
+      "key_file": "~/.config/prime/keys/local.key",
+      "needs_key": false,
+      "via": "a model running on this computer — nothing leaves the machine"
+    }
+  }
+}

@@ -51,6 +51,8 @@ jobs:
         run: bash tests/check-import.sh
       - name: Personal add-ons
         run: bash tests/check-personal-addons.sh
+      - name: Workspace dots across the Hyprland 0.57 / waybar split
+        run: bash tests/check-bar-workspaces.sh
       - name: Remote login (SSH) safety
         run: bash tests/check-ssh.sh
       - name: Nightly updater, system installer, security report

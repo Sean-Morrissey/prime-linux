@@ -90,7 +90,7 @@ PKG_CONFIG_PATH=$PWD/pc make -C hyprbars
 4. Check after upgrading: `cat $XDG_RUNTIME_DIR/prime-hypr-errors` (should be empty),
    `hyprctl configerrors`, that the bar, dock and shortcuts work, and that the title bars rebuild.
 
-## Known regression on 0.57: clicking a workspace in the bar
+## Clicking a workspace in the bar: broken by 0.57, worked around in prime-bar
 
 Confirmed, not suspected. waybar 0.15.0's `hyprland/workspaces` sends `dispatch workspace N`
 on the raw socket; 0.57 replies
@@ -108,16 +108,30 @@ Upstream fixed it in [Waybar#5013](https://github.com/Alexays/Waybar/pull/5013) 
 [#5008](https://github.com/Alexays/Waybar/issues/5008)), merged but **not in any tagged
 release** — 0.15.0 (Feb 2026) is still the newest, so the repos don't have it.
 
-Deliberately *not* worked around in Prime's default bar. The maintainers' suggested
-alternative is the `ext/workspaces` module (`on-click: activate`), which goes over the
-Wayland ext-workspace protocol instead of Hyprland IPC; waybar 0.15.0 has it compiled in
-and both 0.56.2 and 0.57 implement the protocol, so the swap would work on both. It was
-left out because it changes the bar for every Prime user — including everyone on 0.56,
-where nothing is broken — to route around a bug upstream has already fixed, and because
-`ext/workspaces` has a smaller set of `format-icons` states and defaults to
-`ignore-hidden: true`, which would need checking against Prime's five persistent dots.
-Revisit when waybar releases; if the wait drags, the swap is the fallback, and it can be
-put in one user's `addons.d` without changing the default.
+`prime-bar` now works around it when building the config, and only then. It reads both
+versions and swaps `hyprland/workspaces` for `ext/workspaces` (`on-click: activate`,
+the maintainers' suggested alternative) when Hyprland is 0.57+ *and* waybar is 0.15.0 or
+older — that module goes over the Wayland ext-workspace protocol instead of Hyprland IPC,
+which both 0.56.2 and 0.57 implement. On 0.56 the bar is untouched, and the workaround
+retires itself the moment waybar tags the fix, with no migration and nothing to undo. If
+either version can't be read, the shipped bar is left alone.
+
+The two things that made the swap look risky both turned out fine, checked on screen
+against the real bar rather than reasoned about:
+
+- `ext/workspaces` has a smaller set of `format-icons` states (`active`, `default`, and
+  workspace names). Prime's dots only ever use `default`, so they render identically;
+  the states that don't carry over are dropped rather than left to read as workspace
+  names. The side bar's `button.occupied` rule has no `ext` equivalent, so an occupied
+  dot there sits at `@fg_faint` instead of `@fg_dim` — the only visible difference.
+- `ignore-hidden` defaults to `true`, and `persistent-workspaces` is hyprland-only. Prime's
+  five dots are real persistent workspaces in `hyprland.conf`, so the protocol lists them
+  all; `prime-bar` sets `ignore-hidden: false` and turns any `persistent-workspaces` a
+  config *does* declare (a personal `addons.d` bar, say) into real persistent workspaces
+  via `prime-hypr keyword`, which is the same thing by another route.
+
+`tests/check-bar-workspaces.sh` covers all of it: swapped on 0.57+old waybar, untouched on
+0.56, untouched again on waybar 0.16, and the persistent-workspaces translation.
 
 ## Not yet tested / open
 

@@ -62,6 +62,96 @@ def addons():
     return [d for d in map(addon_dir, names) if d]
 
 
+LEGACY_WS, EXT_WS = "hyprland/workspaces", "ext/workspaces"
+
+
+def _version(text):
+    """(major, minor, patch) from the first x.y[.z] in text; () if there is none."""
+    m = re.search(r"(\d+)\.(\d+)(?:\.(\d+))?", text or "")
+    return tuple(int(g or 0) for g in m.groups()) if m else ()
+
+
+def _cmd(*argv):
+    try:
+        r = subprocess.run(argv, capture_output=True, text=True, timeout=3)
+        return r.stdout + r.stderr
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+
+
+_clicks_broken = None
+
+
+def workspace_clicks_broken():
+    """Can waybar's hyprland/workspaces still switch workspace by click?
+
+    On Hyprland 0.57+ it can't: the module hardcodes `dispatch workspace N` on the
+    raw socket and 0.57's Lua config parser rejects it, so the click fails silently
+    (docs/HYPRLAND-057-PORT.md). waybar fixed it in Alexays/Waybar#5013, after
+    0.15.0 — so this stops firing the moment waybar releases the fix, and never
+    fires on 0.56, where nothing is broken. If either version can't be read, say no
+    and leave the shipped bar alone."""
+    global _clicks_broken
+    if _clicks_broken is None:
+        hypr = _version(_cmd("hyprctl", "version"))
+        bar = _version(_cmd("waybar", "--version"))
+        _clicks_broken = bool(hypr and bar and hypr >= (0, 57) and bar <= (0, 15, 0))
+    return _clicks_broken
+
+
+def ensure_persistent(spec):
+    """ext/workspaces shows the workspaces the compositor has, so a dot the old
+    config only drew in the bar (`persistent-workspaces`) has to become a real
+    persistent workspace — the same thing Prime's hyprland.conf already does for
+    1-5. waybar's two spellings: a count for every output, or names per output."""
+    if not isinstance(spec, dict):
+        return
+    try:
+        have = {str(w.get("name")) for w in json.loads(_cmd("hyprctl", "workspaces", "-j") or "[]")}
+    except ValueError:
+        return
+    for monitor, names in spec.items():
+        if isinstance(names, int):
+            names = range(1, names + 1)
+        elif not isinstance(names, list):
+            continue
+        for name in names:
+            name = str(name)
+            if name in have:
+                continue
+            rule = name if monitor in ("*", "") else f"{name}, monitor:{monitor}"
+            _cmd(os.path.join(LAYER, "bin/prime-hypr"), "keyword", "workspace",
+                 f"{rule}, persistent:true")
+
+
+def use_ext_workspaces(cfg):
+    """Swap hyprland/workspaces for ext/workspaces, which activates a workspace over
+    the Wayland ext-workspace protocol instead of Hyprland IPC. Prime's dots are real
+    persistent workspaces in hyprland.conf, so the protocol lists all five."""
+    mod = cfg.pop(LEGACY_WS, None)
+    if mod is None:
+        return
+    lists = [cfg.get(s, []) for s in ("modules-left", "modules-center", "modules-right")]
+    lists += [cfg[m].get("modules", []) for m in list(cfg) if m.startswith("group/")]
+    for mods in lists:
+        for i, m in enumerate(mods):
+            if m == LEGACY_WS:
+                mods[i] = EXT_WS
+    ensure_persistent(mod.get("persistent-workspaces"))
+    # ext/workspaces matches only `active`, `default` and workspace names; the other
+    # states are hyprland/workspaces', and would read as names here. These three keys
+    # are its own too — persistent-workspaces became real workspaces just above, and
+    # the on-scroll handlers already do what disable-scroll governs.
+    ext = {k: v for k, v in mod.items()
+           if k not in ("persistent-workspaces", "disable-scroll", "move-to-monitor")}
+    ext["format-icons"] = {k: v for k, v in mod.get("format-icons", {}).items()
+                           if k in ("active", "default")} or {"default": "●"}
+    ext["on-click"] = "activate"
+    ext["sort-by-id"] = True
+    ext["ignore-hidden"] = False   # an empty persistent workspace still gets its dot
+    cfg[EXT_WS] = ext
+
+
 def build(which):
     cfg_name, css_name = FILES[which]
     user_cfg = os.path.join(HOME, ".config/waybar", cfg_name)
@@ -88,6 +178,8 @@ def build(which):
             cfg.update(f.get("modules", {}))
         if os.path.exists(os.path.join(a, "waybar.css")):
             css.append(os.path.join(a, "waybar.css"))
+    if workspace_clicks_broken():
+        use_ext_workspaces(cfg)
     # waybar doesn't expand ~ in image paths
     for k, v in cfg.items():
         if isinstance(v, dict) and isinstance(v.get("path"), str):

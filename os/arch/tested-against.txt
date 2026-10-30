@@ -1,0 +1,44 @@
+# What Prime Linux assumes about the software underneath it.
+#
+# Prime's own tests run when Prime changes. The breaks people actually hit come
+# from the other direction: CachyOS and Arch roll forward, an interface Prime
+# leans on changes, and nothing noticed until the desktop misbehaved. Hyprland
+# 0.57 replacing the whole config language is the clearest case; waybar's
+# workspace clicks going silent on 0.57 is the same story one layer up.
+#
+# So each line below is a promise with a date on it: this component, at this
+# version, does the thing Prime needs it to do, and somebody checked.
+# .github/workflows/upstream-watch.yml reads this file every week, compares it
+# with what the repos ship *now*, and says so in the job summary — so the gap
+# shows up in CI on a Monday instead of on somebody's desktop mid-task.
+#
+# A warning here is not a failure. It means: go and look, then either confirm
+# the new version and move the line, or write the port.
+#
+# Columns, tab- or space-separated:
+#   package   tested-up-to   checked-on   what Prime leans on
+#
+# "tested-up-to" is major.minor — patch releases don't get their own promise.
+# Moving a line means somebody ran the desktop (or the test that stands in for
+# it) on that version, not that it installed cleanly.
+
+# ── the compositor: the biggest surface by far ───────────────────────────────
+hyprland            0.57   2026-10-29   config language, hyprctl dispatch/keyword, IPC socket, plugin ABI
+hyprpm              0.57   2026-10-29   builds and loads hyprbars against the running Hyprland
+hyprlock            0.9    2026-10-29   lock screen config keys the theme writes
+hypridle            0.1    2026-10-29   idle rules Prime's screen saver and lock timing write
+hyprpaper           0.8    2026-10-29   wallpaper IPC the theme calls
+
+# ── the bar, dock and menus: Prime drives these through their configs ────────
+waybar              0.15   2026-10-30   module names and options, workspace clicks, tray ownership
+nwg-dock-hyprland   0.4    2026-10-29   command-line flags prime-dock passes
+rofi                2.0    2026-10-29   dmenu flags, theme syntax, font lines from fonts.rasi
+swaync              0.12   2026-10-29   notification centre config and its control CLI
+
+# ── everything else Prime calls directly ────────────────────────────────────
+cliphist            0.7    2026-10-29   clipboard history store and list format
+wl-clipboard        2.3    2026-10-29   wl-copy / wl-paste behaviour the clipboard units rely on
+gtk4                4.24   2026-10-29   Spotlight, Settings, Prime windows (layer-shell)
+libadwaita          1.10   2026-10-29   the widgets those windows are built from
+python              3.14   2026-10-29   the language half the layer is written in
+jq                  1.8    2026-10-29   reads every JSON status Prime's own tools print

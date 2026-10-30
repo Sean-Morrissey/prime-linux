@@ -8,6 +8,9 @@ REPO="$(readlink -f "$(dirname "$(readlink -f "$0")")/..")"
 L="$REPO/layer"
 T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
 export HOME="$T/home" XDG_RUNTIME_DIR="$T/run" XDG_STATE_HOME="$T/home/.local/state" XDG_CONFIG_HOME="$T/home/.config"
+# the throwaway HOME carries the XDG dirs with it: without this the tools under
+# test read and write the real ~/.config, ~/.local/state and ~/.cache
+export XDG_STATE_HOME="$HOME/.local/state" XDG_CONFIG_HOME="$HOME/.config" XDG_CACHE_HOME="$HOME/.cache" XDG_DATA_HOME="$HOME/.local/share"
 export PRIME_NO_LIVE=1 PRIME_NONINTERACTIVE=1 PRIME_ADDON_PACKAGES=skip PRIME_NO_GSETTINGS=1
 unset HYPRLAND_INSTANCE_SIGNATURE WAYLAND_DISPLAY DISPLAY PRIME_PANEL PRIME_PERSONAL_ADDONS
 mkdir -p "$HOME/.config/prime" "$HOME/.config/hypr" "$XDG_RUNTIME_DIR" "$T/fake"; chmod 700 "$XDG_RUNTIME_DIR"

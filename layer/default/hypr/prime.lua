@@ -582,8 +582,16 @@ end
 local BLOCKS = { windowrule = true, layerrule = true, device = true }
 
 function Reader:line(where, raw)
-  -- comments: "#" starts one, "##" is a literal "#"
-  local line = raw:gsub("##", "\1"):gsub("#.*$", ""):gsub("\1", "#")
+  -- comments: "#" starts one, "##" is a literal "#" (a hex colour, say).
+  -- The whole-line case comes first: the escape would otherwise eat the banner
+  -- lines people rule their configs with ("### MONITORS ###", "##########"),
+  -- turning every one of them into a setting nobody can read.
+  local line
+  if raw:match("^%s*#") then
+    line = ""
+  else
+    line = raw:gsub("##", "\1"):gsub("#.*$", ""):gsub("\1", "#")
+  end
   line = trim(line)
   if line == "" then return end
 

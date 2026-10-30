@@ -79,6 +79,29 @@ Previews of each surface: `layer/branding/previews/` (re-render with
 `layer/branding/src/preview-desktop.sh`; the lock screen and title bars are mocks
 from the same values, because only Hyprland can draw them).
 
+## Keeping it from breaking under you
+
+Prime's tests run when **Prime** changes. Most of the breaks people actually hit came
+from the other direction: CachyOS and Arch rolled forward, something the layer leans on
+changed, and nobody knew until the desktop misbehaved. Hyprland 0.57 replaced the whole
+config language that way; waybar's workspace clicks went silent the same way a layer up.
+Neither was a regression in Prime's code, so no amount of testing Prime's code would
+have found them.
+
+Two things watch for it now, one before it reaches anyone and one after:
+
+- **`os/arch/tested-against.txt`** says, for each component Prime drives through a config
+  or a command line, which version it was last checked against and when.
+  `.github/workflows/upstream-watch.yml` reads the live repos every Monday and writes any
+  gap into the job summary — so the warning lands in CI, not mid-task on somebody's
+  desktop. A drift is a prompt to go and look, then either move the line or write the
+  port. `tests/check-static.py` keeps the file honest: every component named must be one
+  Prime actually installs, with a major.minor version and the date somebody checked it.
+- **Check and fix** (`prime-doctor`) catches what still gets through, and says it out
+  loud rather than leaving it silent: settings the compositor dropped
+  (`prime-hypr-errors`), a desktop part that stopped, title bars that need rebuilding
+  after a Hyprland update, and which building blocks jumped a version since last time.
+
 ## A fresh install comes up as Prime
 
 - **Install script** (CachyOS + `install.sh`): unchanged; the first *Update everything*

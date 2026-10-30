@@ -14,6 +14,9 @@ fail=0
 ck() { if ( eval "$2" ) >/dev/null 2>&1; then echo "  PASS  $1"; else echo "  FAIL  $1"; fail=$((fail+1)); fi; }
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t GIT_CONFIG_NOSYSTEM=1
 export HOME="$T/home"; mkdir -p "$HOME"; git config --global init.defaultBranch main
+# the throwaway HOME carries the XDG dirs with it: without this the tools under
+# test read and write the real ~/.config, ~/.local/state and ~/.cache
+export XDG_STATE_HOME="$HOME/.local/state" XDG_CONFIG_HOME="$HOME/.config" XDG_CACHE_HOME="$HOME/.cache" XDG_DATA_HOME="$HOME/.local/share"
 commit() { GIT_AUTHOR_DATE="$2" GIT_COMMITTER_DATE="$2" git -C "$1" commit -qam "$3"; }
 INSTALLED="$HOME/.local/share/prime-linux"
 STUB='#!/usr/bin/env bash

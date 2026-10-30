@@ -11,6 +11,9 @@ REPO="$(cd "$(dirname "$0")/.." && pwd)"; L="$REPO/layer"; fail=0
 T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
 ck() { rm -f "$T/rofi.answered"; if eval "$2" >"$T/out" 2>&1; then echo "  PASS  $1"; else echo "  FAIL  $1"; sed 's/^/          /' "$T/out" | tail -6; fail=$((fail+1)); fi; }
 export HOME="$T/home" XDG_RUNTIME_DIR="$T/run" PRIME_NO_GSETTINGS=1
+# the throwaway HOME carries the XDG dirs with it: without this the tools under
+# test read and write the real ~/.config, ~/.local/state and ~/.cache
+export XDG_STATE_HOME="$HOME/.local/state" XDG_CONFIG_HOME="$HOME/.config" XDG_CACHE_HOME="$HOME/.cache" XDG_DATA_HOME="$HOME/.local/share"
 mkdir -p "$HOME/.config/prime" "$T/run" "$T/bin"; chmod 700 "$T/run"
 unset WAYLAND_DISPLAY HYPRLAND_INSTANCE_SIGNATURE
 

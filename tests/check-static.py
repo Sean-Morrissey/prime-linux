@@ -321,6 +321,38 @@ if stale:
     wire.append(f"TOKENS.json is out of step with the payload: {stale}")
 ck("a fresh install comes up as Prime (seeded config, login session, first login, packages)", wire)
 
+# What Prime assumes about the software underneath it, so the weekly upstream
+# watch has something true to compare the repos with. A contract that names a
+# package Prime never installs, or carries a version nobody dated, is worse than
+# none: it would report "nothing moved" about software that isn't even there.
+contract = []
+installed = pk(os.path.join(REPO, "os/arch/packages.txt"))
+seen_pkgs = set()
+for n, line in enumerate(open(os.path.join(REPO, "os/arch/tested-against.txt")), 1):
+    line = line.split("#")[0].strip()
+    if not line:
+        continue
+    parts = line.split(None, 3)
+    if len(parts) < 4:
+        contract.append(f"tested-against.txt:{n}: needs package, version, date and what Prime leans on")
+        continue
+    pkg, ver, date, _why = parts
+    if pkg in seen_pkgs:
+        contract.append(f"tested-against.txt:{n}: {pkg} is listed twice")
+    seen_pkgs.add(pkg)
+    if pkg not in installed:
+        contract.append(f"tested-against.txt:{n}: {pkg} isn't in os/arch/packages.txt, so Prime never installs it")
+    if not re.fullmatch(r"\d+\.\d+", ver):
+        contract.append(f"tested-against.txt:{n}: {pkg} version should be major.minor, not {ver!r}")
+    if not re.fullmatch(r"20\d\d-\d\d-\d\d", date):
+        contract.append(f"tested-against.txt:{n}: {pkg} needs the date it was checked, not {date!r}")
+# the pieces Prime drives through a config or a command line are the ones that
+# break silently when they move; none of them may be left out of the contract
+for must in ("hyprland", "waybar", "rofi", "nwg-dock-hyprland", "swaync", "hyprpm"):
+    if must not in seen_pkgs:
+        contract.append(f"tested-against.txt doesn't say which {must} Prime was checked against")
+ck(f"what Prime was checked against is written down and current ({len(seen_pkgs)} components)", contract)
+
 print()
 print("ALL PASSED" if fails == 0 else f"{fails} FAILED")
 sys.exit(1 if fails else 0)

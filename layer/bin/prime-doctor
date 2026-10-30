@@ -140,6 +140,29 @@ if [ $in_session = 1 ]; then
         need_restore=1
     fi
 
+    # 6b — settings the window manager read but quietly dropped. Hyprland 0.57+
+    # reads Lua, so Prime's .conf files go through the translation in prime.lua;
+    # a line it can't translate is skipped and everything else carries on. That
+    # is the quietest way for the desktop to stop doing something, so it gets
+    # asked about here and not left to a notification nobody was there to see.
+    if "$BIN/prime-hypr" lua 2>/dev/null; then
+        hyprerr="${XDG_RUNTIME_DIR:-}/prime-hypr-errors"
+        if [ -n "${XDG_RUNTIME_DIR:-}" ] && [ -s "$hyprerr" ]; then
+            n=$(grep -c . "$hyprerr")
+            sed 's/^/skipped window setting: /' "$hyprerr" >>"$LOG"
+            bad "$n of your window settings couldn't be read, so they aren't doing anything ($(head -1 "$hyprerr")) — Get help makes a report with the rest"
+        elif [ -n "${XDG_RUNTIME_DIR:-}" ] && [ -f "$hyprerr" ]; then
+            ok "Window settings: all of them loaded"
+        else
+            # 0.57+ but Prime's loader left no record: ~/.config/hypr/hyprland.lua
+            # is missing or doesn't load the layer, so most of Prime's settings
+            # never reached the window manager at all.
+            echo "no $hyprerr on a Lua Hyprland" >>"$LOG"
+            bad "Prime's window settings aren't being loaded by this window manager — Update everything puts the loader back"
+            need_update=1
+        fi
+    fi
+
     # 7 — a second network icon (the bar already shows the network)
     if pgrep -x nm-applet >/dev/null; then
         pkill -x nm-applet && fixd "Closed a second network icon — the bar already shows the network"

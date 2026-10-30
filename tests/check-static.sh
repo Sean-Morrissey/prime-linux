@@ -23,6 +23,9 @@ python3 "$REPO/tests/check-static.py" || fail=$((fail+1))
 
 echo; echo "== behaviour (throwaway HOME)"
 export HOME="$T/home" PRIME_NO_GSETTINGS=1 PRIME_NO_LIVE=1; mkdir -p "$HOME/.config/hypr"
+# the throwaway HOME carries the XDG dirs with it: without this the tools under
+# test read and write the real ~/.config, ~/.local/state and ~/.cache
+export XDG_STATE_HOME="$HOME/.local/state" XDG_CONFIG_HOME="$HOME/.config" XDG_CACHE_HOME="$HOME/.cache" XDG_DATA_HOME="$HOME/.local/share"
 unset HYPRLAND_INSTANCE_SIGNATURE
 ck "theme writes every generated file"        "bash $L/bin/prime-theme --apply && for f in colors.css colors.rasi fonts.rasi hyprland.conf hyprlock.conf kitty.conf swaync.css; do [ -s \$HOME/.config/prime/theme/\$f ] || { echo missing \$f; exit 1; }; done"
 ck "text size: default ladder"                "grep -q 'prime-font-body: *\"Inter 13\"' \$HOME/.config/prime/theme/fonts.rasi && grep -q 'prime_font_clock = 72' \$HOME/.config/prime/theme/hyprlock.conf"

@@ -55,6 +55,8 @@ jobs:
         run: bash tests/check-bar-workspaces.sh
       - name: Check and fix reports settings the compositor dropped
         run: bash tests/check-doctor-hypr-errors.sh
+      - name: Minimising actually hides the window
+        run: bash tests/check-window.sh
       - name: Remote login (SSH) safety
         run: bash tests/check-ssh.sh
       - name: Nightly updater, system installer, security report

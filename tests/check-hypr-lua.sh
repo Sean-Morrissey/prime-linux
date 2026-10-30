@@ -73,7 +73,10 @@ ck "bindd → bind with description"                  "grep -qF 'bind(\"SUPER + 
 ck "bind flags (e, l) → repeating, locked"          "grep -F 'XF86AudioRaiseVolume' $O | grep -q 'locked=true,repeating=true'"
 ck "mouse binds drag and resize"                    "grep -F 'mouse:272' $O | grep -q 'window.drag' && grep -F 'mouse:273' $O | grep -q 'window.resize'"
 ck "fullscreen 1 is maximise"                       "grep -F '\"SUPER + F\"' $O | grep -q 'mode=\"maximized\"'"
-ck "silent move keeps you where you are"            "grep -F '\"SUPER + minus\"' $O | grep -q 'follow=false'"
+# Super+minus used to be a bare movetoworkspacesilent. It is prime-window now,
+# because moving the window is only half of minimising — see tests/check-window.sh.
+# The silent move itself still goes through prime-hypr, covered further down.
+ck "minimising goes through prime-window"           "grep -F '\"SUPER + minus\"' $O | grep -q 'prime-window minimise'"
 ck "Alt+Tab goes through prime-hypr"                "grep -F '\"ALT + Tab\"' $O | grep -q 'prime-hypr dispatch cyclenext'"
 ck "the lock submap keeps its one shortcut"         "awk '/^define_submap\\(prime-locked\\)/{f=1;next} /^end_submap/{f=0} f' $O | grep -q 'prime-lock --now'"
 ck "window rules: match + effects"                  "grep -F 'window_rule(' $O | grep -F 'prime-float' | grep -q 'float=true'"

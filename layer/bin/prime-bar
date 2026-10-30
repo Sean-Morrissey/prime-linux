@@ -147,7 +147,12 @@ def use_ext_workspaces(cfg):
     ext["format-icons"] = {k: v for k, v in mod.get("format-icons", {}).items()
                            if k in ("active", "default")} or {"default": "●"}
     ext["on-click"] = "activate"
-    ext["sort-by-id"] = True
+    # by number, not by the order the compositor happened to make them in:
+    # sort-by-id would put a workspace created later after one created first,
+    # so 1 and 4 land behind 2 and 3. Names here are "1".."5", which
+    # ext/workspaces sorts numerically.
+    ext["sort-by-name"] = True
+    ext["sort-by-id"] = False
     ext["ignore-hidden"] = False   # an empty persistent workspace still gets its dot
     cfg[EXT_WS] = ext
 

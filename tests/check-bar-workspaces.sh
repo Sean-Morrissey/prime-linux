@@ -50,6 +50,8 @@ ck "it is the module the bar lists, in place" \
 ck "clicking a dot activates that workspace" "[ \"\$(opt $T/057.json ext/workspaces on-click)\" = activate ]"
 ck "an empty workspace still gets its dot" \
    "python3 -c \"import json; assert json.load(open('$T/057.json'))['ext/workspaces']['ignore-hidden'] is False\""
+ck "the dots stay in number order, not creation order" \
+   "python3 -c \"import json; m=json.load(open('$T/057.json'))['ext/workspaces']; assert m['sort-by-name'] is True and m['sort-by-id'] is False\""
 ck "scrolling and right-click still go through prime-hypr" \
    "opt $T/057.json ext/workspaces on-scroll-up | grep -q prime-hypr && opt $T/057.json ext/workspaces on-click-right | grep -q prime-context"
 ck "the dots stay dots, not names" "[ \"\$(opt $T/057.json ext/workspaces format)\" = '{icon}' ]"

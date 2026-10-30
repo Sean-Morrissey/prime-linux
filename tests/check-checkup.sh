@@ -29,6 +29,11 @@ F
 printf '#!/usr/bin/env bash\necho "$*" >> "$FIX/notified"\n' > "$T/bin/notify-send"
 chmod +x "$T/bin/"*
 export FIX="$T/fix" HOME="$T/home" PATH="$T/bin:$PATH" PRIME_NO_GSETTINGS=1 PRIME_NO_LIVE=1
+# the throwaway HOME has to carry the XDG dirs with it. Without this the doctor
+# keeps its record of desktop versions in the *real* ~/.local/state/prime, so the
+# test overwrites the live baseline with its own fixtures — and then passes on a
+# CI runner where XDG_STATE_HOME is unset while failing on a real desktop.
+export XDG_STATE_HOME="$T/home/.local/state" XDG_CONFIG_HOME="$T/home/.config" XDG_CACHE_HOME="$T/home/.cache" XDG_DATA_HOME="$T/home/.local/share"
 unset WAYLAND_DISPLAY DISPLAY HYPRLAND_INSTANCE_SIGNATURE XDG_RUNTIME_DIR
 doc() { bash "$L/bin/prime-doctor" "$@" 2>&1; }
 notes() { cat "$FIX/notified" 2>/dev/null | wc -l; }

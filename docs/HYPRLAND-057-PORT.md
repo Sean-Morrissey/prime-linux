@@ -136,7 +136,9 @@ against the real bar rather than reasoned about:
 ## Not yet tested / open
 
 - shellcheck wasn't run locally (it's not installed); CI runs it.
-- prime-doctor doesn't read `prime-hypr-errors` yet.
+- ~~prime-doctor doesn't read `prime-hypr-errors` yet.~~ It does now: Check and fix names
+  the settings that were dropped, says so when none were, and catches the case where the
+  Lua loader never ran at all (`tests/check-doctor-hypr-errors.sh`).
 - `prime.lua:119` (`exec_rules`): `[float false]` yields the string `"false"`, which is
   truthy, via the Lua `and`/`or` idiom. Unreachable with real hyprlang syntax — exec rules
   are flags — so it was left alone rather than churn a merging branch.

@@ -93,6 +93,20 @@ ck "the lines after them still apply"               "grep -qF 'config({general.g
 ck "and they are listed for prime-doctor"           "[ \"\$(wc -l < $T/run/prime-hypr-errors)\" = 2 ]"
 ck "you get told (a notification)"                  "grep -q 'notification.create' $O"
 
+echo; echo "== the banner lines people rule their configs with are comments, not settings"
+# "##" is a literal "#" in a value (a hex colour), but a line that *starts* with
+# "#" is a comment however many hashes follow — otherwise every "### MONITORS ###"
+# in a hand-written config gets reported as a setting nobody can read.
+printf 'source = ~/.local/share/prime-linux/layer/default/hypr/prime.conf\n################\n### MONITORS ###\n#### four\n   # indented\ngeneral {\n    gaps_out = 3\n}\n' > "$H/.config/hypr/hyprland.conf"
+HOME="$H" XDG_RUNTIME_DIR="$T/run" "$LUA" "$T/mock.lua" > "$O" 2>&1
+ck "a wall of hashes is not a broken setting"       "grep -qx 'errors=0' $O"
+ck "nothing is left for prime-doctor to report"     "[ ! -s $T/run/prime-hypr-errors ]"
+ck "the settings around them still apply"           "grep -qF 'config({general.gaps_out=3})' $O"
+printf 'source = ~/.local/share/prime-linux/layer/default/hypr/prime.conf\ngeneral {\n    col.active_border = ##ff0000\n    gaps_in = 4 # how far apart\n}\n' > "$H/.config/hypr/hyprland.conf"
+HOME="$H" XDG_RUNTIME_DIR="$T/run" "$LUA" "$T/mock.lua" > "$O" 2>&1
+ck "a hex colour still keeps its one hash"          "grep -qF 'general.col.active_border=\"#ff0000\"' $O"
+ck "a comment after a setting is still trimmed"     "grep -qF 'general.gaps_in=4' $O"
+
 echo; echo "== prime-hypr: the old words on old Hyprland, Lua on 0.57"
 F="$T/fake"; mkdir -p "$F"
 cat > "$F/hyprctl" <<EOF

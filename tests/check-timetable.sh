@@ -8,6 +8,9 @@ REPO="$(cd "$(dirname "$0")/.." && pwd)"; L="$REPO/layer"; fail=0
 T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
 ck() { if ( eval "$2" ) >"$T/out" 2>&1; then echo "  PASS  $1"; else echo "  FAIL  $1"; sed 's/^/          /' "$T/out" | tail -8; fail=$((fail+1)); fi; }
 export HOME="$T/home" PRIME_TIMETABLE_DRY=1 PRIME_DO_DRY=1
+# the throwaway HOME carries the XDG dirs with it: without this the tools under
+# test read and write the real ~/.config, ~/.local/state and ~/.cache
+export XDG_STATE_HOME="$HOME/.local/state" XDG_CONFIG_HOME="$HOME/.config" XDG_CACHE_HOME="$HOME/.cache" XDG_DATA_HOME="$HOME/.local/share"
 mkdir -p "$HOME"
 TT="$L/bin/prime-timetable"
 # Monday 5 October 2026, 08:00

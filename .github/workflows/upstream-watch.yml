@@ -1,0 +1,95 @@
+# Has the ground moved under Prime? (os/arch/tested-against.txt)
+#
+# Prime's other workflows run when Prime changes. Nearly every break people
+# actually hit came from the other direction — CachyOS and Arch rolled forward,
+# something Prime leans on changed, and nobody knew until the desktop
+# misbehaved. Hyprland 0.57 replaced the config language that way; waybar's
+# workspace clicks went silent the same way.
+#
+# This reads what the repos ship today, compares it with the versions Prime has
+# actually been checked against, and writes the gaps into the job summary.
+# Nothing is built, nothing is pushed, nothing is installed on anyone's machine.
+# A drift is a warning, not a failure: go and look, then either confirm the new
+# version and move the line in tested-against.txt, or write the port.
+name: upstream watch
+on:
+  schedule:
+    - cron: "41 6 * * 1"          # Mondays, after installer watch
+  workflow_dispatch:
+  pull_request:                   # a change to the watcher or the contract runs it once
+    paths:
+      - ".github/workflows/upstream-watch.yml"
+      - "os/arch/tested-against.txt"
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Does Prime still match what the repos ship?
+    runs-on: ubuntu-24.04
+    container: archlinux:latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compare the repos with what Prime was checked against
+        shell: bash
+        run: |
+          set -uo pipefail
+          pacman -Sy --noconfirm >/dev/null 2>&1
+
+          # major.minor, with pacman's epoch (1:) and pkgrel (-2.1) taken off
+          mm() { sed -E 's/^[0-9]+://; s/-[^-]*$//; s/^([0-9]+\.[0-9]+).*/\1/' <<<"$1"; }
+
+          moved=() unknown=() same=0
+          while read -r pkg tested checked rest; do
+              case "${pkg:-#}" in '#'*|'') continue ;; esac
+              have="$(pacman -Si "$pkg" 2>/dev/null | awk -F': ' '/^Version/ {print $2; exit}')"
+              if [ -z "$have" ]; then
+                  unknown+=("| \`$pkg\` | — | \`$tested\` | not in the repos under this name — look by hand |")
+                  continue
+              fi
+              now="$(mm "$have")"
+              if [ "$now" = "$tested" ]; then
+                  same=$((same + 1))
+              elif [ "$(printf '%s\n%s\n' "$tested" "$now" | sort -V | tail -1)" = "$tested" ]; then
+                  same=$((same + 1))          # repos are behind what Prime checked: nothing to do
+              else
+                  moved+=("| \`$pkg\` | \`$now\` | \`$tested\` | $rest |")
+              fi
+          done < os/arch/tested-against.txt
+
+          {
+            echo "### What the repos ship vs. what Prime was checked against"
+            echo
+            if [ ${#moved[@]} -eq 0 ] && [ ${#unknown[@]} -eq 0 ]; then
+              echo "**Nothing moved.** All $same components match \`os/arch/tested-against.txt\`."
+            else
+              [ ${#moved[@]} -gt 0 ] && {
+                echo "**${#moved[@]} moved past what Prime has been checked against.**"
+                echo
+                echo "| package | repos ship | Prime checked | what Prime leans on |"
+                echo "|---|---|---|---|"
+                printf '%s\n' "${moved[@]}"
+                echo
+                echo "For each one: run the desktop on the new version, then either move its line in"
+                echo "\`os/arch/tested-against.txt\` (with today's date) or write the port."
+                echo
+              }
+              [ ${#unknown[@]} -gt 0 ] && {
+                echo "**${#unknown[@]} could not be read** — a package was renamed, dropped, or moved repo."
+                echo
+                echo "| package | repos ship | Prime checked | note |"
+                echo "|---|---|---|---|"
+                printf '%s\n' "${unknown[@]}"
+                echo
+              }
+              echo "$same other component(s) match."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          for m in "${moved[@]}"; do
+              echo "::warning::upstream moved: $(cut -d'|' -f2,3,4 <<<"$m" | tr -d '`|' | xargs)"
+          done
+          for u in "${unknown[@]}"; do
+              echo "::warning::couldn't read a package Prime depends on: $(cut -d'|' -f2 <<<"$u" | tr -d '`|' | xargs)"
+          done
+          exit 0

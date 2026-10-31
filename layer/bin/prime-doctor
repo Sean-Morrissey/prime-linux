@@ -95,6 +95,32 @@ for f in "Inter" "JetBrainsMono Nerd Font"; do
 done
 
 if [ $in_session = 1 ]; then
+    # 2b — the desktop's parts have to point at the real Prime before anything
+    # below can start. Installing or updating from a throwaway copy of Prime
+    # repoints every one of them at that copy; when it is cleaned up they all go
+    # dead at once and the desktop comes up with no bar, dock, clipboard or
+    # popups. Relinking is the whole repair, so do it rather than report it.
+    UD="$HOME/.config/systemd/user"
+    if [ -d "$BIN/../systemd" ]; then
+        strays=(); total=0
+        for u in "$BIN/../systemd"/*; do
+            total=$((total + 1)); n="$(basename "$u")"
+            [ "$(readlink -f "$UD/$n" 2>/dev/null)" = "$(readlink -f "$u")" ] && continue
+            strays+=("$n")
+        done
+        if [ ${#strays[@]} -gt 0 ] && [ $INSTALLED = 1 ]; then
+            mkdir -p "$UD"
+            for n in "${strays[@]}"; do ln -sfn "$BIN/../systemd/$n" "$UD/$n"; done
+            systemctl --user daemon-reload 2>/dev/null || true
+            printf '%s\n' "${strays[@]}" >>"$LOG"
+            fixd "${#strays[@]} of $total parts of the desktop pointed at a copy of Prime that isn't there any more — put them back"
+        elif [ ${#strays[@]} -gt 0 ]; then
+            bad "${#strays[@]} of $total parts of the desktop point at a copy of Prime that isn't there any more"
+        else
+            ok "All $total parts of the desktop point at the right place"
+        fi
+    fi
+
     # 3 — the bars and clipboard history run in the background, watched over
     for u in prime-bar@top prime-dock prime-cliphist-text prime-cliphist-image prime-clip-persist; do
         if systemctl --user is-active --quiet "$u"; then ok "Running: ${NAME[$u]}"
@@ -163,6 +189,90 @@ if [ $in_session = 1 ]; then
         fi
     fi
 
+    # 6c — the minimised-windows overlay left showing. A special workspace draws
+    # on top of whichever desktop is active, so while it is up, minimising looks
+    # like it does nothing and its windows follow you everywhere. prime-window
+    # closes it after every move; this catches anything else that didn't.
+    if hyprctl -j monitors 2>/dev/null | jq -e '.[] | select(.specialWorkspace.name == "special:minimized")' >/dev/null 2>&1; then
+        "$BIN/prime-hypr" dispatch togglespecialworkspace minimized >>"$LOG" 2>&1
+        fixd "The minimised windows were left showing on top of your desktop — put them away"
+    else
+        ok "Minimised windows stay out of the way"
+    fi
+
+    # 6d — a bar item pointing at something that isn't there. This is how the bar
+    # actually breaks: a script moves or loses the right to run, and waybar drops
+    # the item or refuses to start at all.
+    BARCFG="$LOGDIR/../prime-bar/top.json"
+    [ -r "$BARCFG" ] || BARCFG="${XDG_RUNTIME_DIR:-}/prime-bar/top.json"
+    if [ -r "$BARCFG" ]; then
+        missing="$(python3 - "$BARCFG" 2>/dev/null <<'PY'
+import json, os, re, shlex, shutil, sys
+try:
+    cfg = json.load(open(sys.argv[1]))
+except (OSError, ValueError):
+    sys.exit(0)
+keys = ("exec", "exec-if", "on-click", "on-click-right", "on-click-middle", "path")
+bad = []
+# any ~/… or /… that looks like a file, including one buried in `bash -c '…'`
+PATH_RE = re.compile(r'(?<![\w:])(?:~|/)[\w./@+-]*/[\w./@+-]+')
+
+def check(mod, key, cmd):
+    if not isinstance(cmd, str) or not cmd.strip():
+        return
+    seen = set()
+    try:
+        toks = shlex.split(cmd)
+    except ValueError:
+        toks = cmd.split()
+    if toks:                                   # the program itself must run
+        prog = os.path.expanduser(toks[0])
+        if prog.startswith(("/", "./", os.path.expanduser("~"))):
+            seen.add(prog)
+            if not os.path.exists(prog):
+                bad.append(f"{mod} → {toks[0]} (not there)")
+            elif key != "path" and not os.access(prog, os.X_OK):
+                bad.append(f"{mod} → {toks[0]} (can't be run)")
+        elif shutil.which(toks[0]) is None:
+            bad.append(f"{mod} → {toks[0]} (not installed)")
+    for m in PATH_RE.findall(cmd):             # and every file it names must exist
+        if "://" in cmd[max(0, cmd.find(m) - 3):cmd.find(m) + len(m)]:
+            continue
+        p = os.path.expanduser(m)
+        if p in seen:
+            continue
+        seen.add(p)
+        if not os.path.exists(p):
+            bad.append(f"{mod} → {m} (not there)")
+
+for mod, val in cfg.items():
+    if isinstance(val, dict):
+        for k in keys:
+            if k in val:
+                check(mod, k, val[k])
+print("\n".join(bad))
+PY
+)"
+        if [ -n "$missing" ]; then
+            echo "$missing" >>"$LOG"
+            n=$(echo "$missing" | grep -c .)
+            bad "$n thing(s) in the top bar point at something that isn't there — Get help makes a report with the list"
+        else
+            ok "Everything in the top bar can still run"
+        fi
+    fi
+
+    # 6e — window buttons drawn twice. Hyprland has no minimise, so an app's own
+    # minimise button cannot work; the title bar's is the one that does.
+    gtkbtn="$(gsettings get org.gnome.desktop.wm.preferences button-layout 2>/dev/null | tr -d "'")"
+    case "$gtkbtn" in
+        *close*|*minimize*|*maximize*)
+            bad "Apps are drawing a second set of window buttons, and those ones can't work — Restore desktop settings fixes it"
+            need_restore=1 ;;
+        "") : ;;
+        *) ok "One set of window buttons, on the title bar" ;;
+    esac
+
     # 7 — a second network icon (the bar already shows the network)
     if pgrep -x nm-applet >/dev/null; then
         pkill -x nm-applet && fixd "Closed a second network icon — the bar already shows the network"
@@ -186,6 +296,40 @@ while IFS=$'\t' read -r lvl msg fix; do [ -n "$lvl" ] && row "$lvl" "$msg" "$fix
 # 8b — File History: an undo for your own files
 while IFS=$'\t' read -r lvl msg fix; do [ -n "$lvl" ] && row "$lvl" "$msg" "$fix"; done < <("$BIN/prime-file-history" status --tsv 2>/dev/null)
 [ -n "$("$BIN/prime-file-history" status --tsv 2>/dev/null | grep '^warn')" ] && need_update=1
+
+# 8c — Prime's own files, edited. An update is a fast-forward: an edit under the
+# layer doesn't get quietly reverted, it makes the whole update refuse to run.
+REPO="$(readlink -f "$BIN/../..")"
+if [ -d "$REPO/.git" ]; then
+    dirty="$(git -C "$REPO" status --porcelain --untracked-files=no 2>/dev/null)"
+    if [ -n "$dirty" ]; then
+        echo "edited in $REPO:" >>"$LOG"; echo "$dirty" >>"$LOG"
+        bad "Prime's own files have been changed here, so updates can't install — Update everything offers to set the changes aside"
+        need_update=1
+    else
+        ok "Prime's own files are untouched, so updates can install"
+    fi
+fi
+
+# 8d — room on the graphics card. A model that fills it takes the whole desktop
+# down with it: the card resets, and the session goes with it. Measured: 1 GB
+# of headroom is not enough — the model finishes loading, then a browser claims
+# a buffer and the session dies.
+vram="$(for f in /sys/class/drm/card*/device/mem_info_vram_total; do
+            [ -r "$f" ] || continue
+            t="$(cat "$f")"; u="$(cat "${f%_total}_used" 2>/dev/null || echo 0)"
+            echo "$t $u"
+        done | sort -rn | head -1)"
+if [ -n "$vram" ]; then
+    total_mb=$(( ${vram% *} / 1048576 )); used_mb=$(( ${vram#* } / 1048576 ))
+    free_mb=$(( total_mb - used_mb ))
+    if [ "$free_mb" -lt 1536 ]; then
+        bad "The graphics card is nearly full (${free_mb} MB free of ${total_mb} MB) — the desktop can crash"
+        say note "Close a local model, a game, or some browser tabs."
+    else
+        ok "Graphics memory: ${free_mb} MB free of ${total_mb} MB"
+    fi
+fi
 
 # 9 — automatic updates: on, recent, not stuck
 if [ -x "$ENGINE" ] && j="$("$ENGINE" status --json 2>/dev/null)"; then

@@ -42,7 +42,7 @@ printf '#!/usr/bin/env bash\ncat "$FIX/gitstatus" 2>/dev/null\nexit 0\n' > "$T/b
 chmod +x "$T/bin"/*
 
 export HOME="$T/home" XDG_RUNTIME_DIR="$T/run" PATH="$T/bin:$PATH" FIX="$T/fix"
-export XDG_STATE_HOME="$HOME/.local/state" XDG_CONFIG_HOME="$HOME/.config" XDG_CACHE_HOME="$HOME/.cache"
+export XDG_STATE_HOME="$HOME/.local/state" XDG_CONFIG_HOME="$HOME/.config" XDG_CACHE_HOME="$HOME/.cache" XDG_DATA_HOME="$HOME/.local/share"
 export HYPRLAND_INSTANCE_SIGNATURE=test PRIME_DOCTOR_FORCE=1 PRIME_NO_PANEL=1 PRIME_NO_GSETTINGS=1 PRIME_NO_LIVE=1
 unset WAYLAND_DISPLAY DISPLAY PRIME_PANEL
 echo "" > "$FIX/special"; echo "':minimize,maximize,close'" > /dev/null

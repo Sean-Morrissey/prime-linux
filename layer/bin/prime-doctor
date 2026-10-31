@@ -266,24 +266,34 @@ PY
         fi
     fi
 
-    # 6f — one icon set, not three. GTK apps read ~/.config/gtk-{3,4}.0/settings.ini,
-    # everything else reads the desktop setting, and when those disagree the screen
-    # ends up drawing two different icon sets side by side — which is exactly what
-    # "the icons look wrong" turns out to be most of the time.
-    cur_icons="$(gsettings get org.gnome.desktop.interface icon-theme 2>/dev/null | tr -d "'")"
-    if [ -n "$cur_icons" ]; then
-        clash=""
+    # 6f — the look settings have two homes. GTK apps read
+    # ~/.config/gtk-{3,4}.0/settings.ini; everything else reads the desktop's own
+    # setting. When the two disagree the screen draws both answers at once — two
+    # icon sets, two widget styles, two cursors — which is most of what "it looks
+    # wrong" turns out to be. Reported, never auto-changed: which one is right is
+    # the person's taste, not the doctor's.
+    look_clash=""
+    check_look() {   # check_look <desktop setting> <ini key> <what it is>
+        local want ini f
+        want="$(gsettings get org.gnome.desktop.interface "$1" 2>/dev/null | tr -d "'")"
+        [ -n "$want" ] || return 0
         for f in "$HOME/.config/gtk-3.0/settings.ini" "$HOME/.config/gtk-4.0/settings.ini"; do
-            ini="$(sed -n 's/^gtk-icon-theme-name[[:space:]]*=[[:space:]]*//p' "$f" 2>/dev/null | tail -1)"
-            [ -n "$ini" ] && [ "$ini" != "$cur_icons" ] && clash="$ini"
+            ini="$(sed -n "s/^$2[[:space:]]*=[[:space:]]*//p" "$f" 2>/dev/null | tail -1)"
+            if [ -n "$ini" ] && [ "$ini" != "$want" ]; then
+                echo "$3: desktop=$want ini=$ini ($f)" >>"$LOG"
+                look_clash="$look_clash${look_clash:+, }$3 ($want and $ini)"
+                return 0
+            fi
         done
-        if [ -n "$clash" ]; then
-            echo "icons: desktop=$cur_icons ini=$clash" >>"$LOG"
-            bad "Two different sets of icons are in use ($cur_icons and $clash) — Restore desktop settings puts it back to one"
-            need_restore=1
-        else
-            ok "One set of icons everywhere ($cur_icons)"
-        fi
+    }
+    check_look icon-theme   gtk-icon-theme-name   "icons"
+    check_look gtk-theme    gtk-theme-name        "window style"
+    check_look cursor-theme gtk-cursor-theme-name "the mouse pointer"
+    if [ -n "$look_clash" ]; then
+        bad "Two different looks are in use at once — $look_clash — Restore desktop settings puts it back to one"
+        need_restore=1
+    else
+        ok "One look everywhere: $(gsettings get org.gnome.desktop.interface gtk-theme 2>/dev/null | tr -d "'"), $(gsettings get org.gnome.desktop.interface icon-theme 2>/dev/null | tr -d "'") icons"
     fi
 
     # 6e — window buttons drawn twice. Hyprland has no minimise, so an app's own

@@ -312,6 +312,20 @@ pk = lambda f: {l.strip() for l in open(f) if l.strip() and not l.lstrip().start
 missing = pk(os.path.join(REPO, "os/arch/packages.txt")) - pk(os.path.join(REPO, "os/cachyos/archiso/packages_prime.x86_64"))
 if missing:
     wire.append(f"the ISO package list lacks what the layer needs: {' '.join(sorted(missing))}")
+# One owner per background program. Two of them racing is not a tidiness point:
+# the loser exits with "already running", and when the loser is the service,
+# systemd retries it and then leaves it failed for the whole session — which the
+# health check then reports every day about something that is running fine.
+autostart = open(f"{LAYER}/default/hypr/autostart.conf").read()
+target = open(f"{LAYER}/systemd/prime-session.target").read()
+units = set(re.findall(r"(\w[\w@.-]*)\.service", target))
+for line in autostart.splitlines():
+    m = re.match(r"\s*exec-once\s*=\s*(?:\S*/)?([\w-]+)", line)
+    if m and m.group(1) in units:
+        wire.append(f"{m.group(1)} is started both by autostart.conf and by prime-session.target")
+if "swaync.service" not in target:
+    wire.append("nothing starts the notification centre: prime-session.target doesn't want swaync.service")
+
 tok = json.load(open(f"{PAY}/TOKENS.json"))["tokens"]
 body = "".join(open(os.path.join(d, f), errors="replace").read()
                for d, _, fs in os.walk(PAY) for f in fs if f != "TOKENS.json")

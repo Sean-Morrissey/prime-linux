@@ -57,6 +57,8 @@ jobs:
         run: bash tests/check-doctor-hypr-errors.sh
       - name: Minimising actually hides the window
         run: bash tests/check-window.sh
+      - name: Check and fix catches what has really broken a desktop
+        run: bash tests/check-doctor-breakage.sh
       - name: Remote login (SSH) safety
         run: bash tests/check-ssh.sh
       - name: Nightly updater, system installer, security report

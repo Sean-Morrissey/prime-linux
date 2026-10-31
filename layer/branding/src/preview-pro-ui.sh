@@ -32,8 +32,9 @@ cat > "$HOME/.config/fontconfig/fonts.conf" <<EOF
 EOF
 bash "$L/bin/prime-theme" --apply >/dev/null 2>&1
 mkdir -p "$HOME/.config/gtk-3.0"
-printf '[Settings]\ngtk-icon-theme-name=%s\ngtk-application-prefer-dark-theme=1\ngtk-font-name=Inter 10\n' \
-    "$( [ -d /usr/share/icons/WhiteSur-dark ] && echo WhiteSur-dark || echo Papirus-Dark)" > "$HOME/.config/gtk-3.0/settings.ini"
+# Papirus, the same icons Prime installs — a preview has to show what people get
+printf '[Settings]\ngtk-icon-theme-name=Papirus-Dark\ngtk-application-prefer-dark-theme=1\ngtk-font-name=Inter 10\n' \
+    > "$HOME/.config/gtk-3.0/settings.ini"
 printf 'name: "Alex Rivera"\n' > "$HOME/.config/prime/identity.yaml"
 
 app() {  # app <id> <Name> <icon> <comment>

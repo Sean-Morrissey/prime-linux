@@ -81,6 +81,17 @@ ck "a command on PATH is fine"                 "doc | grep -q 'Everything in the
 printf '{"ext/workspaces":{"on-click":"activate"},"hyprland/workspaces":{"on-click":"activate"}}\n' > "$XDG_RUNTIME_DIR/prime-bar/top.json"
 ck "a click action is not mistaken for a command" "doc | grep -q 'Everything in the top bar can still run'"
 
+echo "== one set of icons, not two"
+mkdir -p "$HOME/.config/gtk-3.0" "$HOME/.config/gtk-4.0"
+printf "'Papirus-Dark'\n" > "$FIX/gtkbuttons"   # gsettings returns this for any key here
+printf '[Settings]\ngtk-icon-theme-name=Papirus-Dark\n' > "$HOME/.config/gtk-3.0/settings.ini"
+ck "agreeing sources: says so"                 "doc | grep -q 'One set of icons everywhere'"
+printf '[Settings]\ngtk-icon-theme-name=WhiteSur\n' > "$HOME/.config/gtk-4.0/settings.ini"
+ck "two icon sets at once is caught"           "doc | grep -q 'Two different sets of icons'"
+ck "…and it names both of them"                "doc | grep -q 'Papirus-Dark and WhiteSur'"
+rm -f "$HOME/.config/gtk-3.0/settings.ini" "$HOME/.config/gtk-4.0/settings.ini"
+printf "'appmenu'\n" > "$FIX/gtkbuttons"
+
 echo "== a second set of window buttons, which cannot work here"
 ck "none: one set, on the title bar"           "doc | grep -q 'One set of window buttons'"
 printf "'appmenu:minimize,maximize,close'\n" > "$FIX/gtkbuttons"

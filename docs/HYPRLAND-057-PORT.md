@@ -124,11 +124,16 @@ against the real bar rather than reasoned about:
   the states that don't carry over are dropped rather than left to read as workspace
   names. The side bar's `button.occupied` rule has no `ext` equivalent, so an occupied
   dot there sits at `@fg_faint` instead of `@fg_dim` — the only visible difference.
-- `ignore-hidden` defaults to `true`, and `persistent-workspaces` is hyprland-only. Prime's
-  five dots are real persistent workspaces in `hyprland.conf`, so the protocol lists them
-  all; `prime-bar` sets `ignore-hidden: false` and turns any `persistent-workspaces` a
-  config *does* declare (a personal `addons.d` bar, say) into real persistent workspaces
-  via `prime-hypr keyword`, which is the same thing by another route.
+- `persistent-workspaces` is hyprland-only. Prime's five dots are real persistent
+  workspaces in `hyprland.conf`, so the protocol lists them all; `prime-bar` turns any
+  `persistent-workspaces` a config *does* declare (a personal `addons.d` bar, say) into
+  real persistent workspaces via `prime-hypr keyword`, which is the same thing by another
+  route.
+- `ignore-hidden` stays at its default of `true`, which was worth checking rather than
+  assuming: "hidden" means the compositor's own workspaces, not empty ones. Setting it
+  `false` to make sure an empty desktop kept its dot was unnecessary — a persistent
+  desktop is never hidden — and it drew a `special:minimized` chip among the dots the
+  moment anything was minimised.
 
 `tests/check-bar-workspaces.sh` covers all of it: swapped on 0.57+old waybar, untouched on
 0.56, untouched again on waybar 0.16, and the persistent-workspaces translation.

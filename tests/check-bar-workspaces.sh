@@ -48,8 +48,8 @@ ck "ext/workspaces replaces hyprland/workspaces" "has $T/057.json ext/workspaces
 ck "it is the module the bar lists, in place" \
    "python3 -c \"import json; m=json.load(open('$T/057.json'))['modules-left']; assert 'ext/workspaces' in m and 'hyprland/workspaces' not in m\""
 ck "clicking a dot activates that workspace" "[ \"\$(opt $T/057.json ext/workspaces on-click)\" = activate ]"
-ck "an empty workspace still gets its dot" \
-   "python3 -c \"import json; assert json.load(open('$T/057.json'))['ext/workspaces']['ignore-hidden'] is False\""
+ck "the minimised-windows desktop is not a dot" \
+   "python3 -c \"import json; assert json.load(open('$T/057.json'))['ext/workspaces']['ignore-hidden'] is True\""
 ck "the dots stay in number order, not creation order" \
    "python3 -c \"import json; m=json.load(open('$T/057.json'))['ext/workspaces']; assert m['sort-by-name'] is True and m['sort-by-id'] is False\""
 ck "scrolling and right-click still go through prime-hypr" \

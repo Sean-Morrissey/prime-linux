@@ -327,6 +327,7 @@ if "swaync.service" not in target:
     wire.append("nothing starts the notification centre: prime-session.target doesn't want swaync.service")
 
 tok = json.load(open(f"{PAY}/TOKENS.json"))["tokens"]
+
 body = "".join(open(os.path.join(d, f), errors="replace").read()
                for d, _, fs in os.walk(PAY) for f in fs if f != "TOKENS.json")
 stale = [t for t in tok if t not in body] + [t for t in set(re.findall(r"@[A-Z][A-Z0-9_]*@", body))
@@ -366,6 +367,24 @@ for must in ("hyprland", "waybar", "rofi", "nwg-dock-hyprland", "swaync", "hyprp
     if must not in seen_pkgs:
         contract.append(f"tested-against.txt doesn't say which {must} Prime was checked against")
 ck(f"what Prime was checked against is written down and current ({len(seen_pkgs)} components)", contract)
+
+# A test that takes over HOME has to take the XDG dirs with it — all of them.
+# Miss one and the tool under test reads or writes the real desktop instead: the
+# runtime dir is where the bar's generated config lives, so a test that forgets
+# it leaves a throwaway /tmp path baked into the real bar, and the Prime logo
+# stops loading until the bar is restarted. That happened twice in one day.
+XDG = ["XDG_STATE_HOME", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME", "XDG_RUNTIME_DIR"]
+leaky = []
+for t in sorted(glob.glob(os.path.join(REPO, "tests/check-*.sh"))):
+    src = open(t, errors="replace").read()
+    if not re.search(r"^\s*export\s+(?:\w+=\S*\s+)*HOME=", src, re.M):
+        continue
+    # set it to somewhere throwaway, or unset it so the tool falls back to one
+    missing = [v for v in XDG
+               if not re.search(rf"\b{v}=", src) and not re.search(rf"^\s*unset\b.*\b{v}\b", src, re.M)]
+    if missing:
+        leaky.append(f"{rel(t)} takes over HOME but not {', '.join(missing)}")
+ck(f"a test that takes over HOME takes the XDG dirs too ({len(leaky)} leaking)", leaky)
 
 print()
 print("ALL PASSED" if fails == 0 else f"{fails} FAILED")

@@ -16,7 +16,8 @@ T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
 ck() { if ( eval "$2" ) >"$T/out" 2>&1; then echo "  PASS  $1"; else echo "  FAIL  $1"; sed 's/^/          /' "$T/out" | tail -4; fail=$((fail+1)); fi; }
 mkdir -p "$T/bin" "$T/home" "$T/fix"
 export HOME="$T/home" PATH="$T/bin:$PATH" CALLS="$T/calls" FIX="$T/fix"
-export XDG_STATE_HOME="$HOME/.local/state" XDG_CONFIG_HOME="$HOME/.config" XDG_CACHE_HOME="$HOME/.cache"
+export XDG_STATE_HOME="$HOME/.local/state" XDG_CONFIG_HOME="$HOME/.config" XDG_CACHE_HOME="$HOME/.cache" XDG_DATA_HOME="$HOME/.local/share"
+export XDG_RUNTIME_DIR="$HOME/.run"; mkdir -p "$XDG_RUNTIME_DIR"; chmod 700 "$XDG_RUNTIME_DIR"
 
 # the compositor: $FIX/special says whether the minimised overlay is on screen,
 # $FIX/clients is what is minimised right now

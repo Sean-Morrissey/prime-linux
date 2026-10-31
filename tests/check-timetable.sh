@@ -11,6 +11,7 @@ export HOME="$T/home" PRIME_TIMETABLE_DRY=1 PRIME_DO_DRY=1
 # the throwaway HOME carries the XDG dirs with it: without this the tools under
 # test read and write the real ~/.config, ~/.local/state and ~/.cache
 export XDG_STATE_HOME="$HOME/.local/state" XDG_CONFIG_HOME="$HOME/.config" XDG_CACHE_HOME="$HOME/.cache" XDG_DATA_HOME="$HOME/.local/share"
+export XDG_RUNTIME_DIR="$HOME/.run"; mkdir -p "$XDG_RUNTIME_DIR"; chmod 700 "$XDG_RUNTIME_DIR"
 mkdir -p "$HOME"
 TT="$L/bin/prime-timetable"
 # Monday 5 October 2026, 08:00

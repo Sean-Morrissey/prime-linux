@@ -81,14 +81,21 @@ ck "a command on PATH is fine"                 "doc | grep -q 'Everything in the
 printf '{"ext/workspaces":{"on-click":"activate"},"hyprland/workspaces":{"on-click":"activate"}}\n' > "$XDG_RUNTIME_DIR/prime-bar/top.json"
 ck "a click action is not mistaken for a command" "doc | grep -q 'Everything in the top bar can still run'"
 
-echo "== one set of icons, not two"
+echo "== one look, not two"
+# the fake gsettings returns the same value for every key, so the ini either
+# agrees with it on all three or clashes on the one under test
 mkdir -p "$HOME/.config/gtk-3.0" "$HOME/.config/gtk-4.0"
-printf "'Papirus-Dark'\n" > "$FIX/gtkbuttons"   # gsettings returns this for any key here
-printf '[Settings]\ngtk-icon-theme-name=Papirus-Dark\n' > "$HOME/.config/gtk-3.0/settings.ini"
-ck "agreeing sources: says so"                 "doc | grep -q 'One set of icons everywhere'"
+printf "'Papirus-Dark'\n" > "$FIX/gtkbuttons"
+printf '[Settings]\ngtk-icon-theme-name=Papirus-Dark\ngtk-theme-name=Papirus-Dark\ngtk-cursor-theme-name=Papirus-Dark\n' > "$HOME/.config/gtk-3.0/settings.ini"
+ck "everything agreeing: says so"              "doc | grep -q 'One look everywhere'"
 printf '[Settings]\ngtk-icon-theme-name=WhiteSur\n' > "$HOME/.config/gtk-4.0/settings.ini"
-ck "two icon sets at once is caught"           "doc | grep -q 'Two different sets of icons'"
-ck "…and it names both of them"                "doc | grep -q 'Papirus-Dark and WhiteSur'"
+ck "two icon sets at once is caught"           "doc | grep -q 'Two different looks'"
+ck "…and it names which, and both values"      "doc | grep -q 'icons (Papirus-Dark and WhiteSur)'"
+printf '[Settings]\ngtk-theme-name=WhiteSur-Dark\n' > "$HOME/.config/gtk-4.0/settings.ini"
+ck "a clashing window style is caught too"     "doc | grep -q 'window style (Papirus-Dark and WhiteSur-Dark)'"
+printf '[Settings]\ngtk-cursor-theme-name=Bibata\n' > "$HOME/.config/gtk-4.0/settings.ini"
+ck "and a clashing mouse pointer"              "doc | grep -q 'the mouse pointer (Papirus-Dark and Bibata)'"
+ck "…and it is a problem, not a remark"        "doc | grep -q 'Needs you'"
 rm -f "$HOME/.config/gtk-3.0/settings.ini" "$HOME/.config/gtk-4.0/settings.ini"
 printf "'appmenu'\n" > "$FIX/gtkbuttons"
 

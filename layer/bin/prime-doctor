@@ -266,6 +266,26 @@ PY
         fi
     fi
 
+    # 6f — one icon set, not three. GTK apps read ~/.config/gtk-{3,4}.0/settings.ini,
+    # everything else reads the desktop setting, and when those disagree the screen
+    # ends up drawing two different icon sets side by side — which is exactly what
+    # "the icons look wrong" turns out to be most of the time.
+    cur_icons="$(gsettings get org.gnome.desktop.interface icon-theme 2>/dev/null | tr -d "'")"
+    if [ -n "$cur_icons" ]; then
+        clash=""
+        for f in "$HOME/.config/gtk-3.0/settings.ini" "$HOME/.config/gtk-4.0/settings.ini"; do
+            ini="$(sed -n 's/^gtk-icon-theme-name[[:space:]]*=[[:space:]]*//p' "$f" 2>/dev/null | tail -1)"
+            [ -n "$ini" ] && [ "$ini" != "$cur_icons" ] && clash="$ini"
+        done
+        if [ -n "$clash" ]; then
+            echo "icons: desktop=$cur_icons ini=$clash" >>"$LOG"
+            bad "Two different sets of icons are in use ($cur_icons and $clash) — Restore desktop settings puts it back to one"
+            need_restore=1
+        else
+            ok "One set of icons everywhere ($cur_icons)"
+        fi
+    fi
+
     # 6e — window buttons drawn twice. Hyprland has no minimise, so an app's own
     # minimise button cannot work; the title bar's is the one that does.
     gtkbtn="$(gsettings get org.gnome.desktop.wm.preferences button-layout 2>/dev/null | tr -d "'")"

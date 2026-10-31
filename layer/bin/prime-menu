@@ -191,10 +191,47 @@ for d in dirs:
 # Resolve each icon to a real FILE. rofi happily takes a themed name, but a name the
 # current icon theme does not carry renders as an empty slot, and looking at ~99
 # desktop files most names are fine while a handful are not. Passing an absolute path
-# (best match from his themes) means the row shows his icon or the generic one —
-# never a blank column.
-ICON_THEMES = ["WhiteSur", "WhiteSur-dark", "Papirus-Dark", "Papirus", "Adwaita", "breeze", "hicolor"]
+# (the best match from the themes installed here) means the row shows a real icon or
+# the generic one — never a blank column.
+#
+# Which themes, and in what order: whatever the desktop is actually set to, then
+# the themes it inherits from, then Prime's own (Papirus), then the two every
+# system has. This list used to be hardcoded with one theme first, which is how
+# the app list ended up drawing a different icon set from the rest of the screen.
+PRIME_ICONS = ["Papirus-Dark", "Papirus", "Adwaita", "hicolor"]
 ICON_ROOTS = ["/usr/share/icons", os.path.expanduser("~/.local/share/icons"), "/usr/share/pixmaps"]
+
+
+def _inherits(theme):
+    """The themes this one falls back to, from its index.theme (the icon spec's
+    own mechanism: Papirus-Dark inherits Papirus inherits hicolor)."""
+    for root in ICON_ROOTS:
+        p = os.path.join(root, theme, "index.theme")
+        if not os.path.exists(p):
+            continue
+        try:
+            m = re.search(r"^Inherits=(.+)$", open(p, encoding="utf-8", errors="ignore").read(), re.M)
+        except OSError:
+            return []
+        return [t.strip() for t in m.group(1).split(",") if t.strip()] if m else []
+    return []
+
+
+def _icon_themes():
+    import subprocess
+    try:
+        cur = subprocess.run(["gsettings", "get", "org.gnome.desktop.interface", "icon-theme"],
+                             capture_output=True, text=True, timeout=2).stdout.strip().strip("'")
+    except (OSError, subprocess.SubprocessError):
+        cur = ""
+    order, seen = [], set()
+    for t in ([cur] if cur else []) + _inherits(cur) + PRIME_ICONS:
+        if t and t not in seen:
+            seen.add(t); order.append(t)
+    return order
+
+
+ICON_THEMES = _icon_themes()
 SIZE_RE = re.compile(r"/(\d+)(?:@2x)?/")
 
 def resolve_icon(name):
@@ -214,9 +251,9 @@ def resolve_icon(name):
         return None
 
     def rank(path):
-        # his GTK theme first (it is what the rest of the desktop uses), then vector art,
-        # then the largest usable raster. Ranking by "@2x" alone used to hand Konsole and
-        # Files near-black 16px breeze bitmaps while Chrome got crisp WhiteSur art.
+        # the desktop's own icon theme first (it is what the rest of the screen uses),
+        # then vector art, then the largest usable raster. Ranking by "@2x" alone used
+        # to hand some apps near-black 16px bitmaps while others got crisp art.
         theme = next((ICON_THEMES.index(t) for t in ICON_THEMES if f"/{t}/" in path),
                      len(ICON_THEMES))
         m = SIZE_RE.search(path)
@@ -457,7 +494,7 @@ SEARCH_STR=(
 )
 LAYOUT_STR=("${SEARCH_STR[@]}" -theme-str 'listview { lines: 12; }')
 if [ "$SHOW_ICONS" = 1 ]; then
-    # the theme install.sh sets (Papirus-Dark), or WhiteSur where someone installed it
+    # whatever the desktop is set to; Prime's own is Papirus-Dark
     ICON_THEME="$(gsettings get org.gnome.desktop.interface icon-theme 2>/dev/null | tr -d "'")"
     ICON_FLAGS=(-show-icons -icon-theme "${ICON_THEME:-Papirus-Dark}")
     SHOW_ICONS=1

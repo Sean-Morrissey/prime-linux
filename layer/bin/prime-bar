@@ -153,7 +153,11 @@ def use_ext_workspaces(cfg):
     # ext/workspaces sorts numerically.
     ext["sort-by-name"] = True
     ext["sort-by-id"] = False
-    ext["ignore-hidden"] = False   # an empty persistent workspace still gets its dot
+    # "hidden" here means the compositor's own workspaces, not empty ones — the
+    # minimised-windows workspace is hidden, a persistent desktop with nothing on
+    # it is not. Showing them drew a "special:minimized" chip among the dots the
+    # moment anything was minimised.
+    ext["ignore-hidden"] = True
     cfg[EXT_WS] = ext
 
 

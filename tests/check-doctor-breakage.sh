@@ -77,6 +77,9 @@ printf '{"custom/x":{"exec":"echo hi","on-click":"bash -c \\"exec /nope/deep/ins
 ck "…even buried inside a bash -c string"      "doc | grep -q 'point at something that isn.t there'"
 printf '{"custom/x":{"exec":"echo hi"}}\n' > "$XDG_RUNTIME_DIR/prime-bar/top.json"
 ck "a command on PATH is fine"                 "doc | grep -q 'Everything in the top bar can still run'"
+# the workspace modules put a click action in on-click, not a command to run
+printf '{"ext/workspaces":{"on-click":"activate"},"hyprland/workspaces":{"on-click":"activate"}}\n' > "$XDG_RUNTIME_DIR/prime-bar/top.json"
+ck "a click action is not mistaken for a command" "doc | grep -q 'Everything in the top bar can still run'"
 
 echo "== a second set of window buttons, which cannot work here"
 ck "none: one set, on the title bar"           "doc | grep -q 'One set of window buttons'"

@@ -213,12 +213,16 @@ try:
 except (OSError, ValueError):
     sys.exit(0)
 keys = ("exec", "exec-if", "on-click", "on-click-right", "on-click-middle", "path")
+# the workspace modules take a click *action* here, not a command to run
+ACTIONS = {"activate", "deactivate", "close"}
 bad = []
 # any ~/… or /… that looks like a file, including one buried in `bash -c '…'`
 PATH_RE = re.compile(r'(?<![\w:])(?:~|/)[\w./@+-]*/[\w./@+-]+')
 
 def check(mod, key, cmd):
     if not isinstance(cmd, str) or not cmd.strip():
+        return
+    if cmd.strip() in ACTIONS:
         return
     seen = set()
     try:

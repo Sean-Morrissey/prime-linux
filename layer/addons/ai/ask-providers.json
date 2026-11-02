@@ -70,7 +70,6 @@
       "model": "deepseek-chat",
       "base_url": "https://api.deepseek.com/v1",
       "key_file": "~/.config/prime/keys/deepseek.key",
-      "key_env": "DEEPSEEK_API_KEY",
       "via": "DeepSeek's own API"
     },
     "local": {

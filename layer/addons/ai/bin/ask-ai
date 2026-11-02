@@ -240,7 +240,6 @@ def complete(c, prov, messages):
                          "max_tokens": 2048}).encode(),
         headers={"Content-Type": "application/json",
                  "Authorization": "Bearer " + (key_for(c, prov) or "local"),
-                 "HTTP-Referer": "https://github.com/Sean-Morrissey/prime-linux",
                  "X-Title": "Prime Linux"},
     )
     with urllib.request.urlopen(req, timeout=TIMEOUT) as r:

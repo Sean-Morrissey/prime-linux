@@ -12,6 +12,7 @@
 # Uses gpu-screen-recorder (hardware encoding, light on the CPU) and falls back
 # to wf-recorder when the GPU can't encode (virtual machines, very old GPUs).
 set -u
+BIN="$(dirname "$(readlink -f "$0")")"
 RUNTIME="${XDG_RUNTIME_DIR:-/tmp}"
 PIDF="$RUNTIME/prime-record.pid"; FILEF="$RUNTIME/prime-record.file"
 [ -f "$HOME/.config/user-dirs.dirs" ] && . "$HOME/.config/user-dirs.dirs"
@@ -27,8 +28,8 @@ stop() {
     kill -INT "$pid" 2>/dev/null
     for _ in $(seq 50); do kill -0 "$pid" 2>/dev/null || break; sleep 0.1; done
     rm -f "$PIDF" "$FILEF"; bar
-    if [ -s "$file" ]; then note "Recording saved" "${file/#$HOME/\~}" 6000
-    else note "Recording didn't save" "Nothing was captured — see ~/.cache/prime-record.log"; fi
+    if [ -s "$file" ]; then "$BIN/prime-notify" -T 6000 -t "Recording saved" -b "${file/#$HOME/\~}" -a "xdg-open $(printf '%q' "$file")"
+    else "$BIN/prime-notify" -t "Recording didn't save" -b "Nothing was captured — Open shows the log" -a "xdg-open $(printf '%q' "$HOME/.cache/prime-record.log")"; fi
 }
 
 start() {
@@ -67,7 +68,7 @@ start() {
         sleep 0.8
         kill -0 "$pid" 2>/dev/null || pid=""
     fi
-    if [ -z "$pid" ]; then note "Couldn't start recording" "See ~/.cache/prime-record.log" 6000; return 1; fi
+    if [ -z "$pid" ]; then "$BIN/prime-notify" -T 6000 -t "Couldn't start recording" -b "Open shows the log" -a "xdg-open $(printf '%q' "$HOME/.cache/prime-record.log")"; return 1; fi
     echo "$pid" > "$PIDF"; echo "$file" > "$FILEF"; bar
     note "Recording" "Press Super+Shift+R or click the red dot on the bar to stop" 2500
 }

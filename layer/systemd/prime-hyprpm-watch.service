@@ -1,0 +1,12 @@
+[Unit]
+Description=Prime: rebuild the title-bar plugin when the Hyprland version moves
+Documentation=file:%h/.local/share/prime-linux/layer/bin/prime-hyprpm-doctor
+
+[Service]
+Type=oneshot
+# --if-version-changed makes this a no-op unless hyprctl reports a new commit, so a
+# frequent timer never re-loads the plugin (which would flash every title bar).
+# Outside a Hyprland session it exits at once.
+ExecStart=%h/.local/share/prime-linux/layer/bin/prime-hyprpm-doctor --if-version-changed
+TimeoutStartSec=900
+Nice=10

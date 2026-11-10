@@ -7,4 +7,4 @@ dir="${1:-$HOME/Desktop}"
 f="$dir/untitled.txt"; n=2
 while [ -e "$f" ]; do f="$dir/untitled $n.txt"; n=$((n + 1)); done
 : >"$f" || exit 1
-notify-send -a Prime "New file" "$(basename "$f")" >/dev/null 2>&1 || true
+"$(dirname "$(readlink -f "$0")")/prime-notify" -T 4000 -t "New file" -b "$(basename "$f")" -a "xdg-open $(printf '%q' "$f")"

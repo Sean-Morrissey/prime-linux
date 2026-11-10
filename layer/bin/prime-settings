@@ -1274,7 +1274,9 @@ def run_tool(name, args, actor="user", mode="deny", untrusted=""):
 
 def notify(title, body):
     if live():
-        run(["notify-send", "-a", "Prime", title, body + "\nUndo: Settings → About & Help → Undo, or ask Prime."])
+        run([os.path.join(BIN, "prime-notify"), "-t", title,
+             "-b", body + "\nUndo: Settings → About & Help → Undo, or ask Prime.",
+             "-a", os.path.join(BIN, "prime-system-settings") + " --page about"])
 
 
 # ── command line ─────────────────────────────────────────────────────────────

@@ -122,6 +122,7 @@ ufw
 arch-audit
 snapper
 snap-pac
+grub-btrfs
 btrfs-assistant
 
 # welcome app + assistant UI (GTK 4 / libadwaita)

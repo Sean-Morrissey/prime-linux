@@ -1,0 +1,11 @@
+[Unit]
+Description=Prime: watch the generated theme for a Text size change
+
+[Path]
+# prime-theme rewrites this file for every text size. Watching it means the GTK3
+# sync happens wherever the change came from (Settings, the menu, or the CLI).
+PathChanged=%h/.config/prime/theme/fonts.rasi
+Unit=prime-text-sync.service
+
+[Install]
+WantedBy=default.target

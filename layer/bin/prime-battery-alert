@@ -5,6 +5,7 @@
 # prime-battery-alert user service; exits straight away on computers with no
 # battery.  --once checks a single time (tests).
 set -u
+BIN="$(dirname "$(readlink -f "$0")")"
 bat="$(ls -d /sys/class/power_supply/BAT* 2>/dev/null | head -1)"
 [ -n "$bat" ] || exit 0
 warned=100
@@ -12,9 +13,9 @@ while :; do
     cap="$(cat "$bat/capacity" 2>/dev/null || echo 100)"; st="$(cat "$bat/status" 2>/dev/null)"
     if [ "$st" = Discharging ]; then
         if [ "$cap" -le 5 ] && [ "$warned" -gt 5 ]; then
-            notify-send -a Prime -u critical "Battery almost empty — $cap%" "Plug in the charger now, or save your work: the computer will turn off soon."; warned=5
+            "$BIN/prime-notify" -u critical -T 0 -t "Battery almost empty — $cap%" -b "Plug in the charger now, or save your work: the computer will turn off soon." -a "$BIN/prime-system-settings --page power"; warned=5
         elif [ "$cap" -le 15 ] && [ "$warned" -gt 15 ]; then
-            notify-send -a Prime -u critical "Battery low — $cap%" "Plug in the charger soon. Battery saver: click the battery on the bar."; warned=15
+            "$BIN/prime-notify" -u critical -t "Battery low — $cap%" -b "Plug in the charger soon. Open turns on battery saver (Power & Battery)." -a "$BIN/prime-system-settings --page power"; warned=15
         fi
     else
         warned=100

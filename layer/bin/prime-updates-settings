@@ -51,7 +51,7 @@ login_summary() {
                body="Your computer works, but please open Settings → Updates → Undo the last update before restarting." ;;
     *)         title="Update postponed"; body="$(last_field .summary)" ;;
   esac
-  notify-send -a "Prime Linux" -i system-software-update -u "$urg" "$title" "$body" 2>/dev/null || true
+  "$BIN/prime-notify" -i system-software-update -u "$urg" -t "$title" -b "$body" -a "$BIN/prime-system-settings --page updates"
 }
 
 pick() { # pick <prompt> <hint> <rows…> -> index of the chosen row

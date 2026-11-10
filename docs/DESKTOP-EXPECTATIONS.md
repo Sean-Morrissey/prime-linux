@@ -33,6 +33,10 @@ First pass: 2026-10-13.
 | ✅ Volume and brightness keys | Already worked — `prime-osd`, bound in `bindings.conf`. It read as missing because the first audit was run against a stale harvest of the config rather than the layer. |
 | ✅ Minimise and get the window back | Already worked. A window in `special:minimized` stays a mapped client and the dock keeps listing it; `Super+Backspace` also shows them. |
 | ✅ Make everything bigger on a 4K screen | Already worked — `nwg-displays` writes the scale factor (the trailing number on each `monitor =` line). The menu hint never said so, which is why it felt absent. |
+| ✅ Lose the title-bar buttons after an update | `prime-hyprpm-watch.timer` (every 10 min) runs the doctor with `--if-version-changed`, which compares Hyprland's commit hash and exits in 0.02 s unless the compositor actually moved; when it moved, stale plugin headers are rebuilt in place. `prime-hyprpm-doctor.service` still covers login, and both disable hyprbars rather than half-load it if a rebuild fails. |
+| ✅ Click the whiteboard icon and get nothing | `prime-board.sh` launched with the pre-0.57 `hyprctl dispatch exec -- …` form, which 0.57's Lua parser rejects **silently**, so the script waited out its timeout and then said it could not open. It now launches app-mode on its own profile through `hl.dsp.exec_cmd`, and logs `board opened at 0x…` in `$XDG_RUNTIME_DIR/prime-board.log` — check that log to tell "service down" from "launch failed". |
+| ✅ Minimise a window and lose it | `custom/windows` pill in the top bar. `special:minimized` is deliberately excluded from the workspace dots, so the pill is the only entry point: left restores the newest, middle restores all, right opens a rofi list. |
+| ✅ The wallpaper not meeting the bar | The bar strip sits over the top 34 px; `prime-emblem-baraligned.png` pads any image by that much, so the image starts exactly where the bar ends. |
 
 Two lessons from that right-hand column: **three of the nine were not missing at
 all**, and the audit said otherwise because it was run against the wrong tree.
@@ -45,6 +49,12 @@ two gaps share a root.
 ---
 
 ## Open
+
+**In flight — the 2026-11-09 sweep.** Five workstreams over the whole desktop:
+infrastructure (plugin/header coverage), appearance, accessibility, settings, and
+an interface test harness. Plan and measured machine state live in
+`docs/audits/SWEEP-2026-11-09.md`; the four audits land beside it. Two items are
+already closed because of it — see above.
 
 **Look and feel of what already works.** Search, the dock, Start, the title-bar
 buttons, Alt+Tab, Super+Q, the file manager, clipboard history, screenshots,

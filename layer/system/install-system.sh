@@ -115,6 +115,18 @@ install_all() {
     [ "$ENABLE" = 1 ] && [ "${policy:-auto}" != off ] && mkdir -p "$ROOT/etc/systemd/system/timers.target.wants" \
       && ln -sfn /etc/systemd/system/prime-system-update.timer "$ROOT/etc/systemd/system/timers.target.wants/prime-system-update.timer"
   fi
+  # System snapshots on the root btrfs disk (if snapper is present and root isn't configured yet)
+  if live && [ "$(findmnt -no FSTYPE / 2>/dev/null)" = btrfs ] && command -v snapper >/dev/null; then
+    if [ ! -e /etc/snapper/configs/root ] && snapper --no-dbus -c root create-config / >/dev/null 2>&1; then
+      say "system snapshots: on (snapper root)"
+    fi
+    if [ -e /etc/snapper/configs/root ] && pacman -Qq grub-btrfs >/dev/null 2>&1 && [ -d /boot/grub ]; then
+      systemctl enable --now grub-btrfsd.service >/dev/null 2>&1 || true
+    fi
+    if [ -e /etc/snapper/configs/root ] && pacman -Qq limine-snapper-sync >/dev/null 2>&1; then
+      systemctl enable --now limine-snapper-sync.service >/dev/null 2>&1 || true
+    fi
+  fi
   # File History: automatic snapshots of the home disk (btrfs only; says so otherwise)
   if live; then "$LIB/prime-file-history" setup ${USER_NAME:+--user "$USER_NAME"} | sed 's/^  /    /'; fi
   if [ "$SECURITY" = 1 ]; then

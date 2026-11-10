@@ -1,0 +1,103 @@
+#!/usr/bin/env bash
+# prime:summary=rebuild the title-bar plugin when Hyprland itself changes
+# prime-hyprpm-doctor — make a Hyprland update stop costing you your title-bar buttons.
+#
+# hyprbars (the plugin that draws the close/minimise buttons) is compiled against
+# Hyprland's headers. Every Hyprland bump makes those headers stale, the plugin
+# silently fails to load, and windows come back with no buttons and no error
+# anybody would see. `hyprpm reload` refuses with "headers are not up-to-date".
+#
+# So: try reload; if the headers are stale, rebuild; reload again; say what
+# happened. If the rebuild itself fails, disable the plugin so the rest of the
+# desktop stays sane instead of half-loading a plugin built for a different ABI.
+#
+#   prime-hyprpm-doctor                       check, rebuild if needed
+#   prime-hyprpm-doctor --check               report only (exit 10 = needs rebuild)
+#   prime-hyprpm-doctor --if-version-changed  do nothing unless Hyprland's commit
+#                                             moved since the last healthy load
+#
+# The last form is what prime-hyprpm-watch.timer runs every 10 minutes: it costs
+# one `hyprctl version` (~0.02 s) unless the compositor actually changed, so the
+# timer never re-loads the plugin (which would flash every title bar) for nothing.
+# prime-titlebars still does the first-login setup; this keeps it working after.
+set -u
+
+BIN="$(dirname "$(readlink -f "$0")")"
+STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/prime"
+STAMP="$STATE_DIR/hyprland-commit"
+LOG="$STATE_DIR/hyprpm-doctor.log"
+mkdir -p "$STATE_DIR"
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+export WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-1}"
+
+log()    { printf '%s %s\n' "$(date '+%F %T')" "$*" >>"$LOG"; }
+notify() { "$BIN/prime-notify" "$@" >/dev/null 2>&1 || true; }
+plain()  { sed 's/\x1b\[[0-9;]*m//g'; }
+commit() { hyprctl version 2>/dev/null | grep -oE 'commit [0-9a-f]+' | awk '{print $2}' | head -1; }
+
+CHECK_ONLY=0 GATE=0
+for arg in "$@"; do
+    case "$arg" in
+        --check) CHECK_ONLY=1 ;;
+        --if-version-changed) GATE=1 ;;
+        -h|--help) sed -n '3,22p' "$0"; exit 0 ;;
+    esac
+done
+
+command -v hyprpm >/dev/null 2>&1 || exit 0
+if [ -z "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]; then
+    HYPRLAND_INSTANCE_SIGNATURE="$(ls -t "$XDG_RUNTIME_DIR/hypr/" 2>/dev/null | head -1)"
+    export HYPRLAND_INSTANCE_SIGNATURE
+fi
+[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ] || exit 0       # no session: nothing to load into
+
+# the cheap gate: same Hyprland as at the last healthy load means nothing to do
+if [ "$GATE" = 1 ]; then
+    CUR="$(commit)"
+    [ -n "$CUR" ] || exit 0
+    [ "$(cat "$STAMP" 2>/dev/null)" = "$CUR" ] && exit 0
+    log "hyprland commit changed: $(cat "$STAMP" 2>/dev/null || echo none) -> $CUR"
+fi
+
+out="$(hyprpm reload 2>&1)"
+log "reload: $(printf '%s' "$out" | plain | tr '\n' ' ' | cut -c1-200)"
+
+if printf '%s' "$out" | grep -qi "headers are not up-to-date"; then
+    if [ "$CHECK_ONLY" = 1 ]; then echo "needs rebuild"; exit 10; fi
+    log "headers stale — rebuilding plugins"
+    if yes | hyprpm update >>"$LOG" 2>&1; then
+        out2="$(hyprpm reload 2>&1)"
+        log "reload after rebuild: $(printf '%s' "$out2" | plain | tr '\n' ' ' | cut -c1-200)"
+        if printf '%s' "$out2" | grep -qi "error\|fail"; then
+            notify -u critical -t "Title bars" -b "The plugin was rebuilt but still won't load — the health check can repair it" \
+                -a "$BIN/prime-doctor"
+            exit 1
+        fi
+        notify -t "Title bars" -b "Rebuilt for the new Hyprland — the window buttons are back" -a "xdg-open '$LOG'"
+    else
+        log "rebuild FAILED — disabling hyprbars to keep the desktop usable"
+        hyprpm disable hyprbars >>"$LOG" 2>&1 || true
+        notify -u critical -t "Title bars" -b "Couldn't rebuild them for the new Hyprland, so they're off for now — windows still work. The health check retries." \
+            -a "$BIN/prime-doctor"
+        exit 1
+    fi
+fi
+
+# a plugin enabled in the manifest but not loaded is the silent failure mode
+enabled=0
+hyprpm list 2>/dev/null | plain | grep -qiE 'enabled: *(true|yes)' && enabled=1
+loaded="$(hyprctl plugin list 2>/dev/null | grep -c '^Plugin')"
+if [ "$enabled" = 1 ]; then
+    log "enabled plugins present, loaded count: $loaded"
+    [ "${loaded:-0}" -eq 0 ] && [ "$CHECK_ONLY" = 0 ] && \
+        notify -t "Title bars" -b "The title-bar plugin is switched on but didn't load" -a "$BIN/prime-doctor"
+fi
+
+# remember which Hyprland this state belongs to, so the timer stays silent until
+# the compositor moves again: after a healthy load, or when no plugin is wanted
+CUR="$(commit)"
+if [ -n "$CUR" ] && [ "$CHECK_ONLY" = 0 ] && { [ "${loaded:-0}" -gt 0 ] || [ "$enabled" = 0 ]; }; then
+    printf '%s\n' "$CUR" >"$STAMP"
+    log "stamped hyprland commit $CUR"
+fi
+echo ok

@@ -1,0 +1,13 @@
+[Unit]
+Description=Prime: poll for a Hyprland version change (title-bar plugin headers)
+
+[Timer]
+# A Hyprland upgrade inside a running session is the case the login-time setup
+# (prime-titlebars) misses. Polling is cheap because the service exits
+# immediately unless the commit changed.
+OnCalendar=*:0/10
+RandomizedDelaySec=45
+Persistent=true
+
+[Install]
+WantedBy=timers.target

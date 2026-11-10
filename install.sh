@@ -322,6 +322,7 @@ else
     gs() { run gsettings set org.gnome.desktop.interface "$1" "$2" 2>/dev/null || true; }
     gs gtk-theme adw-gtk3-dark; gs color-scheme prefer-dark; gs icon-theme Papirus-Dark
     gs cursor-theme Breeze_Light; gs font-name 'Inter 10'; gs monospace-font-name 'JetBrainsMono Nerd Font 11'
+    run "$LAYER/bin/prime-text-sync" 2>/dev/null || true
     run gsettings set org.cinnamon.desktop.default-applications.terminal exec kitty 2>/dev/null || true
     run xdg-mime default nemo.desktop inode/directory
     [ ${#have_desktops[@]} -gt 0 ] && info "(GTK apps in $desk_list may pick up the dark theme too — prime-uninstall puts it back)"
@@ -335,12 +336,21 @@ if skip_step 5; then info "done earlier"
 else
     run mkdir -p "$HOME/.config/systemd/user" "$HOME/.local/bin"
     for u in "$LAYER"/systemd/*; do run ln -sfn "$u" "$HOME/.config/systemd/user/$(basename "$u")"; done
+    # ~/.local/bin is not on a stock Arch PATH: put it on the session's PATH (the
+    # desktop, everything it starts and every user service read environment.d)
+    create "$HOME/.config/environment.d/60-prime-path.conf" $'# Prime Linux: its commands (prime-notify, prime-update, …) live here\nPATH=$HOME/.local/bin:${PATH}\n'
     run systemctl --user daemon-reload 2>/dev/null || info "(user services load at next login)"
+    # GTK3 apps follow Text size (prime-text-sync.path), and the title-bar plugin is
+    # rebuilt when Hyprland moves mid-session (prime-hyprpm-watch.timer, every 10 min)
+    for u in prime-text-sync.path prime-hyprpm-watch.timer; do
+        run systemctl --user enable --now "$u" 2>/dev/null || info "($u switches on at next login)"
+    done
     for c in prime-update prime-uninstall prime-addon prime-theme prime-doctor prime-about prime-migrate prime-webapp prime-help \
-             prime-security prime-update-policy prime-updates-settings prime-settings prime-welcome; do
+             prime-security prime-update-policy prime-updates-settings prime-settings prime-welcome \
+             prime-notify prime-text-sync prime-hyprpm-doctor; do
         run ln -sfn "$LAYER/bin/$c" "$HOME/.local/bin/$c"
     done
-    ok "Commands: prime-update, prime-doctor, prime-addon, prime-theme, prime-webapp, prime-about, prime-uninstall"
+    ok "Commands: prime-update, prime-doctor, prime-addon, prime-theme, prime-webapp, prime-about, prime-notify, prime-uninstall"
     run mkdir -p "$HOME/.local/share/applications"
     for d in "$LAYER"/applications/*.desktop; do
         [ -f "$d" ] || continue

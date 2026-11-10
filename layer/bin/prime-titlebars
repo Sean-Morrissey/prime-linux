@@ -38,4 +38,4 @@ fi
     hyprpm enable hyprbars && hyprpm reload -n
 } >>"$LOG" 2>&1 </dev/null
 if enabled; then note "Window title bars are ready"
-else note "Couldn't set up title bars" "No internet? Prime tries again at your next login. Details: ~/.cache/prime-hyprpm.log" 8000; fi
+else "$(dirname "$(readlink -f "$0")")/prime-notify" -T 8000 -t "Couldn't set up title bars" -b "No internet? Prime tries again at your next login. Open shows the details." -a "xdg-open $(printf '%q' "$LOG")"; fi

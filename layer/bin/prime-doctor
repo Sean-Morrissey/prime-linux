@@ -455,9 +455,10 @@ for pk in hyprland waybar rofi gtk3 python; do
 done
 if [ ${#jumped[@]} -gt 0 ]; then
     tip "Updated since the last check: ${jumped[*]} — if anything looks different since, Undo an update goes back"
-    [ $QUIET = 1 ] && notify-send -a Prime -u low -t 12000 "Prime: part of the desktop was updated" \
-        "$(printf '%s\n' "${jumped[@]}")
-If anything looks different, Settings → Updates → Undo the last update goes back." 2>/dev/null
+    [ $QUIET = 1 ] && "$BIN/prime-notify" -u low -T 12000 -t "Prime: part of the desktop was updated" \
+        -b "$(printf '%s\n' "${jumped[@]}")
+If anything looks different, Settings → Updates → Undo the last update goes back." \
+        -a "$BIN/prime-system-settings --page updates"
 fi
 for pk in hyprland waybar rofi gtk3 python; do
     v="$(pacman -Q "$pk" 2>/dev/null | awk '{print $2}' | sed -E 's/^[0-9]+://; s/^([0-9]+\.[0-9]+).*/\1/')"
@@ -481,9 +482,10 @@ if [ $DAILY = 1 ]; then
     [ -z "$now" ] && rm -f "$seen"
 fi
 if [ $QUIET = 1 ]; then
-    [ ${#left[@]} -gt 0 ] && notify-send -a Prime -u normal -t 15000 "Desktop check — something needs you" \
-        "$(printf '%s\n' "${left[@]}")
-Open the Settings → About & Help → Check and fix the desktop."
+    [ ${#left[@]} -gt 0 ] && "$BIN/prime-notify" -u normal -T 15000 -t "Desktop check — something needs you" \
+        -b "$(printf '%s\n' "${left[@]}")
+Open shows the fix buttons (Settings → About & Help → Check and fix the desktop)." \
+        -a "$BIN/prime-doctor"
 elif [ -n "${PRIME_PANEL:-}" ]; then
     if [ ${#left[@]} -eq 0 ]; then echo "@summary Everything looks healthy."
     elif [ ${#left[@]} -eq 1 ]; then echo "@summary One thing needs you — the button below fixes it."

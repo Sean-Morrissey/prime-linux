@@ -166,7 +166,7 @@ EOF
 /* written by prime-theme — the dock at the bottom of the screen */
 window { background: transparent; }
 #box {
-    background-color: rgba(18, 18, 24, 0.78);
+    background-color: rgba(20, 20, 26, 0.82);   /* surface-2, same glass as the menus */
     border: 1px solid rgba(255, 255, 255, 0.10);
     border-radius: 18px;
     padding: 6px 8px;
@@ -179,8 +179,10 @@ button {
     color: #ececef;
     font-size: $(size 10)pt;
 }
+button { transition: background-color 120ms ease-out; }
 button:hover { background-color: rgba(255, 255, 255, 0.10); }
-button:focus { box-shadow: none; }
+/* keyboard focus must be visible: it used to be switched off here */
+button:focus { box-shadow: 0 0 0 2px rgba($r, $g, $b, 0.85); }
 /* an open app has a small accent bar under it, like the dot on a Mac */
 #active { border-bottom: 3px solid rgba($r, $g, $b, 0.90); border-radius: 12px 12px 4px 4px; }
 EOF
@@ -193,6 +195,10 @@ EOF
   # the system font: GTK apps, the bar, notifications and Spotlight all size from it
   { live || [ -z "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]; } && [ -z "${PRIME_NO_GSETTINGS:-}" ] &&
     gsettings set org.gnome.desktop.interface font-name "Inter $(size 10)" 2>/dev/null
+  # GTK3 apps (nemo, pavucontrol, tray menus) read this file, not gsettings. It used
+  # to say "SF Pro Display 11" — a font nobody has — so they ignored Text size entirely.
+  [ -f "$HOME/.config/gtk-3.0/settings.ini" ] && \
+    sed -i "s/^gtk-font-name=.*/gtk-font-name=Inter $(size 10)/" "$HOME/.config/gtk-3.0/settings.ini" 2>/dev/null
 
   # GTK 4 / libadwaita apps take one of nine named accents: the nearest hue
   { live || [ -z "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]; } && [ -z "${PRIME_NO_GSETTINGS:-}" ] && gsettings set org.gnome.desktop.interface accent-color "$(python3 - "$a" <<'PY'

@@ -21,3 +21,4 @@ os/cachyos/payload-review/
 # Python bytecode
 __pycache__/
 *.pyc
+tests/e2e/results/

@@ -1,0 +1,1558 @@
+#!/usr/bin/python3
+# prime:summary=hardware, display, gaming and performance control centre
+"""prime-control — hardware & performance control centre for Prime Linux.
+
+A dark GTK3 settings window (macOS-style sidebar + cards) that shows live
+CPU / GPU / RAM / storage / display / gaming state and lets you apply the
+changes that are safe to apply through the system's own tools
+(powerprofilesctl, cpupower via pkexec, lact / lactd, nwg-displays).
+Every external command is wrapped in a timeout + try/except, and every
+optional tool degrades to a labelled read-only row when it is missing.
+
+Nothing here writes to sysfs directly, and nothing is written globally.
+"""
+import json
+import os
+import platform
+import re
+import subprocess
+import sys
+import threading
+import time
+
+import gi
+
+gi.require_version("Gtk", "3.0")
+gi.require_version("Gdk", "3.0")
+from gi.repository import Gdk, Gio, GLib, Gtk, Pango  # noqa: E402
+
+# ─────────────────────────────────────────────────────────────────────────────
+# theme (Workstream B luxury tokens: surface-0 #0a0a0e, surface-1 #0c0c10,
+# surface-2 #14141a, ink-1 #ececef, ink-2 #a1a1a6, accent #34d399, radius 6/10/14)
+# ─────────────────────────────────────────────────────────────────────────────
+ACCENT = "#34d399"
+CSS = b"""
+* { font-family: Inter, "Inter", "Noto Sans", sans-serif; }
+window {
+  background-color: #0c0c10;
+  color: #ececef;
+}
+headerbar {
+  background-image: none;
+  background-color: #0a0a0e;
+  box-shadow: none;
+  border: none;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+  min-height: 48px;
+  padding: 0 12px;
+}
+headerbar .title {
+  color: #ececef;
+  font-weight: 600;
+  font-size: 15px;
+}
+headerbar .subtitle { color: #a1a1a6; font-size: 11px; }
+headerbar button {
+  background-image: none;
+  background-color: transparent;
+  border: none;
+  border-radius: 10px;
+  box-shadow: none;
+  color: #a1a1a6;
+}
+headerbar button:hover { background-color: rgba(255,255,255,0.08); color: #ececef; }
+
+/* sidebar & lists */
+list, list row { background-color: transparent; color: #ececef; border: none; }
+.sidebar { background-color: transparent; border: none; }
+.sidebar row { padding: 8px 16px; border-radius: 10px; color: #a1a1a6; }
+.sidebar row:hover { background-color: rgba(255,255,255,0.04); }
+.sidebar row:selected { background-color: rgba(52,211,153,0.14); }
+.sidebar row:focus { outline: 2px solid #34d399; outline-offset: -2px; }
+.sidebar row label { font-size: 14px; }
+.sidebar row:selected label { color: #34d399; font-weight: 600; }
+
+/* cards */
+.card {
+  background-color: #14141a;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 14px;
+  padding: 16px 24px;
+}
+.card-title {
+  color: #a1a1a6;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 1px;
+}
+.metric-label { color: #a1a1a6; font-size: 12px; }
+.metric-value { color: #ececef; font-size: 22px; font-weight: 600; }
+.metric-value.accent { color: #34d399; }
+.metric-unit { color: #a1a1a6; font-size: 12px; }
+.kv-label { color: #a1a1a6; font-size: 13px; }
+.kv-value { color: #ececef; font-size: 13px; }
+.row-title { color: #ececef; font-size: 14px; font-weight: 600; }
+.row-sub { color: #a1a1a6; font-size: 12px; }
+.badge { color: #a1a1a6; font-size: 12px; }
+.ok { color: #34d399; font-size: 12px; }
+.warn { color: #fbbf24; font-size: 12px; }
+.err { color: #f87171; font-size: 12px; }
+
+/* bars */
+progressbar trough { background-color: rgba(255,255,255,0.06); min-height: 6px; border-radius: 6px; }
+progressbar progress { background-color: #34d399; border-radius: 6px; }
+
+/* buttons & inputs */
+button { border-radius: 10px; padding: 8px 16px; background-image: none; }
+button:focus { outline: 2px solid #34d399; outline-offset: -2px; }
+button.dim {
+  background-color: rgba(255,255,255,0.06);
+  color: #ececef;
+  border: 1px solid rgba(255,255,255,0.08);
+}
+button.dim:hover { background-color: rgba(255,255,255,0.11); }
+button.accent {
+  background-color: #34d399;
+  color: #0a0a0e;
+  font-weight: 600;
+  border: none;
+}
+button.accent:hover { background-color: #4ade80; }
+switch { background-color: rgba(255,255,255,0.12); border-radius: 10px; }
+switch:checked { background-color: #34d399; }
+
+entry {
+  background-color: #0a0a0e;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 10px;
+  color: #ececef;
+  padding: 8px 12px;
+}
+
+scrolledwindow { border: none; background-color: transparent; }
+scrollbar slider { background-color: rgba(255,255,255,0.14); border-radius: 6px; min-width: 8px; min-height: 8px; }
+scrollbar trough { background-color: transparent; }
+
+/* confirm / result dialogs */
+dialog { background-color: #14141a; color: #ececef; }
+"""
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# small, safe primitives — every external thing goes through here
+# ─────────────────────────────────────────────────────────────────────────────
+def which(name):
+    """Absolute path of `name` on PATH, or None."""
+    return (
+        subprocess.run(["which", name], capture_output=True, text=True, timeout=5)
+        .stdout.strip()
+        or None
+    )
+
+
+def run_cmd(argv, timeout=6, env=None):
+    """Run argv, return (returncode, stdout, stderr). Never raises."""
+    try:
+        p = subprocess.run(argv, capture_output=True, text=True, timeout=timeout, env=env)
+        return p.returncode, p.stdout or "", p.stderr or ""
+    except FileNotFoundError:
+        return -1, "", "command not found: %s" % argv[0]
+    except subprocess.TimeoutExpired:
+        return -1, "", "timed out after %ss" % timeout
+    except Exception as exc:  # pragma: no cover - last-resort guard
+        return -1, "", "error: %s" % exc
+
+
+def read_text(path):
+    try:
+        with open(path) as f:
+            return f.read().strip()
+    except Exception:
+        return None
+
+
+def read_int(path):
+    try:
+        with open(path) as f:
+            return int(f.read().strip())
+    except Exception:
+        return None
+
+
+def read_float(path):
+    try:
+        with open(path) as f:
+            return float(f.read().strip())
+    except Exception:
+        return None
+
+
+def find_hwmon(name):
+    base = "/sys/class/hwmon"
+    if not os.path.isdir(base):
+        return None
+    try:
+        entries = sorted(os.listdir(base))
+    except Exception:
+        return None
+    for e in entries:
+        if read_text(os.path.join(base, e, "name")) == name:
+            return os.path.join(base, e)
+    return None
+
+
+def bytes_human(n):
+    try:
+        n = float(n)
+    except (TypeError, ValueError):
+        return "—"
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if abs(n) < 1024.0 or unit == "TB":
+            return "%.1f %s" % (n, unit) if unit != "B" else "%d B" % int(n)
+        n /= 1024.0
+    return "—"
+
+
+def hz_to_mhz(hz):
+    try:
+        return "%d" % (int(hz) / 1e6)
+    except (TypeError, ValueError):
+        return "—"
+
+
+def mdeg_to_c(mc):
+    try:
+        return "%.0f" % (int(mc) / 1000.0)
+    except (TypeError, ValueError):
+        return "—"
+
+
+def uw_to_w(uw):
+    try:
+        return "%.0f" % (int(uw) / 1e6)
+    except (TypeError, ValueError):
+        return "—"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# collectors — each returns a plain dict, so they can be exercised standalone
+# ─────────────────────────────────────────────────────────────────────────────
+_HW_AMDGPU = None
+_HW_K10TEMP = None
+_HW_NVME = None
+
+
+def _amdgpu_hwmon():
+    global _HW_AMDGPU
+    if _HW_AMDGPU is None:
+        _HW_AMDGPU = find_hwmon("amdgpu")
+    return _HW_AMDGPU
+
+
+def _k10temp_hwmon():
+    global _HW_K10TEMP
+    if _HW_K10TEMP is None:
+        _HW_K10TEMP = find_hwmon("k10temp")
+    return _HW_K10TEMP
+
+
+def _nvme_hwmon():
+    global _HW_NVME
+    if _HW_NVME is None:
+        _HW_NVME = find_hwmon("nvme")
+    return _HW_NVME
+
+
+def _drm_card():
+    if not os.path.isdir("/sys/class/drm"):
+        return None
+    cards = []
+    for e in sorted(os.listdir("/sys/class/drm")):
+        if e.startswith("card") and e[4:].isdigit():
+            dev = "/sys/class/drm/%s/device" % e
+            if os.path.exists(os.path.join(dev, "mem_info_vram_total")):
+                return dev
+            cards.append(dev)
+    return cards[0] if cards else None
+
+
+def cpu_state():
+    cpu0 = "/sys/devices/system/cpu/cpu0/cpufreq"
+    gov = read_text(os.path.join(cpu0, "scaling_governor")) or "unknown"
+    epp = read_text(os.path.join(cpu0, "energy_performance_preference")) or "—"
+    cur_khz = read_int(os.path.join(cpu0, "scaling_cur_freq"))
+    avail_gov = read_text(os.path.join(cpu0, "scaling_available_governors")) or ""
+    avail_epp = read_text(os.path.join(cpu0, "energy_performance_available_preferences")) or ""
+    hw = _k10temp_hwmon()
+    tctl = mdeg_to_c(read_int(os.path.join(hw, "temp1_input"))) if hw else None
+    tccd = mdeg_to_c(read_int(os.path.join(hw, "temp3_input"))) if hw else None
+
+    load = None
+    try:
+        import psutil
+        load = psutil.cpu_percent(interval=None)
+    except Exception:
+        load = None
+    lavg = read_text("/proc/loadavg")
+    try:
+        cpu_model = re.search(r"model name\s*:\s*(.*)", open("/proc/cpuinfo").read()).group(1)
+    except Exception:
+        cpu_model = "unknown CPU"
+    ncores = 0
+    if os.path.isdir("/sys/devices/system/cpu"):
+        for e in os.listdir("/sys/devices/system/cpu"):
+            if re.fullmatch(r"cpu\d+", e):
+                ncores += 1
+    return {
+        "governor": gov,
+        "epp": epp,
+        "cur_freq_mhz": "%d" % (cur_khz / 1000) if cur_khz else "—",
+        "avail_governors": avail_gov.split(),
+        "avail_epp": avail_epp.split(),
+        "temp_tctl_c": tctl,
+        "temp_tccd_c": tccd,
+        "load_pct": load,
+        "loadavg": (lavg.split(" ")[:3] if lavg else ["—", "—", "—"]),
+        "model": cpu_model,
+        "cores": ncores,
+    }
+
+
+def lact_state():
+    """Detect whether LACT (lact CLI + lactd daemon) is installed and active."""
+    bin_path = which("lact")
+    sock = os.path.exists("/run/lactd.sock")
+    rc, out, _ = run_cmd(["systemctl", "is-active", "lactd"], timeout=3)
+    active = sock or (rc == 0 and out.strip() == "active")
+    return {
+        "installed": bool(bin_path),
+        "active": active,
+        "bin": bin_path,
+    }
+
+
+def gpu_state():
+    dev = _drm_card()
+    hw = _amdgpu_hwmon()
+    lact = lact_state()
+    out = {
+        "temp_c": None,
+        "power_w": None,
+        "power_cap_w": None,
+        "sclk_mhz": None,
+        "mclk_mhz": None,
+        "fan_rpm": None,
+        "vram_used": None,
+        "vram_total": None,
+        "perf_level": None,
+        "lact_installed": lact["installed"],
+        "lact_active": lact["active"],
+    }
+    if hw:
+        out["temp_c"] = mdeg_to_c(read_int(os.path.join(hw, "temp1_input")))
+        p_avg = read_int(os.path.join(hw, "power1_average"))
+        if p_avg is None:
+            p_avg = read_int(os.path.join(hw, "power1_input"))
+        out["power_w"] = uw_to_w(p_avg)
+        out["power_cap_w"] = uw_to_w(read_int(os.path.join(hw, "power1_cap")))
+        out["sclk_mhz"] = hz_to_mhz(read_int(os.path.join(hw, "freq1_input")))
+        out["mclk_mhz"] = hz_to_mhz(read_int(os.path.join(hw, "freq2_input")))
+        out["fan_rpm"] = read_int(os.path.join(hw, "fan1_input"))
+    if dev:
+        out["vram_used"] = read_int(os.path.join(dev, "mem_info_vram_used"))
+        out["vram_total"] = read_int(os.path.join(dev, "mem_info_vram_total"))
+        out["perf_level"] = read_text(os.path.join(dev, "power_dpm_force_performance_level"))
+    return out
+
+
+def memory_state():
+    def kb(key):
+        v = read_text("/proc/meminfo")
+        if not v:
+            return None
+        m = re.search(r"%s:\s+(\d+)" % key, v)
+        return int(m.group(1)) * 1024 if m else None
+
+    total = kb("MemTotal")
+    avail = kb("MemAvailable")
+    used = (total - avail) if (total and avail) else None
+    swap_total = kb("SwapTotal")
+    swap_free = kb("SwapFree")
+    return {
+        "total": total,
+        "available": avail,
+        "used": used,
+        "swap_total": swap_total,
+        "swap_free": swap_free,
+        "swap_used": (swap_total - swap_free) if (swap_total is not None and swap_free is not None) else None,
+    }
+
+
+def uptime_str():
+    try:
+        up = float(open("/proc/uptime").read().split()[0])
+    except Exception:
+        return "—"
+    d, rem = divmod(int(up), 86400)
+    h, rem = divmod(rem, 3600)
+    m, s = divmod(rem, 60)
+    if d:
+        return "%dd %dh %dm" % (d, h, m)
+    if h:
+        return "%dh %dm" % (h, m)
+    return "%dm %ds" % (m, s)
+
+
+_HYPR_VER = None
+
+
+def hyprland_version():
+    global _HYPR_VER
+    if _HYPR_VER is None:
+        rc, out, _ = run_cmd(["hyprctl", "version"], timeout=6)
+        if rc == 0:
+            m = re.match(r"Hyprland\s+([^ ]+)", out)
+            _HYPR_VER = m.group(1) if m else "unknown"
+        else:
+            _HYPR_VER = "not running"
+    return _HYPR_VER
+
+
+_GPU_MODEL = None
+
+
+def gpu_model():
+    global _GPU_MODEL
+    if _GPU_MODEL is None:
+        rc, out, _ = run_cmd(["lspci"], timeout=6)
+        if rc == 0:
+            m = re.search(r"VGA compatible controller: (.*)", out)
+            if not m:
+                m = re.search(r"Display controller: (.*)", out)
+            _GPU_MODEL = m.group(1).strip() if m else "AMD GPU (amdgpu)"
+        else:
+            _GPU_MODEL = "AMD GPU (amdgpu)"
+    return _GPU_MODEL
+
+
+def display_state():
+    """Current mode/scale/refresh + available modes from hyprctl monitors -j."""
+    rc, out, err = run_cmd(["hyprctl", "monitors", "-j"], timeout=8)
+    if rc != 0 or not out.strip():
+        return {"error": "hyprctl unavailable: %s" % (err.strip() or "no active Hyprland session")}
+    try:
+        monitors = json.loads(out)
+    except Exception as exc:
+        return {"error": "could not parse hyprctl output: %s" % exc}
+    result = []
+    for mon in monitors:
+        result.append({
+            "name": mon.get("name"),
+            "description": mon.get("description"),
+            "make": mon.get("make"),
+            "model": mon.get("model"),
+            "width": mon.get("width"),
+            "height": mon.get("height"),
+            "refresh": mon.get("refreshRate"),
+            "scale": mon.get("scale"),
+            "vrr": mon.get("vrr"),
+            "current_mode": "%sx%s@%.2fHz" % (
+                mon.get("width"), mon.get("height"), mon.get("refreshRate") or 0.0),
+            "available_modes": mon.get("availableModes", []),
+        })
+    return {"monitors": result}
+
+
+def _gamemode_version():
+    out = run_cmd(["gamemoded", "-v"], timeout=5)[1].strip()
+    if not out:
+        out = run_cmd(["gamemoded", "--version"], timeout=5)[1].strip()
+    out = re.sub(r"(?i)^gamemode version[: ]*", "", out)
+    return out[:60] or None
+
+
+def games_state():
+    steamapps = os.path.expanduser("~/.local/share/Steam/steamapps")
+    games = []
+    if os.path.isdir(steamapps):
+        for f in sorted(os.listdir(steamapps)):
+            if not (f.startswith("appmanifest_") and f.endswith(".acf")):
+                continue
+            path = os.path.join(steamapps, f)
+            try:
+                text = open(path, encoding="utf-8", errors="replace").read()
+            except Exception:
+                continue
+            name = re.search(r'"name"\s+"([^"]+)"', text)
+            size = re.search(r'"SizeOnDisk"\s+"(\d+)"', text)
+            appid = re.search(r'"appid"\s+"(\d+)"', text)
+            games.append({
+                "appid": appid.group(1) if appid else "?",
+                "name": name.group(1) if name else f,
+                "size": int(size.group(1)) if size else 0,
+            })
+        games.sort(key=lambda g: -g["size"])
+
+    ctools = os.path.expanduser("~/.local/share/Steam/compatibilitytools.d")
+    ge_protons = []
+    if os.path.isdir(ctools):
+        ge_protons = sorted(
+            e for e in os.listdir(ctools)
+            if os.path.isdir(os.path.join(ctools, e))
+        )
+    return {
+        "games": games,
+        "ge_protons": ge_protons,
+        "mangohud": which("mangohud") or None,
+        "gamemode": which("gamemoderun") or None,
+        "mangohud_version": run_cmd(["mangohud", "--version"], timeout=5)[1].strip()[:60] or None,
+        "gamemode_version": _gamemode_version(),
+    }
+
+
+def power_profile_state():
+    """Current power profile. powerprofilesctl's shebang is `env python3`, and
+    only /usr/bin/python3 carries `gi`, so it must run with a clean PATH."""
+    clean = os.environ.copy()
+    clean["PATH"] = "/usr/bin:/bin:/usr/sbin:/sbin"
+    rc, out, _ = run_cmd(["powerprofilesctl", "get"], timeout=8, env=clean)
+    if rc != 0:
+        return {"profile": None, "error": "powerprofilesctl not available"}
+    return {"profile": out.strip()}
+
+
+def apply_system_mode(mode):
+    """Apply Quiet / Balanced / Gaming mode via powerprofilesctl (and lact if active).
+    Returns (ok_bool, summary_str)."""
+    mapping = {
+        "quiet": ("power-saver", "low"),
+        "balanced": ("balanced", "auto"),
+        "gaming": ("performance", "high"),
+    }
+    if mode not in mapping:
+        return False, "unknown mode: %s (expected quiet, balanced, or gaming)" % mode
+    pp_target, gpu_target = mapping[mode]
+    clean = os.environ.copy()
+    clean["PATH"] = "/usr/bin:/bin:/usr/sbin:/sbin"
+    notes = []
+    ok = False
+    if which("powerprofilesctl"):
+        rc, out, err = run_cmd(["powerprofilesctl", "set", pp_target], timeout=15, env=clean)
+        if rc == 0:
+            ok = True
+            notes.append("power profile -> %s" % pp_target)
+        else:
+            notes.append("powerprofilesctl failed: %s" % (err or out).strip())
+    else:
+        notes.append("powerprofilesctl not installed")
+
+    lact = lact_state()
+    if lact["installed"] and lact["active"]:
+        rc, _, _ = run_cmd(["lact", "cli", "profile", "set", mode], timeout=8)
+        if rc == 0:
+            ok = True
+            notes.append("lact profile -> %s" % mode)
+    return ok, "; ".join(notes)
+
+
+def storage_state():
+    seen = {}
+    try:
+        import psutil
+        for part in psutil.disk_partitions(all=False):
+            if not os.path.ismount(part.mountpoint):
+                continue
+            if part.device in seen:
+                continue
+            try:
+                usage = psutil.disk_usage(part.mountpoint)
+            except Exception:
+                continue
+            seen[part.device] = {
+                "device": part.device,
+                "mount": part.mountpoint,
+                "fstype": part.fstype,
+                "total": usage.total,
+                "used": usage.used,
+                "free": usage.free,
+                "percent": usage.percent,
+            }
+    except Exception:
+        rc, out, _ = run_cmd(["df", "-B1", "--output=source,target,fstype,size,used,avail,pcent", "/"], timeout=5)
+        if rc == 0:
+            lines = out.strip().splitlines()
+            if len(lines) >= 2:
+                parts = lines[1].split()
+                if len(parts) >= 7:
+                    seen[parts[0]] = {
+                        "device": parts[0],
+                        "mount": parts[1],
+                        "fstype": parts[2],
+                        "total": int(parts[3]),
+                        "used": int(parts[4]),
+                        "free": int(parts[5]),
+                        "percent": float(parts[6].rstrip("%")),
+                    }
+    entries = sorted(seen.values(), key=lambda e: e["mount"])
+    return {"filesystems": entries}
+
+
+def smart_state():
+    nvme_hw = _nvme_hwmon()
+    nvme_temp = mdeg_to_c(read_int(os.path.join(nvme_hw, "temp1_input"))) if nvme_hw else None
+    rc, out, err = run_cmd(["smartctl", "-H", "/dev/nvme0n1"], timeout=15)
+    health = None
+    note = None
+    if rc == 0:
+        m = re.search(r"result:\s*(.*)", out, re.I)
+        health = m.group(1).strip() if m else "unknown"
+    else:
+        combined = (out + "\n" + err).lower()
+        if "permission" in combined or "requires root" in combined or "operation not permitted" in combined:
+            note = "full SMART requires root (run as admin)"
+        else:
+            note = (err or out or "smartctl unavailable").strip()
+    return {"nvme_temp_c": nvme_temp, "health": health, "note": note, "device": "/dev/nvme0n1"}
+
+
+def biggest_dirs(limit=10):
+    home = os.path.expanduser("~")
+    rc, out, _ = run_cmd(
+        ["du", "-x", "-m", "-d", "1", home], timeout=60
+    )
+    if rc != 0 or not out.strip():
+        return {"dirs": [], "error": "du unavailable"}
+    rows = []
+    for line in out.splitlines():
+        parts = line.split("\t")
+        if len(parts) != 2:
+            continue
+        try:
+            size = int(parts[0])
+        except ValueError:
+            continue
+        path = parts[1].strip()
+        if path == home:
+            continue
+        base = os.path.basename(path.rstrip("/"))
+        if base == ".cache":
+            continue
+        rows.append((size * 1024 * 1024, base, path))
+    rows.sort(reverse=True)
+    return {"dirs": rows[:limit]}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# UI helpers
+# ─────────────────────────────────────────────────────────────────────────────
+def _style(widget, cls):
+    widget.get_style_context().add_class(cls)
+    return widget
+
+
+def run_bg(fn, on_done):
+    """Run fn() on a worker thread; call on_done(result) on the GTK thread."""
+
+    def worker():
+        try:
+            result = fn()
+        except Exception as exc:
+            result = None
+            err = exc
+        else:
+            err = None
+        GLib.idle_add(lambda: (on_done(result, err), False)[1])
+
+    threading.Thread(target=worker, daemon=True).start()
+
+
+def make_card(title):
+    card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+    _style(card, "card")
+    if title:
+        t = Gtk.Label(label=title.upper())
+        _style(t, "card-title")
+        t.set_xalign(0.0)
+        card.pack_start(t, False, False, 0)
+    return card
+
+
+def metric_box():
+    """A homogeneous horizontal box for laying out big_metric() cells."""
+    b = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=24)
+    b.set_homogeneous(True)
+    return b
+
+
+def big_metric(card, label, initial="—", accent=False):
+    box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+    l = Gtk.Label(label=label)
+    _style(l, "metric-label")
+    l.set_xalign(0.0)
+    box.pack_start(l, False, False, 0)
+    v = Gtk.Label(label=initial)
+    _style(v, "metric-value" if not accent else "metric-value accent")
+    v.set_xalign(0.0)
+    box.pack_start(v, False, False, 0)
+    card.pack_start(box, True, True, 0)
+    return v
+
+
+def kv_row(grid, row, label, value_widget=None, value_text=None):
+    l = Gtk.Label(label=label)
+    _style(l, "kv-label")
+    l.set_xalign(0.0)
+    grid.attach(l, 0, row, 1, 1)
+    if value_widget is not None:
+        v = value_widget
+    else:
+        v = Gtk.Label(label=value_text if value_text is not None else "—")
+        _style(v, "kv-value")
+        v.set_xalign(1.0)
+        v.set_selectable(True)
+        v.set_ellipsize(Pango.EllipsizeMode.END)
+        v.set_max_width_chars(48)
+    v.set_hexpand(True)
+    grid.attach(v, 1, row, 1, 1)
+    return v
+
+
+def progress(value, maxv):
+    bar = Gtk.ProgressBar()
+    if maxv:
+        bar.set_fraction(max(0.0, min(1.0, float(value) / float(maxv))))
+    else:
+        bar.set_fraction(0.0)
+    return bar
+
+
+def show_error_dialog(parent, title, message):
+    d = Gtk.MessageDialog(
+        transient_for=parent, modal=True, message_type=Gtk.MessageType.ERROR,
+        buttons=Gtk.ButtonsType.CLOSE, text=title)
+    d.format_secondary_text(message)
+    d.run()
+    d.destroy()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# the window
+# ─────────────────────────────────────────────────────────────────────────────
+class PrimeControl(Gtk.Window):
+    TABS = ["Overview", "Performance", "Display", "Gaming", "Storage"]
+
+    def __init__(self, show=True, offscreen=False):
+        super().__init__(type=Gtk.WindowType.TOPLEVEL)
+        self.set_title("Prime Control")
+        self.set_default_size(1080, 720)
+        if show and not offscreen:
+            self.connect("destroy", lambda *_: Gtk.main_quit())
+
+        hb = Gtk.HeaderBar()
+        hb.set_title("Prime Control")
+        hb.set_subtitle("Hardware, Display, Gaming & Performance")
+        hb.set_show_close_button(True)
+        self.set_titlebar(hb)
+
+        self.root_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
+        self.add(self.root_box)
+
+        # ── sidebar ────────────────────────────────────────────────────────
+        sidebar = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        sidebar.set_size_request(192, -1)
+        sidebar.set_margin_top(16)
+        sidebar.set_margin_bottom(16)
+        sidebar.set_margin_start(12)
+        sidebar.set_margin_end(8)
+        _style(sidebar, "sidebar")
+        self.listbox = Gtk.ListBox()
+        self.listbox.set_selection_mode(Gtk.SelectionMode.SINGLE)
+        _style(self.listbox, "sidebar")
+        for name in self.TABS:
+            row = Gtk.ListBoxRow()
+            lbl = Gtk.Label(label=name)
+            lbl.set_xalign(0.0)
+            lbl.set_margin_start(4)
+            row.add(lbl)
+            self.listbox.add(row)
+        self.listbox.connect("row-selected", self._on_sidebar)
+        sidebar.pack_start(self.listbox, False, False, 0)
+        self.root_box.pack_start(sidebar, False, False, 0)
+
+        sep = Gtk.Separator(orientation=Gtk.Orientation.VERTICAL)
+        self.root_box.pack_start(sep, False, False, 0)
+
+        # ── content stack ──────────────────────────────────────────────────
+        self.stack = Gtk.Stack()
+        self.stack.set_transition_type(
+            Gtk.StackTransitionType.NONE if offscreen else Gtk.StackTransitionType.CROSSFADE
+        )
+        self.stack.set_transition_duration(0 if offscreen else 120)
+        self.root_box.pack_start(self.stack, True, True, 0)
+
+        self.pages = {
+            "Overview": self._build_overview(),
+            "Performance": self._build_performance(),
+            "Display": self._build_display(),
+            "Gaming": self._build_gaming(),
+            "Storage": self._build_storage(),
+        }
+        for name, page in self.pages.items():
+            self.stack.add_named(page, name)
+
+        self.listbox.select_row(self.listbox.get_row_at_index(0))
+        self._tick_overview()
+        if show and not offscreen:
+            self.show_all()
+            self._kick_static_collectors()
+            GLib.timeout_add(2000, self._tick_overview)
+
+    # ── sidebar → stack ────────────────────────────────────────────────────
+    def _on_sidebar(self, _lb, row):
+        if row is None:
+            return
+        idx = row.get_index()
+        self.stack.set_visible_child_name(self.TABS[idx])
+
+    # ── Overview ───────────────────────────────────────────────────────────
+    def _build_overview(self):
+        sc = Gtk.ScrolledWindow()
+        sc.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
+        box.set_margin_top(24)
+        box.set_margin_bottom(24)
+        box.set_margin_start(24)
+        box.set_margin_end(24)
+        sc.add(box)
+
+        cpu_card = self._build_overview_cpu()
+        gpu_card = self._build_overview_gpu()
+        mem_card = self._build_overview_mem()
+        sys_card = self._build_overview_system()
+
+        box.pack_start(cpu_card, False, False, 0)
+        box.pack_start(gpu_card, False, False, 0)
+        box.pack_start(mem_card, False, False, 0)
+        box.pack_start(sys_card, False, False, 0)
+        return sc
+
+    def _build_overview_cpu(self):
+        card = make_card("CPU")
+        row = metric_box()
+        card.pack_start(row, False, False, 0)
+        self.ov_cpu_freq = big_metric(row, "Frequency", "— MHz")
+        self.ov_cpu_temp = big_metric(row, "Temperature", "— °C")
+        self.ov_cpu_load = big_metric(row, "Load", "— %")
+        return card
+
+    def _build_overview_gpu(self):
+        card = make_card("GPU")
+        row = metric_box()
+        card.pack_start(row, False, False, 0)
+        self.ov_gpu_temp = big_metric(row, "Temperature", "— °C")
+        self.ov_gpu_power = big_metric(row, "Power", "— W")
+        self.ov_gpu_clock = big_metric(row, "Shader clock", "— MHz")
+        self.ov_gpu_vram = big_metric(row, "VRAM", "— / —")
+        self.ov_gpu_vram_bar = progress(0, 1)
+        card.pack_start(self.ov_gpu_vram_bar, False, False, 0)
+        return card
+
+    def _build_overview_mem(self):
+        card = make_card("Memory")
+        row = metric_box()
+        card.pack_start(row, False, False, 0)
+        self.ov_mem_used = big_metric(row, "Used", "—")
+        self.ov_mem_total = big_metric(row, "Total", "—")
+        self.ov_swap = big_metric(row, "Swap", "—")
+        self.ov_mem_bar = progress(0, 1)
+        card.pack_start(self.ov_mem_bar, False, False, 0)
+        return card
+
+    def _build_overview_system(self):
+        card = make_card("System")
+        grid = Gtk.Grid()
+        grid.set_column_spacing(16)
+        grid.set_row_spacing(8)
+        card.pack_start(grid, False, False, 0)
+        self.ov_kv = {}
+        self.ov_kv["uptime"] = kv_row(grid, 0, "Uptime")
+        self.ov_kv["kernel"] = kv_row(grid, 1, "Kernel")
+        self.ov_kv["hypr"] = kv_row(grid, 2, "Hyprland")
+        self.ov_kv["cpu_model"] = kv_row(grid, 3, "CPU")
+        self.ov_kv["gpu_model"] = kv_row(grid, 4, "GPU")
+        return card
+
+    def _tick_overview(self):
+        try:
+            cpu = cpu_state()
+            gpu = gpu_state()
+            mem = memory_state()
+
+            self.ov_cpu_freq.set_text("%s MHz" % cpu["cur_freq_mhz"])
+            self.ov_cpu_temp.set_text("%s °C" % (cpu["temp_tctl_c"] or "—"))
+            if cpu["load_pct"] is not None:
+                self.ov_cpu_load.set_text("%.0f %%" % cpu["load_pct"])
+            else:
+                self.ov_cpu_load.set_text("%s" % cpu["loadavg"][0])
+
+            self.ov_gpu_temp.set_text("%s °C" % (gpu["temp_c"] or "—"))
+            self.ov_gpu_power.set_text("%s W" % (gpu["power_w"] or "—"))
+            self.ov_gpu_clock.set_text("%s MHz" % (gpu["sclk_mhz"] or "—"))
+            if gpu["vram_used"] is not None and gpu["vram_total"] is not None:
+                self.ov_gpu_vram.set_text("%s / %s" % (
+                    bytes_human(gpu["vram_used"]), bytes_human(gpu["vram_total"])))
+                self.ov_gpu_vram_bar.set_fraction(gpu["vram_used"] / max(1, gpu["vram_total"]))
+            else:
+                self.ov_gpu_vram.set_text("— / —")
+
+            if mem["used"] is not None and mem["total"] is not None:
+                self.ov_mem_used.set_text(bytes_human(mem["used"]))
+                self.ov_mem_total.set_text(bytes_human(mem["total"]))
+                self.ov_mem_bar.set_fraction(mem["used"] / max(1, mem["total"]))
+            else:
+                self.ov_mem_used.set_text("—")
+            if mem["swap_used"] is not None and mem["swap_total"] is not None:
+                self.ov_swap.set_text("%s / %s" % (
+                    bytes_human(mem["swap_used"]), bytes_human(mem["swap_total"])))
+            else:
+                self.ov_swap.set_text("—")
+
+            self.ov_kv["uptime"].set_text(uptime_str())
+            self.ov_kv["kernel"].set_text(platform.release())
+            self.ov_kv["hypr"].set_text(hyprland_version())
+            self.ov_kv["cpu_model"].set_text(cpu["model"])
+            self.ov_kv["gpu_model"].set_text(gpu_model())
+        except Exception:
+            pass
+        return True
+
+    # ── Performance ────────────────────────────────────────────────────────
+    def _build_performance(self):
+        sc = Gtk.ScrolledWindow()
+        sc.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
+        box.set_margin_top(24)
+        box.set_margin_bottom(24)
+        box.set_margin_start(24)
+        box.set_margin_end(24)
+        sc.add(box)
+
+        # One-click System Performance Switch (Quiet / Balanced / Gaming)
+        mode_card = make_card("Performance mode — Quiet · Balanced · Gaming")
+        self.perf_mode_label = Gtk.Label(label="Active mode: —")
+        _style(self.perf_mode_label, "kv-value")
+        self.perf_mode_label.set_xalign(0.0)
+        mode_card.pack_start(self.perf_mode_label, False, False, 0)
+        self.perf_mode_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        mode_card.pack_start(self.perf_mode_row, False, False, 0)
+        box.pack_start(mode_card, False, False, 0)
+
+        # CPU governor / EPP
+        cpu_card = make_card("CPU — frequency scaling & energy preference")
+        self.perf_gov_label = Gtk.Label(label="Governor: —")
+        _style(self.perf_gov_label, "kv-value")
+        self.perf_gov_label.set_xalign(0.0)
+        cpu_card.pack_start(self.perf_gov_label, False, False, 0)
+        self.perf_gov_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        cpu_card.pack_start(self.perf_gov_row, False, False, 0)
+        self.perf_epp_label = Gtk.Label(label="Energy preference: —")
+        _style(self.perf_epp_label, "kv-value")
+        self.perf_epp_label.set_xalign(0.0)
+        cpu_card.pack_start(self.perf_epp_label, False, False, 0)
+        self.perf_epp_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        cpu_card.pack_start(self.perf_epp_row, False, False, 0)
+        box.pack_start(cpu_card, False, False, 0)
+
+        # GPU performance level & LACT
+        gpu_card = make_card("GPU — clocks, power & fan (LACT)")
+        self.perf_gpu_label = Gtk.Label(label="Performance level: —")
+        _style(self.perf_gpu_label, "kv-value")
+        self.perf_gpu_label.set_xalign(0.0)
+        gpu_card.pack_start(self.perf_gpu_label, False, False, 0)
+        self.perf_gpu_metrics = Gtk.Label(label="—")
+        _style(self.perf_gpu_metrics, "badge")
+        self.perf_gpu_metrics.set_xalign(0.0)
+        gpu_card.pack_start(self.perf_gpu_metrics, False, False, 0)
+        self.perf_gpu_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        gpu_card.pack_start(self.perf_gpu_row, False, False, 0)
+        box.pack_start(gpu_card, False, False, 0)
+
+        # Power profile (raw powerprofilesctl)
+        pp_card = make_card("System power profile (power-profiles-daemon)")
+        self.perf_pp_label = Gtk.Label(label="Current profile: —")
+        _style(self.perf_pp_label, "kv-value")
+        self.perf_pp_label.set_xalign(0.0)
+        pp_card.pack_start(self.perf_pp_label, False, False, 0)
+        self.perf_pp_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        pp_card.pack_start(self.perf_pp_row, False, False, 0)
+        box.pack_start(pp_card, False, False, 0)
+
+        self._refresh_performance()
+        return sc
+
+    def _refresh_performance(self):
+        cpu = cpu_state()
+        gpu = gpu_state()
+        prof = power_profile_state()
+        cur_pp = prof.get("profile")
+
+        # Quiet / Balanced / Gaming switch
+        for c in self.perf_mode_row.get_children():
+            self.perf_mode_row.remove(c)
+        mode_map = {"power-saver": "quiet", "balanced": "balanced", "performance": "gaming"}
+        cur_mode = mode_map.get(cur_pp, "balanced" if cur_pp else None)
+        if cur_mode:
+            self.perf_mode_label.set_text(
+                "Active mode: %s  (power profile: %s · CPU EPP: %s · GPU: %s)"
+                % (cur_mode.capitalize(), cur_pp, cpu["epp"], gpu["perf_level"] or "auto")
+            )
+            for m_id, m_label in (("quiet", "Quiet"), ("balanced", "Balanced"), ("gaming", "Gaming")):
+                b = Gtk.Button(label=m_label)
+                _style(b, "accent" if m_id == cur_mode else "dim")
+                b.connect("clicked", self._on_mode_clicked, m_id)
+                self.perf_mode_row.pack_start(b, False, False, 0)
+        else:
+            self.perf_mode_label.set_text("Active mode: unavailable (powerprofilesctl not running)")
+            note = Gtk.Label(label="Install & enable power-profiles-daemon to switch Quiet / Balanced / Gaming modes")
+            _style(note, "badge")
+            self.perf_mode_row.pack_start(note, False, False, 0)
+
+        # governor row
+        for c in self.perf_gov_row.get_children():
+            self.perf_gov_row.remove(c)
+        self.perf_gov_label.set_text("Governor: %s" % cpu["governor"])
+        if which("pkexec") and which("cpupower") and cpu["avail_governors"]:
+            for gov in cpu["avail_governors"]:
+                b = Gtk.Button(label=gov)
+                _style(b, "accent" if gov == cpu["governor"] else "dim")
+                b.connect("clicked", self._apply_governor, gov)
+                self.perf_gov_row.pack_start(b, False, False, 0)
+        else:
+            note = Gtk.Label(label="read-only — cpupower/pkexec not installed")
+            _style(note, "badge")
+            self.perf_gov_row.pack_start(note, False, False, 0)
+
+        # epp row
+        for c in self.perf_epp_row.get_children():
+            self.perf_epp_row.remove(c)
+        self.perf_epp_label.set_text("Energy preference: %s" % cpu["epp"])
+        if which("pkexec") and which("cpupower") and cpu["avail_epp"]:
+            for epp in cpu["avail_epp"]:
+                b = Gtk.Button(label=epp)
+                _style(b, "accent" if epp == cpu["epp"] else "dim")
+                b.connect("clicked", self._apply_epp, epp)
+                self.perf_epp_row.pack_start(b, False, False, 0)
+        else:
+            note = Gtk.Label(label="read-only — cpupower/pkexec not installed")
+            _style(note, "badge")
+            self.perf_epp_row.pack_start(note, False, False, 0)
+
+        # gpu perf level & LACT
+        for c in self.perf_gpu_row.get_children():
+            self.perf_gpu_row.remove(c)
+        self.perf_gpu_label.set_text("Performance level: %s" % (gpu["perf_level"] or "—"))
+        fan_txt = ("%d RPM" % gpu["fan_rpm"]) if gpu["fan_rpm"] is not None else "0 RPM (zero-RPM idle)"
+        self.perf_gpu_metrics.set_text(
+            "Shader: %s MHz  ·  Memory: %s MHz  ·  Power: %s / %s W  ·  Fan: %s"
+            % (gpu["sclk_mhz"] or "—", gpu["mclk_mhz"] or "—",
+               gpu["power_w"] or "—", gpu["power_cap_w"] or "—", fan_txt)
+        )
+        if gpu["lact_installed"] and gpu["lact_active"]:
+            open_lact = Gtk.Button(label="Open LACT GPU Control…")
+            _style(open_lact, "accent")
+            open_lact.connect("clicked", self._open_lact)
+            self.perf_gpu_row.pack_start(open_lact, False, False, 0)
+        elif gpu["lact_installed"]:
+            note = Gtk.Label(label="LACT is installed but lactd.service is not running (sudo systemctl enable --now lactd).")
+            _style(note, "warn")
+            self.perf_gpu_row.pack_start(note, False, False, 0)
+        else:
+            note = Gtk.Label(
+                label="Controlled by LACT (lactd) — not installed, so GPU clocks/power/fan are read-only here (sudo pacman -S lact)."
+            )
+            _style(note, "badge")
+            self.perf_gpu_row.pack_start(note, False, False, 0)
+
+        # power profile
+        for c in self.perf_pp_row.get_children():
+            self.perf_pp_row.remove(c)
+        if cur_pp:
+            self.perf_pp_label.set_text("Current profile: %s" % cur_pp)
+            for p in ("power-saver", "balanced", "performance"):
+                b = Gtk.Button(label=p)
+                _style(b, "accent" if p == cur_pp else "dim")
+                b.connect("clicked", self._apply_power_profile, p)
+                self.perf_pp_row.pack_start(b, False, False, 0)
+        else:
+            self.perf_pp_label.set_text("Current profile: unavailable")
+            note = Gtk.Label(label="powerprofilesctl not installed")
+            _style(note, "badge")
+            self.perf_pp_row.pack_start(note, False, False, 0)
+        self.pages.get("Performance", self).show_all() if hasattr(self, "pages") else None
+
+    def _on_mode_clicked(self, _b, mode):
+        ok, msg = apply_system_mode(mode)
+        if not ok:
+            show_error_dialog(self, "Could not switch performance mode", msg)
+        self._refresh_performance()
+
+    def _open_lact(self, _b):
+        try:
+            subprocess.Popen(["lact", "gui"], start_new_session=True)
+        except Exception as exc:
+            show_error_dialog(self, "Could not open LACT", str(exc))
+
+    def _confirm_and_run(self, title, message, fn):
+        d = Gtk.MessageDialog(
+            transient_for=self, modal=True, message_type=Gtk.MessageType.QUESTION,
+            buttons=Gtk.ButtonsType.CANCEL, text=title)
+        d.add_button("Apply", Gtk.ResponseType.OK)
+        d.set_default_response(Gtk.ResponseType.CANCEL)
+        d.format_secondary_text(message)
+        resp = d.run()
+        d.destroy()
+        if resp != Gtk.ResponseType.OK:
+            return
+
+        def apply():
+            rc, out, err = fn()
+            return rc, out, err
+
+        def done(result, _err):
+            rc, out, err = result
+            if rc == 0:
+                self._refresh_performance()
+            else:
+                show_error_dialog(self, "Could not apply change",
+                                  (err or out or "unknown error").strip())
+            return False
+
+        run_bg(apply, done)
+
+    def _apply_governor(self, _b, gov):
+        self._confirm_and_run(
+            "Change CPU governor",
+            "Set the CPU scaling governor to '%s' (via cpupower, needs admin)." % gov,
+            lambda: run_cmd(["pkexec", "cpupower", "frequency-set", "-g", gov], timeout=30))
+
+    def _apply_epp(self, _b, epp):
+        self._confirm_and_run(
+            "Change energy preference",
+            "Set the energy performance preference to '%s' (via cpupower, needs admin)." % epp,
+            lambda: run_cmd(["pkexec", "cpupower", "frequency-set", "-e", epp], timeout=30))
+
+    def _apply_power_profile(self, _b, profile):
+        clean = os.environ.copy()
+        clean["PATH"] = "/usr/bin:/bin:/usr/sbin:/sbin"
+        rc, out, err = run_cmd(["powerprofilesctl", "set", profile], timeout=15, env=clean)
+        if rc != 0:
+            show_error_dialog(self, "Could not change power profile", (err or out or "unknown error").strip())
+        self._refresh_performance()
+
+    # ── Display ────────────────────────────────────────────────────────────
+    def _build_display(self):
+        sc = Gtk.ScrolledWindow()
+        sc.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
+        box.set_margin_top(24)
+        box.set_margin_bottom(24)
+        box.set_margin_start(24)
+        box.set_margin_end(24)
+        sc.add(box)
+
+        self.disp_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
+        box.pack_start(self.disp_box, False, False, 0)
+
+        open_btn = Gtk.Button(label="Open nwg-displays to change mode, refresh rate or scale…")
+        _style(open_btn, "accent")
+        open_btn.set_halign(Gtk.Align.START)
+        open_btn.connect("clicked", self._open_nwg_displays)
+        box.pack_start(open_btn, False, False, 0)
+
+        self._refresh_display()
+        return sc
+
+    def _refresh_display(self):
+        for c in self.disp_box.get_children():
+            self.disp_box.remove(c)
+        state = display_state()
+        if state.get("error"):
+            err = Gtk.Label(label=state["error"])
+            _style(err, "err")
+            err.set_xalign(0.0)
+            self.disp_box.pack_start(err, False, False, 0)
+            return
+        for mon in state.get("monitors", []):
+            card = make_card(mon.get("description") or mon.get("name") or "Monitor")
+            grid = Gtk.Grid()
+            grid.set_column_spacing(16)
+            grid.set_row_spacing(8)
+            card.pack_start(grid, False, False, 0)
+            kv_row(grid, 0, "Mode", value_text=mon.get("current_mode"))
+            kv_row(grid, 1, "Refresh rate", value_text="%.2f Hz" % (mon.get("refresh") or 0.0))
+            kv_row(grid, 2, "Scale", value_text=str(mon.get("scale")))
+            vrr = "on" if mon.get("vrr") else "off"
+            kv_row(grid, 3, "Variable refresh", value_text=vrr)
+            kv_row(grid, 4, "Connector", value_text=mon.get("name"))
+            card.pack_start(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL), False, False, 0)
+            modes_lbl = Gtk.Label(label="Available modes")
+            _style(modes_lbl, "kv-label")
+            modes_lbl.set_xalign(0.0)
+            card.pack_start(modes_lbl, False, False, 0)
+            modes = ", ".join(mon.get("available_modes", []))
+            modes_val = Gtk.Label(label=modes or "—")
+            _style(modes_val, "kv-value")
+            modes_val.set_xalign(0.0)
+            modes_val.set_line_wrap(True)
+            modes_val.set_selectable(True)
+            card.pack_start(modes_val, False, False, 0)
+            self.disp_box.pack_start(card, False, False, 0)
+
+    def _open_nwg_displays(self, _b):
+        if not which("nwg-displays"):
+            show_error_dialog(self, "nwg-displays not installed",
+                              "Install nwg-displays to change display settings.")
+            return
+        try:
+            subprocess.Popen(["nwg-displays"], start_new_session=True)
+        except Exception as exc:
+            show_error_dialog(self, "Could not open nwg-displays", str(exc))
+
+    # ── Gaming ─────────────────────────────────────────────────────────────
+    def _build_gaming(self):
+        sc = Gtk.ScrolledWindow()
+        sc.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
+        box.set_margin_top(24)
+        box.set_margin_bottom(24)
+        box.set_margin_start(24)
+        box.set_margin_end(24)
+        sc.add(box)
+
+        # tools status
+        tools_card = make_card("Tools")
+        self.game_tools_grid = Gtk.Grid()
+        self.game_tools_grid.set_column_spacing(16)
+        self.game_tools_grid.set_row_spacing(8)
+        tools_card.pack_start(self.game_tools_grid, False, False, 0)
+        box.pack_start(tools_card, False, False, 0)
+
+        # GE-Proton
+        proton_card = make_card("GE-Proton builds")
+        self.game_proton_label = Gtk.Label(label="—")
+        _style(self.game_proton_label, "kv-value")
+        self.game_proton_label.set_xalign(0.0)
+        self.game_proton_label.set_line_wrap(True)
+        proton_card.pack_start(self.game_proton_label, False, False, 0)
+        box.pack_start(proton_card, False, False, 0)
+
+        # MangoHud launch options
+        mh_card = make_card("Launch with MangoHud & GameMode")
+        switch_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        sw = Gtk.Switch()
+        sw.set_active(False)
+        sw.connect("notify::active", self._on_mangohud_switch)
+        switch_row.pack_start(sw, False, False, 0)
+        switch_row.pack_start(Gtk.Label(label="Show launch options"), False, False, 0)
+        mh_card.pack_start(switch_row, False, False, 0)
+        self.game_mh_entry = Gtk.Entry()
+        self.game_mh_entry.set_text("gamemoderun mangohud %command%")
+        self.game_mh_entry.set_editable(False)
+        self.game_mh_entry.set_no_show_all(True)
+        mh_card.pack_start(self.game_mh_entry, False, False, 0)
+        copy_btn = Gtk.Button(label="Copy")
+        _style(copy_btn, "dim")
+        copy_btn.connect("clicked", self._copy_mangohud)
+        mh_card.pack_start(copy_btn, False, False, 0)
+        box.pack_start(mh_card, False, False, 0)
+
+        # games list
+        games_card = make_card("Installed Steam apps")
+        self.game_list = Gtk.ListBox()
+        self.game_list.set_selection_mode(Gtk.SelectionMode.NONE)
+        games_card.pack_start(self.game_list, False, False, 0)
+        box.pack_start(games_card, False, False, 0)
+
+        self._refresh_games()
+        return sc
+
+    def _on_mangohud_switch(self, sw, _pspec):
+        self.game_mh_entry.set_visible(sw.get_active())
+
+    def _copy_mangohud(self, _b):
+        Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD).set_text("gamemoderun mangohud %command%", -1)
+
+    def _refresh_games(self):
+        state = games_state()
+
+        for c in self.game_tools_grid.get_children():
+            self.game_tools_grid.remove(c)
+        rows = []
+        if state.get("mangohud"):
+            rows.append(("MangoHud", "installed — %s" % (state.get("mangohud_version") or "")))
+        else:
+            rows.append(("MangoHud", "not installed (sudo pacman -S mangohud)"))
+        if state.get("gamemode"):
+            rows.append(("GameMode", "installed — %s" % (state.get("gamemode_version") or "")))
+        else:
+            rows.append(("GameMode", "not installed (sudo pacman -S gamemode)"))
+        for i, (k, v) in enumerate(rows):
+            l = Gtk.Label(label=k)
+            _style(l, "kv-label")
+            l.set_xalign(0.0)
+            self.game_tools_grid.attach(l, 0, i, 1, 1)
+            vv = Gtk.Label(label=v)
+            _style(vv, "ok" if v.startswith("installed") else "err")
+            vv.set_xalign(0.0)
+            self.game_tools_grid.attach(vv, 1, i, 1, 1)
+
+        ge = state.get("ge_protons") or []
+        self.game_proton_label.set_text(", ".join(ge) if ge else "none found")
+
+        for c in self.game_list.get_children():
+            self.game_list.remove(c)
+        for g in state.get("games", []):
+            row = Gtk.ListBoxRow()
+            h = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+            h.set_margin_top(8)
+            h.set_margin_bottom(8)
+            name = Gtk.Label(label=g["name"])
+            _style(name, "row-title")
+            name.set_xalign(0.0)
+            name.set_hexpand(True)
+            h.pack_start(name, True, True, 0)
+            size = Gtk.Label(label=bytes_human(g["size"]))
+            _style(size, "badge")
+            h.pack_start(size, False, False, 0)
+            row.add(h)
+            self.game_list.add(row)
+
+    # ── Storage ────────────────────────────────────────────────────────────
+    def _build_storage(self):
+        sc = Gtk.ScrolledWindow()
+        sc.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
+        box.set_margin_top(24)
+        box.set_margin_bottom(24)
+        box.set_margin_start(24)
+        box.set_margin_end(24)
+        sc.add(box)
+
+        fs_card = make_card("Filesystems")
+        self.storage_fs_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
+        fs_card.pack_start(self.storage_fs_box, False, False, 0)
+        box.pack_start(fs_card, False, False, 0)
+
+        smart_card = make_card("SMART health")
+        self.smart_label = Gtk.Label(label="—")
+        _style(self.smart_label, "kv-value")
+        self.smart_label.set_xalign(0.0)
+        smart_card.pack_start(self.smart_label, False, False, 0)
+        box.pack_start(smart_card, False, False, 0)
+
+        dirs_card = make_card("Largest directories in home")
+        self.dirs_label = Gtk.Label(label="scanning…")
+        _style(self.dirs_label, "kv-value")
+        self.dirs_label.set_xalign(0.0)
+        self.dirs_label.set_selectable(True)
+        dirs_card.pack_start(self.dirs_label, False, False, 0)
+        box.pack_start(dirs_card, False, False, 0)
+
+        self._refresh_storage()
+        return sc
+
+    def _refresh_storage(self, sync=False):
+        for c in self.storage_fs_box.get_children():
+            self.storage_fs_box.remove(c)
+        st = storage_state()
+        for fs in st.get("filesystems", []):
+            row = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+            top = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+            name = Gtk.Label(label="%s  (%s)" % (fs["mount"], fs["fstype"]))
+            _style(name, "row-title")
+            name.set_xalign(0.0)
+            name.set_hexpand(True)
+            top.pack_start(name, True, True, 0)
+            pct = Gtk.Label(label="%s used of %s" % (
+                bytes_human(fs["used"]), bytes_human(fs["total"])))
+            _style(pct, "badge")
+            top.pack_start(pct, False, False, 0)
+            row.pack_start(top, False, False, 0)
+            bar = progress(fs["used"], fs["total"])
+            row.pack_start(bar, False, False, 0)
+            self.storage_fs_box.pack_start(row, False, False, 0)
+
+        def on_smart(result, _err):
+            sm = result or {}
+            parts = []
+            if sm.get("nvme_temp_c"):
+                parts.append("NVMe %s: %s °C" % (sm.get("device"), sm["nvme_temp_c"]))
+            if sm.get("health"):
+                parts.append("SMART: %s" % sm["health"])
+            if sm.get("note"):
+                parts.append(sm["note"])
+            self.smart_label.set_text("  ·  ".join(parts) if parts else "unavailable")
+            return False
+
+        def on_dirs(result, _err):
+            res = result or {}
+            rows = res.get("dirs", [])
+            if res.get("error"):
+                self.dirs_label.set_text(res["error"])
+                return False
+            if not rows:
+                self.dirs_label.set_text("no data")
+                return False
+            lines = ["%s  %s" % (bytes_human(sz), name) for sz, name, _p in rows]
+            self.dirs_label.set_text("\n".join(lines))
+            return False
+
+        if sync:
+            on_smart(smart_state(), None)
+            on_dirs(biggest_dirs(), None)
+        else:
+            run_bg(smart_state, on_smart)
+            run_bg(biggest_dirs, on_dirs)
+
+    # ── one-shot slow collectors ───────────────────────────────────────────
+    def _kick_static_collectors(self):
+        run_bg(hyprland_version, lambda *_: None)
+        run_bg(gpu_model, lambda *_: None)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# entry point, selftest & offscreen screenshots
+# ─────────────────────────────────────────────────────────────────────────────
+def _init_css():
+    settings = Gtk.Settings.get_default()
+    if settings:
+        settings.set_property("gtk-application-prefer-dark-theme", True)
+        try:
+            settings.set_property("gtk-theme-name", "Adwaita-dark")
+        except Exception:
+            pass
+    screen = Gdk.Screen.get_default()
+    if screen:
+        provider = Gtk.CssProvider()
+        provider.load_from_data(CSS)
+        Gtk.StyleContext.add_provider_for_screen(
+            screen, provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+
+
+def save_screenshots(outdir):
+    """Render each tab into a Gtk.OffscreenWindow (never maps a window on the user's screen)
+    and write PNGs to outdir."""
+    os.makedirs(outdir, exist_ok=True)
+    _init_css()
+    win = PrimeControl(show=False, offscreen=True)
+    win._refresh_storage(sync=True)
+    win._refresh_display()
+    win._refresh_games()
+    win._refresh_performance()
+    win._tick_overview()
+    win.remove(win.root_box)
+
+    off = Gtk.OffscreenWindow()
+    off.set_default_size(1080, 720)
+    off.set_size_request(1080, 720)
+    off.add(win.root_box)
+    off.show_all()
+
+    state = {"idx": 0}
+
+    def step():
+        idx = state["idx"]
+        if idx >= len(win.TABS):
+            off.destroy()
+            Gtk.main_quit()
+            return False
+        tab = win.TABS[idx]
+        win.listbox.select_row(win.listbox.get_row_at_index(idx))
+        win.stack.set_visible_child_name(tab)
+        off.queue_draw()
+
+        def capture():
+            pixbuf = off.get_pixbuf()
+            if pixbuf:
+                path = os.path.join(outdir, "prime-control-%02d-%s.png" % (idx + 1, tab.lower()))
+                pixbuf.savev(path, "png", [], [])
+                print("saved %s (%dx%d)" % (path, pixbuf.get_width(), pixbuf.get_height()))
+            state["idx"] += 1
+            GLib.timeout_add(80, step)
+            return False
+
+        GLib.timeout_add(120, capture)
+        return False
+
+    GLib.timeout_add(150, step)
+    Gtk.main()
+    return 0
+
+
+def selftest():
+    """Run all collectors and build the widget tree offscreen without mapping a window."""
+    results = {}
+    for name, fn in (
+        ("cpu", cpu_state),
+        ("gpu", gpu_state),
+        ("memory", memory_state),
+        ("display", display_state),
+        ("games", games_state),
+        ("power_profile", power_profile_state),
+        ("storage", storage_state),
+        ("smart", smart_state),
+    ):
+        try:
+            results[name] = fn()
+        except Exception as exc:
+            results[name] = {"__error__": repr(exc)}
+
+    fails = 0
+    print("selftest collectors:")
+    for k, v in results.items():
+        if isinstance(v, dict) and "__error__" in v:
+            print("  %-14s ERROR %s" % (k, v["__error__"]))
+            fails += 1
+        elif isinstance(v, dict) and "error" in v and k == "display":
+            print("  %-14s -> %s" % (k, v.get("error")))
+        else:
+            print("  %-14s OK" % k)
+
+    if Gtk.init_check(sys.argv)[0]:
+        _init_css()
+        win = PrimeControl(show=False, offscreen=True)
+        print("widget tree built OK — %d pages (%s)" % (len(win.pages), ", ".join(win.TABS)))
+        win.destroy()
+    else:
+        print("widget tree skipped (no display in environment; collectors verified)")
+    return 1 if fails else 0
+
+
+def main():
+    _init_css()
+    win = PrimeControl(show=True, offscreen=False)
+    for arg in sys.argv[1:]:
+        if arg.startswith("--tab="):
+            name = arg.split("=", 1)[1]
+            for t in win.TABS:
+                if t.lower() == name.lower():
+                    win.listbox.select_row(win.listbox.get_row_at_index(win.TABS.index(t)))
+                    break
+    Gtk.main()
+    return 0
+
+
+if __name__ == "__main__":
+    if "--check" in sys.argv or "--selftest" in sys.argv:
+        raise SystemExit(selftest())
+    if "--set-mode" in sys.argv:
+        idx = sys.argv.index("--set-mode")
+        target = sys.argv[idx + 1] if idx + 1 < len(sys.argv) else ""
+        ok_flag, summary = apply_system_mode(target)
+        print(summary)
+        raise SystemExit(0 if ok_flag else 1)
+    if "--screenshots" in sys.argv:
+        idx = sys.argv.index("--screenshots")
+        target_dir = sys.argv[idx + 1] if idx + 1 < len(sys.argv) else "/tmp/prime-control-screenshots"
+        raise SystemExit(save_screenshots(target_dir))
+    raise SystemExit(main())

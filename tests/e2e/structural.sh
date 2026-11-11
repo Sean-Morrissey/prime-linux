@@ -22,7 +22,7 @@ LOG="$RESULTS/run.log"
 
 # ---- environment the compositor tools need (hyprctl returns nothing without it) ----
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/1000}"
-export HYPRLAND_INSTANCE_SIGNATURE="${HYPRLAND_INSTANCE_SIGNATURE:-$(ls "$XDG_RUNTIME_DIR/hypr/" 2>/dev/null | head -1)}"
+export HYPRLAND_INSTANCE_SIGNATURE="${HYPRLAND_INSTANCE_SIGNATURE:-$(ls -t "$XDG_RUNTIME_DIR/hypr/" 2>/dev/null | head -1)}"
 export WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-1}"
 
 BIN="$HOME/.local/share/prime-linux/layer/bin"
@@ -41,12 +41,17 @@ if [ -e "$HOME/.config/systemd/user/prime-whiteboard.service" ] || [ -d "$HOME/C
   HAS_WHITEBOARD=1
 fi
 HAS_HYPR=0
-[ -n "$HYPRLAND_INSTANCE_SIGNATURE" ] && hyprctl version >/dev/null 2>&1 && HAS_HYPR=1
+[ -n "$HYPRLAND_INSTANCE_SIGNATURE" ] && hyprctl monitors -j >/dev/null 2>&1 && HAS_HYPR=1
 
 PY3="$(command -v python3 2>/dev/null || echo python3)"
 PILPY=""
 for c in "$PY3" /usr/bin/python3; do
-  if [ -n "$c" ] && command -v "$c" >/dev/null 2>&1 && "$c" -c 'import PIL' >/dev/null 2>&1; then
+  if [ -n "$c" ] && command -v "$c" >/dev/null 2>&1 && "$c" -c '
+try:
+    import PIL
+except ImportError:
+    import gi; gi.require_version("GdkPixbuf", "2.0"); from gi.repository import GdkPixbuf
+' >/dev/null 2>&1; then
     PILPY="$c"; break
   fi
 done
@@ -372,9 +377,9 @@ try:
 except Exception:
     print("")' 2>/dev/null)"
   if [ -n "$MON" ]; then
-    grim -o "$MON" "$DESK_SHOT" 2>>"$LOG"
+    timeout 10 grim -o "$MON" "$DESK_SHOT" 2>>"$LOG"
   else
-    grim "$DESK_SHOT" 2>>"$LOG"
+    timeout 10 grim "$DESK_SHOT" 2>>"$LOG"
   fi
   if [ -s "$DESK_SHOT" ]; then
     report PASS visual.desktop-shot "live desktop captured via grim (${MON:-whole layout})"
@@ -388,28 +393,65 @@ fi
 if [ -n "$PILPY" ]; then
   read -r WB_DISTINCT DESK_DISTINCT BAR_FRAC < <("$PILPY" - "$WB_SHOT" "$DESK_SHOT" "$BAR_HEIGHT" <<'PY' 2>/dev/null
 import sys
-from PIL import Image
 wb, desk, bh = sys.argv[1], sys.argv[2], int(sys.argv[3])
 
-def distinct(path):
-    im = Image.open(path).convert('RGB')
-    w, h = im.size
-    nw = 256
-    nh = max(1, int(round(h * nw / w)))
-    small = im.resize((nw, nh))
-    cols = small.getcolors(nw * nh + 1)
-    return len(cols) if cols else (nw * nh)
+try:
+    from PIL import Image
+    def distinct(path):
+        im = Image.open(path).convert('RGB')
+        w, h = im.size
+        nw = 256
+        nh = max(1, int(round(h * nw / w)))
+        small = im.resize((nw, nh))
+        cols = small.getcolors(nw * nh + 1)
+        return len(cols) if cols else (nw * nh)
 
-def bar_frac(path):
-    im = Image.open(path).convert('RGB')
-    w, h = im.size
-    sh = min(bh, h)
-    strip = im.crop((0, 0, w, sh))
-    cols = strip.getcolors(w * sh + 1)
-    if not cols:
-        return -1.0
-    dom = max(cols, key=lambda t: t[0])
-    return round(dom[0] / (w * sh), 3)
+    def bar_frac(path):
+        im = Image.open(path).convert('RGB')
+        w, h = im.size
+        sh = min(bh, h)
+        strip = im.crop((0, 0, w, sh))
+        cols = strip.getcolors(w * sh + 1)
+        if not cols:
+            return -1.0
+        dom = max(cols, key=lambda t: t[0])
+        return round(dom[0] / (w * sh), 3)
+except ImportError:
+    import gi
+    gi.require_version("GdkPixbuf", "2.0")
+    from gi.repository import GdkPixbuf
+    from collections import Counter
+
+    def _pixels(pb):
+        w, h = pb.get_width(), pb.get_height()
+        rs, nc = pb.get_rowstride(), pb.get_n_channels()
+        data = pb.get_pixels()
+        out = []
+        for y in range(h):
+            row = y * rs
+            for x in range(w):
+                i = row + x * nc
+                out.append((data[i], data[i+1], data[i+2]))
+        return out
+
+    def distinct(path):
+        pb = GdkPixbuf.Pixbuf.new_from_file(path)
+        w, h = pb.get_width(), pb.get_height()
+        nw = 256
+        nh = max(1, int(round(h * nw / w)))
+        small = pb.scale_simple(nw, nh, GdkPixbuf.InterpType.BILINEAR)
+        return len(set(_pixels(small)))
+
+    def bar_frac(path):
+        pb = GdkPixbuf.Pixbuf.new_from_file(path)
+        w, h = pb.get_width(), pb.get_height()
+        sh = min(bh, h)
+        strip = pb.new_subpixbuf(0, 0, w, sh)
+        px = _pixels(strip)
+        if not px:
+            return -1.0
+        dom = Counter(px).most_common(1)[0][1]
+        return round(dom / (w * sh), 3)
 
 try:
     wbd = distinct(wb)
@@ -478,7 +520,7 @@ fi
 say ""
 say "## 7. Doctor"
 
-PRIME_NO_PANEL=1 "$DOCTOR" > "$RESULTS/doctor.txt" 2>&1
+PRIME_NO_PANEL=1 timeout 120 "$DOCTOR" > "$RESULTS/doctor.txt" 2>&1
 DOCTOR_EXIT=$?
 STRIPPED="$(sed -e 's/\x1b\[[0-9;]*m//g' "$RESULTS/doctor.txt")"
 BAD="$(printf '%s\n' "$STRIPPED" | grep -c '^! Needs you' 2>/dev/null)"; BAD="${BAD:-0}"

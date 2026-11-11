@@ -12,7 +12,8 @@
 # The unit files are already linked by prime-update; this switches them on.
 LAYER="${PRIME_LAYER:?}"
 mkdir -p "$HOME/.local/bin" "$HOME/.config/environment.d"
-for c in prime-notify prime-text-sync prime-hyprpm-doctor; do
+for c in prime-notify prime-text-sync prime-hyprpm-doctor prime-screen-reader \
+         prime-control prime-gaming-check prime-switch prime-rea; do
     [ -x "$LAYER/bin/$c" ] && ln -sfn "$LAYER/bin/$c" "$HOME/.local/bin/$c"
 done
 ENVF="$HOME/.config/environment.d/60-prime-path.conf"
@@ -21,5 +22,6 @@ systemctl --user daemon-reload 2>/dev/null
 for u in prime-text-sync.path prime-hyprpm-watch.timer; do
     systemctl --user enable --now "$u" >/dev/null 2>&1 || systemctl --user enable "$u" >/dev/null 2>&1 || true
 done
+gsettings set org.gnome.desktop.wm.preferences button-layout 'appmenu:' >/dev/null 2>&1 || true
 "$LAYER/bin/prime-text-sync" >/dev/null 2>&1 || true
 exit 0

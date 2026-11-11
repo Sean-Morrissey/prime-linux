@@ -313,6 +313,8 @@ else
             v="$(gsettings get org.gnome.desktop.interface "$k" 2>/dev/null || true)"
             [ -n "$v" ] && note "gsetting org.gnome.desktop.interface $k $v"
         done
+        v="$(gsettings get org.gnome.desktop.wm.preferences button-layout 2>/dev/null || true)"
+        [ -n "$v" ] && note "gsetting org.gnome.desktop.wm.preferences button-layout $v"
     fi
     if [ $DRY = 0 ] && ! grep -q '^mime ' "$MANIFEST" 2>/dev/null; then
         old_dir="$(xdg-mime query default inode/directory 2>/dev/null || true)"
@@ -322,6 +324,7 @@ else
     gs() { run gsettings set org.gnome.desktop.interface "$1" "$2" 2>/dev/null || true; }
     gs gtk-theme adw-gtk3-dark; gs color-scheme prefer-dark; gs icon-theme Papirus-Dark
     gs cursor-theme Breeze_Light; gs font-name 'Inter 10'; gs monospace-font-name 'JetBrainsMono Nerd Font 11'
+    run gsettings set org.gnome.desktop.wm.preferences button-layout 'appmenu:' 2>/dev/null || true
     run "$LAYER/bin/prime-text-sync" 2>/dev/null || true
     run gsettings set org.cinnamon.desktop.default-applications.terminal exec kitty 2>/dev/null || true
     run xdg-mime default nemo.desktop inode/directory
@@ -340,6 +343,7 @@ else
     # desktop, everything it starts and every user service read environment.d)
     create "$HOME/.config/environment.d/60-prime-path.conf" $'# Prime Linux: its commands (prime-notify, prime-update, …) live here\nPATH=$HOME/.local/bin:${PATH}\n'
     run systemctl --user daemon-reload 2>/dev/null || info "(user services load at next login)"
+    run systemctl --user set-environment PATH="$HOME/.local/bin:${PATH}" 2>/dev/null || true
     # GTK3 apps follow Text size (prime-text-sync.path), and the title-bar plugin is
     # rebuilt when Hyprland moves mid-session (prime-hyprpm-watch.timer, every 10 min)
     for u in prime-text-sync.path prime-hyprpm-watch.timer; do
@@ -347,7 +351,8 @@ else
     done
     for c in prime-update prime-uninstall prime-addon prime-theme prime-doctor prime-about prime-migrate prime-webapp prime-help \
              prime-security prime-update-policy prime-updates-settings prime-settings prime-welcome \
-             prime-notify prime-text-sync prime-hyprpm-doctor; do
+             prime-notify prime-text-sync prime-hyprpm-doctor prime-screen-reader \
+             prime-control prime-gaming-check prime-switch prime-rea; do
         run ln -sfn "$LAYER/bin/$c" "$HOME/.local/bin/$c"
     done
     ok "Commands: prime-update, prime-doctor, prime-addon, prime-theme, prime-webapp, prime-about, prime-notify, prime-uninstall"

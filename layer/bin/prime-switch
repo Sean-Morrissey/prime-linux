@@ -1,0 +1,798 @@
+#!/usr/bin/python3
+# prime:summary=coming from Windows or macOS: import files, bookmarks, apps and shortcuts
+"""prime-switch — Switching from Windows or macOS to Prime Linux.
+
+Provides:
+  1. App Equivalents (Explorer/Finder -> Files, Spotlight, Task Manager -> Prime Control…)
+  2. Import Browser Bookmarks & ~/Documents / ~/Pictures from a mounted drive
+  3. Ctrl vs Cmd (Windows vs macOS) shortcut mode toggle
+  4. Viewable & Printable Keybind Parity Table (Windows / macOS / Prime Linux)
+
+Flags:
+  prime-switch                  open the window
+  prime-switch --tab=parity     open directly on the Keybind Parity Table
+  prime-switch --export-html F  write printable HTML keybind parity sheet to F
+  prime-switch --check          headless selftest (never maps a window)
+  prime-switch --screenshots D  render all 4 tabs offscreen to PNGs in D
+"""
+import glob
+import html
+import json
+import os
+import shutil
+import subprocess
+import sys
+
+import gi
+
+gi.require_version("Gtk", "3.0")
+gi.require_version("Gdk", "3.0")
+from gi.repository import Gdk, GLib, Gtk, Pango  # noqa: E402
+
+BIN = os.path.dirname(os.path.realpath(__file__))
+HOME = os.path.expanduser("~")
+KB_CONF = os.path.join(HOME, ".config/hypr/keyboard.conf")
+
+CSS = b"""
+* { font-family: Inter, "Inter", "Noto Sans", sans-serif; }
+window {
+  background-color: #0c0c10;
+  color: #ececef;
+}
+headerbar {
+  background-image: none;
+  background-color: #0a0a0e;
+  box-shadow: none;
+  border: none;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+  min-height: 48px;
+  padding: 0 12px;
+}
+headerbar .title { color: #ececef; font-weight: 600; font-size: 15px; }
+headerbar .subtitle { color: #a1a1a6; font-size: 11px; }
+list, list row { background-color: transparent; color: #ececef; border: none; }
+.sidebar { background-color: transparent; border: none; }
+.sidebar row { padding: 8px 16px; border-radius: 10px; color: #a1a1a6; }
+.sidebar row:hover { background-color: rgba(255,255,255,0.04); }
+.sidebar row:selected { background-color: rgba(52,211,153,0.14); }
+.sidebar row:focus { outline: 2px solid #34d399; outline-offset: -2px; }
+.sidebar row label { font-size: 14px; }
+.sidebar row:selected label { color: #34d399; font-weight: 600; }
+
+.card {
+  background-color: #14141a;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 14px;
+  padding: 16px 24px;
+}
+.card-title {
+  color: #a1a1a6;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 1px;
+}
+.row-title { color: #ececef; font-size: 14px; font-weight: 600; }
+.row-sub { color: #a1a1a6; font-size: 12px; }
+.kbd {
+  background-color: #0a0a0e;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 6px;
+  padding: 4px 8px;
+  color: #34d399;
+  font-family: "JetBrainsMono Nerd Font", monospace;
+  font-size: 12px;
+}
+.kbd-dim {
+  background-color: #0a0a0e;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 6px;
+  padding: 4px 8px;
+  color: #a1a1a6;
+  font-family: "JetBrainsMono Nerd Font", monospace;
+  font-size: 12px;
+}
+.ok { color: #34d399; font-size: 12px; }
+.warn { color: #fbbf24; font-size: 12px; }
+button { border-radius: 10px; padding: 8px 16px; background-image: none; }
+button:focus { outline: 2px solid #34d399; outline-offset: -2px; }
+button.dim {
+  background-color: rgba(255,255,255,0.06);
+  color: #ececef;
+  border: 1px solid rgba(255,255,255,0.08);
+}
+button.dim:hover { background-color: rgba(255,255,255,0.11); }
+button.accent {
+  background-color: #34d399;
+  color: #0a0a0e;
+  font-weight: 600;
+  border: none;
+}
+button.accent:hover { background-color: #4ade80; }
+scrolledwindow { border: none; background-color: transparent; }
+"""
+
+APP_EQUIVALENTS = [
+    ("File Manager", "File Explorer (Win+E)", "Finder (⌘+Option+Space)", "Files / Nemo (Super+E)", ["nemo"]),
+    ("Search & Launcher", "PowerToys Run / Search", "Spotlight (⌘+Space)", "Prime Spotlight (Super+Space)", [os.path.join(BIN, "prime-spotlight")]),
+    ("Start / App Menu", "Start Menu (Win)", "Launchpad / Apple Menu", "Prime Menu (Super+X / Super+A)", [os.path.join(BIN, "prime-start")]),
+    ("Hardware & Perf", "Task Manager / Armoury", "Activity Monitor", "Prime Control (Super+Ctrl+P)", [os.path.join(BIN, "prime-control")]),
+    ("Process Activity", "Task Manager (Ctrl+Shift+Esc)", "Activity Monitor", "Activity (Ctrl+Shift+Esc)", [os.path.join(BIN, "prime-activity")]),
+    ("System Settings", "Settings (Win+I)", "System Settings", "Prime Settings (Super+I)", [os.path.join(BIN, "prime-system-settings")]),
+    ("Screenshots", "Snipping Tool (Win+Shift+S)", "Screenshot (⌘+Shift+4)", "Prime Snip (Super+Shift+S)", [os.path.join(BIN, "prime-snip"), "area"]),
+    ("App Store", "Microsoft Store", "Mac App Store", "App Store (GNOME Software)", ["gnome-software"]),
+]
+
+PARITY_ROWS = [
+    ("Search apps, files, math", "Win + S / Alt + Space", "⌘ + Space", "Super + Space"),
+    ("Open Start / App Menu", "Win", "Launchpad (F4)", "Super + X  (all: Super + A)"),
+    ("Open System Settings", "Win + I", "⌘ + , (in Apple menu)", "Super + I"),
+    ("Hardware & Performance", "Ctrl + Shift + Esc", "⌘ + Space → Activity", "Super + Ctrl + P"),
+    ("Process Monitor (htop/btop)", "Ctrl + Shift + Esc", "Activity Monitor", "Ctrl + Shift + Esc"),
+    ("File Manager", "Win + E", "⌘ + N (Finder)", "Super + E"),
+    ("Terminal", "Win + X → Terminal", "⌘ + Space → Terminal", "Super + Return  (or Super + T)"),
+    ("Web Browser", "Default browser", "Safari", "Super + B"),
+    ("Close Active Window", "Alt + F4", "⌘ + W / ⌘ + Q", "Super + Q"),
+    ("Switch Window", "Alt + Tab", "⌘ + Tab", "Alt + Tab  (or Super + Tab)"),
+    ("Maximise / Fullscreen", "Win + Up / F11", "Ctrl + ⌘ + F", "Super + F  (full: Super + Shift + F)"),
+    ("Minimise / Restore Window", "Win + Down", "⌘ + M", "Super + -  (restore: Super + Shift + Backspace)"),
+    ("Snap Window Left / Right", "Win + Left / Right", "Globe + Left / Right", "Super + Shift + Left / Right  (or drag to edge)"),
+    ("Switch Desktop / Workspace", "Ctrl + Win + Left/Right", "Ctrl + 1..9", "Super + 1..0"),
+    ("Move Window to Workspace", "Win + Tab", "Drag to Space", "Super + Shift + 1..0"),
+    ("Screenshot a Region", "Win + Shift + S", "⌘ + Shift + 4", "Super + Shift + S  (or Print)"),
+    ("Record Screen / Region", "Win + Alt + R", "⌘ + Shift + 5", "Super + Shift + R"),
+    ("Clipboard History", "Win + V", "3rd-party tool", "Super + V"),
+    ("Emoji Picker", "Win + .", "Ctrl + ⌘ + Space", "Super + Ctrl + E"),
+    ("Notification Centre", "Win + N", "Click clock", "Super + K"),
+    ("Lock Screen", "Win + L", "Ctrl + ⌘ + Q", "Super + L"),
+    ("Desktop Context Menu", "Shift + F10 / Menu", "Right-click desktop", "Menu key  (or Super + Right-click)"),
+    ("Keyboard Bar Navigation", "Win + B", "Ctrl + F8", "Super + Alt + B"),
+    ("Reduce Motion (Animations)", "Settings → Visual Effects", "Accessibility → Motion", "Super + Alt + R"),
+    ("Screen Reader (Orca)", "Win + Ctrl + Enter", "⌘ + F5 (VoiceOver)", "Super + Alt + Escape"),
+    ("Every Shortcut (Searchable)", "PowerToys Shortcut Guide", "CheatSheet", "Super + /"),
+]
+
+
+def _style(w, cls):
+    w.get_style_context().add_class(cls)
+    return w
+
+
+def make_card(title):
+    card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+    _style(card, "card")
+    if title:
+        lbl = Gtk.Label(label=title.upper())
+        _style(lbl, "card-title")
+        lbl.set_xalign(0.0)
+        card.pack_start(lbl, False, False, 0)
+    return card
+
+
+def detect_mounted_drives():
+    """Return list of dicts for mounted external/Windows partitions."""
+    mounts = []
+    try:
+        with open("/proc/mounts") as f:
+            for line in f:
+                parts = line.split()
+                if len(parts) < 3:
+                    continue
+                dev, mp, fstype = parts[0], parts[1], parts[2]
+                if mp in ("/", "/boot", "/boot/efi", "/home") or mp.startswith(("/proc", "/sys", "/dev", "/run/user")):
+                    continue
+                if mp.startswith(("/mnt/", "/run/media/", "/media/")) or fstype in ("ntfs", "ntfs3", "fuseblk", "exfat", "vfat", "apfs", "hfsplus"):
+                    if os.path.isdir(mp):
+                        docs = glob.glob(os.path.join(mp, "Users/*/Documents")) + glob.glob(os.path.join(mp, "Documents"))
+                        pics = glob.glob(os.path.join(mp, "Users/*/Pictures")) + glob.glob(os.path.join(mp, "Pictures"))
+                        bms = (
+                            glob.glob(os.path.join(mp, "Users/*/AppData/Local/Google/Chrome/User Data/*/Bookmarks"))
+                            + glob.glob(os.path.join(mp, "Users/*/AppData/Local/Microsoft/Edge/User Data/*/Bookmarks"))
+                        )
+                        mounts.append({
+                            "device": dev,
+                            "mount": mp,
+                            "fstype": fstype,
+                            "docs": [d for d in docs if os.path.isdir(d)],
+                            "pics": [p for p in pics if os.path.isdir(p)],
+                            "bookmarks": [b for b in bms if os.path.isfile(b)],
+                        })
+    except Exception:
+        pass
+    return mounts
+
+
+def detect_bookmark_candidates():
+    """Find bookmark HTML exports in ~/Downloads or Chrome/Edge JSON bookmarks on mounted drives."""
+    found = []
+    for p in sorted(glob.glob(os.path.join(HOME, "Downloads/*bookmark*.html")) + glob.glob(os.path.join(HOME, "Downloads/*Bookmark*.html"))):
+        if os.path.isfile(p):
+            found.append(("html", p))
+    for m in detect_mounted_drives():
+        for b in m["bookmarks"]:
+            found.append(("chromium-json", b))
+    return found
+
+
+def convert_chromium_bookmarks_to_html(json_path, out_html):
+    """Convert a Chrome/Edge Bookmarks JSON file into a standard Netscape Bookmark HTML file."""
+    data = json.load(open(json_path, encoding="utf-8", errors="replace"))
+    lines = [
+        "<!DOCTYPE NETSCAPE-Bookmark-file-1>",
+        '<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=UTF-8">',
+        "<TITLE>Bookmarks</TITLE>",
+        "<H1>Imported Bookmarks</H1>",
+        "<DL><p>",
+    ]
+
+    def walk(node):
+        ntype = node.get("type")
+        name = html.escape(node.get("name") or "Bookmark")
+        if ntype == "url":
+            url = html.escape(node.get("url") or "")
+            if url:
+                lines.append(f'    <DT><A HREF="{url}">{name}</A>')
+        elif ntype == "folder" or "children" in node:
+            lines.append(f"    <DT><H3>{name}</H3>")
+            lines.append("    <DL><p>")
+            for ch in node.get("children", []):
+                walk(ch)
+            lines.append("    </DL><p>")
+
+    for root in (data.get("roots") or {}).values():
+        if isinstance(root, dict):
+            walk(root)
+    lines.append("</DL><p>")
+    os.makedirs(os.path.dirname(out_html), exist_ok=True)
+    with open(out_html, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+    return out_html
+
+
+def export_parity_html(out_path):
+    """Write a clean, printable HTML Keybind Parity sheet."""
+    os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
+    rows_html = []
+    for action, win_k, mac_k, prime_k in PARITY_ROWS:
+        rows_html.append(
+            f"<tr><td>{html.escape(action)}</td>"
+            f"<td><code>{html.escape(win_k)}</code></td>"
+            f"<td><code>{html.escape(mac_k)}</code></td>"
+            f"<td class='prime'><code>{html.escape(prime_k)}</code></td></tr>"
+        )
+    doc = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Prime Linux — Windows &amp; macOS Keybind Parity Reference</title>
+<style>
+  :root {{ color-scheme: dark light; }}
+  body {{
+    font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: #0c0c10; color: #ececef; margin: 32px auto; max-width: 960px; padding: 0 24px;
+  }}
+  h1 {{ font-size: 22px; margin-bottom: 4px; }}
+  p.sub {{ color: #a1a1a6; font-size: 13px; margin-top: 0; margin-bottom: 20px; }}
+  table {{ width: 100%; border-collapse: collapse; background: #14141a; border-radius: 14px; overflow: hidden; border: 1px solid rgba(255,255,255,0.08); }}
+  th, td {{ text-align: left; padding: 10px 14px; border-bottom: 1px solid rgba(255,255,255,0.08); font-size: 13px; }}
+  th {{ color: #a1a1a6; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; background: #0a0a0e; }}
+  code {{ font-family: "JetBrainsMono Nerd Font", monospace; font-size: 12px; padding: 2px 6px; border-radius: 6px; background: #0a0a0e; border: 1px solid rgba(255,255,255,0.08); }}
+  td.prime code {{ color: #34d399; font-weight: 600; }}
+  .toolbar {{ margin-bottom: 16px; }}
+  button {{ background: #34d399; color: #0a0a0e; border: none; border-radius: 10px; padding: 8px 16px; font-weight: 600; cursor: pointer; }}
+  @media print {{
+    body {{ background: #ffffff; color: #111111; margin: 0; }}
+    table {{ background: #ffffff; border: 1px solid #cccccc; }}
+    th {{ background: #f3f4f6; color: #374151; }}
+    th, td {{ border-bottom: 1px solid #e5e7eb; padding: 6px 10px; }}
+    code {{ background: #f3f4f6; border: 1px solid #d1d5db; color: #111111 !important; }}
+    .toolbar {{ display: none; }}
+  }}
+</style>
+</head>
+<body>
+  <div class="toolbar"><button onclick="window.print()">Print Reference Sheet (Ctrl+P)</button></div>
+  <h1>Prime Linux — Shortcut Parity Reference</h1>
+  <p class="sub">Coming from Windows or macOS? Here is every everyday shortcut side by side.</p>
+  <table>
+    <thead><tr><th>Action</th><th>Windows</th><th>macOS</th><th>Prime Linux</th></tr></thead>
+    <tbody>
+      {"".join(rows_html)}
+    </tbody>
+  </table>
+</body>
+</html>
+"""
+    with open(out_path, "w", encoding="utf-8") as f:
+        f.write(doc)
+    return out_path
+
+
+def is_mac_ctrl_swap_enabled():
+    try:
+        if os.path.isfile(KB_CONF):
+            return "ctrl:swap_lwin_lctl" in open(KB_CONF).read()
+    except Exception:
+        pass
+    return False
+
+
+def set_mac_ctrl_swap(enable):
+    """Toggle ctrl:swap_lwin_lctl in ~/.config/hypr/keyboard.conf and apply via hyprctl."""
+    os.makedirs(os.path.dirname(KB_CONF), exist_ok=True)
+    text = open(KB_CONF).read() if os.path.isfile(KB_CONF) else "input {\n    kb_layout = us\n}\n"
+    text = "\n".join(l for l in text.splitlines() if "kb_options" not in l) + "\n"
+    if enable:
+        text = text.replace("input {\n", "input {\n    kb_options = ctrl:swap_lwin_lctl\n", 1)
+    with open(KB_CONF, "w") as f:
+        f.write(text)
+    subprocess.run(
+        ["hyprctl", "keyword", "input:kb_options", "ctrl:swap_lwin_lctl" if enable else ""],
+        capture_output=True, timeout=4
+    )
+
+
+class PrimeSwitch(Gtk.Window):
+    TABS = ["App Equivalents", "Import Files & Bookmarks", "Ctrl vs Cmd Mode", "Keybind Parity Table"]
+
+    def __init__(self, show=True, offscreen=False):
+        super().__init__(type=Gtk.WindowType.TOPLEVEL)
+        self.set_title("Coming from Windows or macOS?")
+        self.set_default_size(1100, 740)
+        if show and not offscreen:
+            self.connect("destroy", lambda *_: Gtk.main_quit())
+
+        hb = Gtk.HeaderBar()
+        hb.set_title("Coming from Windows or macOS?")
+        hb.set_subtitle("Prime Linux Transition & Keybind Parity Guide")
+        hb.set_show_close_button(True)
+        self.set_titlebar(hb)
+
+        self.root_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
+        self.add(self.root_box)
+
+        sidebar = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        sidebar.set_size_request(220, -1)
+        sidebar.set_margin_top(16)
+        sidebar.set_margin_bottom(16)
+        sidebar.set_margin_start(12)
+        sidebar.set_margin_end(8)
+        _style(sidebar, "sidebar")
+        self.listbox = Gtk.ListBox()
+        self.listbox.set_selection_mode(Gtk.SelectionMode.SINGLE)
+        _style(self.listbox, "sidebar")
+        for name in self.TABS:
+            row = Gtk.ListBoxRow()
+            lbl = Gtk.Label(label=name)
+            lbl.set_xalign(0.0)
+            lbl.set_margin_start(4)
+            row.add(lbl)
+            self.listbox.add(row)
+        self.listbox.connect("row-selected", self._on_sidebar)
+        sidebar.pack_start(self.listbox, False, False, 0)
+        self.root_box.pack_start(sidebar, False, False, 0)
+
+        self.root_box.pack_start(Gtk.Separator(orientation=Gtk.Orientation.VERTICAL), False, False, 0)
+
+        self.stack = Gtk.Stack()
+        self.stack.set_transition_type(
+            Gtk.StackTransitionType.NONE if offscreen else Gtk.StackTransitionType.CROSSFADE
+        )
+        self.stack.set_transition_duration(0 if offscreen else 120)
+        self.root_box.pack_start(self.stack, True, True, 0)
+
+        self.pages = {
+            "App Equivalents": self._build_equivalents(),
+            "Import Files & Bookmarks": self._build_imports(),
+            "Ctrl vs Cmd Mode": self._build_shortcuts_mode(),
+            "Keybind Parity Table": self._build_parity_table(),
+        }
+        for name, page in self.pages.items():
+            self.stack.add_named(page, name)
+
+        self.listbox.select_row(self.listbox.get_row_at_index(0))
+        if show and not offscreen:
+            self.show_all()
+
+    def _on_sidebar(self, _lb, row):
+        if row is not None:
+            self.stack.set_visible_child_name(self.TABS[row.get_index()])
+
+    def _build_equivalents(self):
+        sc = Gtk.ScrolledWindow()
+        sc.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
+        box.set_margin_top(24); box.set_margin_bottom(24); box.set_margin_start(24); box.set_margin_end(24)
+        sc.add(box)
+
+        card = make_card("Per-task app equivalents — Windows · macOS · Prime Linux")
+        sub = Gtk.Label(label="Every everyday tool on Windows or macOS has a direct counterpart built into Prime Linux.")
+        _style(sub, "row-sub"); sub.set_xalign(0.0)
+        card.pack_start(sub, False, False, 0)
+
+        grid = Gtk.Grid()
+        grid.set_column_spacing(16)
+        grid.set_row_spacing(12)
+        card.pack_start(grid, False, False, 0)
+
+        headers = ["Task", "Windows", "macOS", "Prime Linux", ""]
+        for c_idx, h_text in enumerate(headers):
+            hl = Gtk.Label(label=h_text.upper())
+            _style(hl, "card-title")
+            hl.set_xalign(0.0)
+            grid.attach(hl, c_idx, 0, 1, 1)
+
+        for r_idx, (task, win_app, mac_app, prime_app, cmd) in enumerate(APP_EQUIVALENTS, start=1):
+            t_lbl = Gtk.Label(label=task); _style(t_lbl, "row-title"); t_lbl.set_xalign(0.0)
+            w_lbl = Gtk.Label(label=win_app); _style(w_lbl, "row-sub"); w_lbl.set_xalign(0.0)
+            m_lbl = Gtk.Label(label=mac_app); _style(m_lbl, "row-sub"); m_lbl.set_xalign(0.0)
+            p_lbl = Gtk.Label(label=prime_app); _style(p_lbl, "kbd"); p_lbl.set_xalign(0.0)
+            grid.attach(t_lbl, 0, r_idx, 1, 1)
+            grid.attach(w_lbl, 1, r_idx, 1, 1)
+            grid.attach(m_lbl, 2, r_idx, 1, 1)
+            grid.attach(p_lbl, 3, r_idx, 1, 1)
+
+            exe = cmd[0]
+            avail = os.access(exe, os.X_OK) or shutil.which(exe) is not None
+            btn = Gtk.Button(label="Open" if avail else "Unavailable")
+            _style(btn, "dim")
+            btn.set_sensitive(avail)
+            btn.connect("clicked", lambda _b, c=cmd: subprocess.Popen(c, start_new_session=True))
+            grid.attach(btn, 4, r_idx, 1, 1)
+
+        box.pack_start(card, False, False, 0)
+        return sc
+
+    def _build_imports(self):
+        sc = Gtk.ScrolledWindow()
+        sc.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
+        box.set_margin_top(24); box.set_margin_bottom(24); box.set_margin_start(24); box.set_margin_end(24)
+        sc.add(box)
+
+        # Bookmarks card
+        bm_card = make_card("1. Import Browser Bookmarks")
+        bm_desc = Gtk.Label(
+            label="Import bookmarks from a mounted Windows Chrome/Edge profile or a Bookmarks HTML file."
+        )
+        _style(bm_desc, "row-sub"); bm_desc.set_xalign(0.0)
+        bm_card.pack_start(bm_desc, False, False, 0)
+
+        self.bm_status = Gtk.Label(label="")
+        _style(self.bm_status, "ok"); self.bm_status.set_xalign(0.0)
+
+        candidates = detect_bookmark_candidates()
+        if candidates:
+            for kind, path in candidates:
+                row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+                lbl = Gtk.Label(label=f"Detected ({kind}): {path}")
+                _style(lbl, "row-title"); lbl.set_xalign(0.0); lbl.set_hexpand(True)
+                lbl.set_ellipsize(Pango.EllipsizeMode.MIDDLE)
+                lbl.set_max_width_chars(52)
+                btn = Gtk.Button(label="Import & Open")
+                _style(btn, "accent")
+                btn.connect("clicked", self._on_import_bookmark, kind, path)
+                row.pack_start(lbl, True, True, 0)
+                row.pack_start(btn, False, False, 0)
+                bm_card.pack_start(row, False, False, 0)
+        else:
+            none_lbl = Gtk.Label(
+                label="No automatic Chrome/Edge profile or ~/Downloads/bookmarks.html detected right now — use the file picker below."
+            )
+            _style(none_lbl, "row-sub"); none_lbl.set_xalign(0.0)
+            bm_card.pack_start(none_lbl, False, False, 0)
+
+        pick_bm = Gtk.Button(label="Choose Bookmarks File (HTML or Chrome Bookmarks JSON)…")
+        _style(pick_bm, "dim"); pick_bm.set_halign(Gtk.Align.START)
+        pick_bm.connect("clicked", self._on_pick_bookmark_file)
+        bm_card.pack_start(pick_bm, False, False, 0)
+        bm_card.pack_start(self.bm_status, False, False, 0)
+        box.pack_start(bm_card, False, False, 0)
+
+        # Mounted drives Documents / Pictures import card
+        drv_card = make_card("2. Import ~/Documents & ~/Pictures from a Mounted Drive")
+        drv_desc = Gtk.Label(
+            label="Copy your Documents and Pictures from a mounted Windows partition (/mnt/windows) or external USB drive into your Home folder."
+        )
+        _style(drv_desc, "row-sub"); drv_desc.set_xalign(0.0)
+        drv_card.pack_start(drv_desc, False, False, 0)
+        self.drv_status = Gtk.Label(label="")
+        _style(self.drv_status, "ok"); self.drv_status.set_xalign(0.0)
+
+        drives = detect_mounted_drives()
+        if not drives:
+            unavail = Gtk.Label(label="Unavailable: No external USB or Windows partition is currently mounted.")
+            _style(unavail, "warn"); unavail.set_xalign(0.0)
+            drv_card.pack_start(unavail, False, False, 0)
+        else:
+            for d in drives:
+                d_row = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+                hdr = Gtk.Label(label=f"Drive: {d['mount']}  ({d['device']}, {d['fstype']})")
+                _style(hdr, "row-title"); hdr.set_xalign(0.0)
+                d_row.pack_start(hdr, False, False, 0)
+
+                btn_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+                if d["docs"]:
+                    for src_doc in d["docs"]:
+                        b = Gtk.Button(label=f"Import Documents ({src_doc})")
+                        _style(b, "accent")
+                        b.connect("clicked", self._on_copy_folder, src_doc, os.path.join(HOME, "Documents", "Imported"))
+                        btn_row.pack_start(b, False, False, 0)
+                else:
+                    lbl = Gtk.Label(label=f"No Documents folder auto-detected on {d['mount']}")
+                    _style(lbl, "row-sub")
+                    btn_row.pack_start(lbl, False, False, 0)
+
+                if d["pics"]:
+                    for src_pic in d["pics"]:
+                        b = Gtk.Button(label=f"Import Pictures ({src_pic})")
+                        _style(b, "accent")
+                        b.connect("clicked", self._on_copy_folder, src_pic, os.path.join(HOME, "Pictures", "Imported"))
+                        btn_row.pack_start(b, False, False, 0)
+                d_row.pack_start(btn_row, False, False, 0)
+                drv_card.pack_start(d_row, False, False, 0)
+
+        choose_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        pick_doc = Gtk.Button(label="Choose a Folder to Import into ~/Documents…")
+        _style(pick_doc, "dim")
+        pick_doc.connect("clicked", self._on_pick_folder, os.path.join(HOME, "Documents", "Imported"))
+        pick_pic = Gtk.Button(label="Choose a Folder to Import into ~/Pictures…")
+        _style(pick_pic, "dim")
+        pick_pic.connect("clicked", self._on_pick_folder, os.path.join(HOME, "Pictures", "Imported"))
+        choose_row.pack_start(pick_doc, False, False, 0)
+        choose_row.pack_start(pick_pic, False, False, 0)
+        drv_card.pack_start(choose_row, False, False, 0)
+        drv_card.pack_start(self.drv_status, False, False, 0)
+        box.pack_start(drv_card, False, False, 0)
+        return sc
+
+    def _on_import_bookmark(self, _b, kind, path):
+        out_html = os.path.join(HOME, ".config/prime/imported-bookmarks.html")
+        try:
+            if kind == "chromium-json":
+                convert_chromium_bookmarks_to_html(path, out_html)
+            else:
+                os.makedirs(os.path.dirname(out_html), exist_ok=True)
+                shutil.copy2(path, out_html)
+            self.bm_status.set_text(f"Exported bookmarks to {out_html} — opening in browser…")
+            subprocess.Popen(["xdg-open", out_html], start_new_session=True)
+        except Exception as exc:
+            self.bm_status.set_text(f"Could not import bookmarks: {exc}")
+
+    def _on_pick_bookmark_file(self, _b):
+        dlg = Gtk.FileChooserDialog(
+            title="Select Bookmarks HTML or Chrome Bookmarks JSON",
+            parent=self, action=Gtk.FileChooserAction.OPEN
+        )
+        dlg.add_buttons(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL, Gtk.STOCK_OPEN, Gtk.ResponseType.OK)
+        if dlg.run() == Gtk.ResponseType.OK:
+            fn = dlg.get_filename()
+            dlg.destroy()
+            if fn:
+                kind = "chromium-json" if not fn.lower().endswith((".html", ".htm")) else "html"
+                self._on_import_bookmark(None, kind, fn)
+        else:
+            dlg.destroy()
+
+    def _on_copy_folder(self, _b, src, dst):
+        try:
+            os.makedirs(dst, exist_ok=True)
+            shutil.copytree(src, os.path.join(dst, os.path.basename(src.rstrip("/"))), dirs_exist_ok=True)
+            self.drv_status.set_text(f"Imported {src} -> {dst}/")
+        except Exception as exc:
+            self.drv_status.set_text(f"Import failed: {exc}")
+
+    def _on_pick_folder(self, _b, dst):
+        dlg = Gtk.FileChooserDialog(
+            title="Choose Source Folder to Import",
+            parent=self, action=Gtk.FileChooserAction.SELECT_FOLDER
+        )
+        dlg.add_buttons(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL, Gtk.STOCK_OPEN, Gtk.ResponseType.OK)
+        if dlg.run() == Gtk.ResponseType.OK:
+            src = dlg.get_filename()
+            dlg.destroy()
+            if src:
+                self._on_copy_folder(None, src, dst)
+        else:
+            dlg.destroy()
+
+    def _build_shortcuts_mode(self):
+        sc = Gtk.ScrolledWindow()
+        sc.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
+        box.set_margin_top(24); box.set_margin_bottom(24); box.set_margin_start(24); box.set_margin_end(24)
+        sc.add(box)
+
+        card = make_card("Ctrl vs Command (⌘) — How Prime Linux maps modifier keys")
+        info = Gtk.Label(
+            label=(
+                "• Desktop actions (Spotlight, Start menu, workspaces, window management) use Super (the Windows / ⌘ key).\n"
+                "• Inside apps (Copy, Paste, Undo, Find, New Tab), Linux uses Ctrl by default (Ctrl+C, Ctrl+V, Ctrl+Z, Ctrl+F).\n"
+                "• Coming from macOS? You can swap Left Super (⌘) and Left Ctrl so your thumb hits Copy/Paste/Find just like on a Mac."
+            )
+        )
+        _style(info, "row-sub"); info.set_xalign(0.0); info.set_line_wrap(True)
+        card.pack_start(info, False, False, 0)
+
+        self.mac_mode_label = Gtk.Label(label="")
+        _style(self.mac_mode_label, "row-title"); self.mac_mode_label.set_xalign(0.0)
+        card.pack_start(self.mac_mode_label, False, False, 0)
+
+        btn_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        self.btn_win_mode = Gtk.Button(label="Standard Windows / Linux Mode (Ctrl = Copy/Paste, Super = Desktop)")
+        self.btn_mac_mode = Gtk.Button(label="macOS Thumb Mode (Swap Left Super & Left Ctrl)")
+        self.btn_win_mode.connect("clicked", self._on_set_kb_mode, False)
+        self.btn_mac_mode.connect("clicked", self._on_set_kb_mode, True)
+        btn_row.pack_start(self.btn_win_mode, False, False, 0)
+        btn_row.pack_start(self.btn_mac_mode, False, False, 0)
+        card.pack_start(btn_row, False, False, 0)
+
+        self._refresh_kb_mode()
+        box.pack_start(card, False, False, 0)
+        return sc
+
+    def _refresh_kb_mode(self):
+        mac = is_mac_ctrl_swap_enabled()
+        self.mac_mode_label.set_text(
+            "Current modifier mapping: " + ("macOS Thumb Mode (ctrl:swap_lwin_lctl)" if mac else "Standard Windows / Linux Mode")
+        )
+        for b, active in ((self.btn_win_mode, not mac), (self.btn_mac_mode, mac)):
+            ctx = b.get_style_context()
+            ctx.remove_class("accent"); ctx.remove_class("dim")
+            ctx.add_class("accent" if active else "dim")
+
+    def _on_set_kb_mode(self, _b, mac_enable):
+        set_mac_ctrl_swap(mac_enable)
+        self._refresh_kb_mode()
+
+    def _build_parity_table(self):
+        sc = Gtk.ScrolledWindow()
+        sc.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
+        box.set_margin_top(24); box.set_margin_bottom(24); box.set_margin_start(24); box.set_margin_end(24)
+        sc.add(box)
+
+        card = make_card("Keybind Parity Table — Windows · macOS · Prime Linux")
+        top_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        sub = Gtk.Label(label="Every shortcut side by side. Export or print a reference sheet to keep on your desk.")
+        _style(sub, "row-sub"); sub.set_xalign(0.0); sub.set_hexpand(True)
+        print_btn = Gtk.Button(label="Print / Open Printable Reference Sheet…")
+        _style(print_btn, "accent")
+        print_btn.connect("clicked", self._on_print_parity)
+        top_bar.pack_start(sub, True, True, 0)
+        top_bar.pack_start(print_btn, False, False, 0)
+        card.pack_start(top_bar, False, False, 0)
+
+        self.print_status = Gtk.Label(label="")
+        _style(self.print_status, "ok"); self.print_status.set_xalign(0.0)
+        card.pack_start(self.print_status, False, False, 0)
+
+        grid = Gtk.Grid()
+        grid.set_column_spacing(16)
+        grid.set_row_spacing(10)
+        card.pack_start(grid, False, False, 0)
+
+        for c_idx, h in enumerate(("Action", "Windows", "macOS", "Prime Linux")):
+            hl = Gtk.Label(label=h.upper())
+            _style(hl, "card-title"); hl.set_xalign(0.0)
+            grid.attach(hl, c_idx, 0, 1, 1)
+
+        for r_idx, (act_txt, win_k, mac_k, prime_k) in enumerate(PARITY_ROWS, start=1):
+            a_l = Gtk.Label(label=act_txt); _style(a_l, "row-title"); a_l.set_xalign(0.0)
+            w_l = Gtk.Label(label=win_k); _style(w_l, "kbd-dim"); w_l.set_xalign(0.0)
+            m_l = Gtk.Label(label=mac_k); _style(m_l, "kbd-dim"); m_l.set_xalign(0.0)
+            p_l = Gtk.Label(label=prime_k); _style(p_l, "kbd"); p_l.set_xalign(0.0)
+            grid.attach(a_l, 0, r_idx, 1, 1)
+            grid.attach(w_l, 1, r_idx, 1, 1)
+            grid.attach(m_l, 2, r_idx, 1, 1)
+            grid.attach(p_l, 3, r_idx, 1, 1)
+
+        box.pack_start(card, False, False, 0)
+        return sc
+
+    def _on_print_parity(self, _b):
+        out = os.path.join(HOME, "Documents/Prime-Linux-Keybind-Parity.html")
+        export_parity_html(out)
+        self.print_status.set_text(f"Saved printable reference sheet to {out} — opening in browser…")
+        subprocess.Popen(["xdg-open", out], start_new_session=True)
+
+
+def _init_css():
+    settings = Gtk.Settings.get_default()
+    if settings:
+        settings.set_property("gtk-application-prefer-dark-theme", True)
+    screen = Gdk.Screen.get_default()
+    if screen:
+        provider = Gtk.CssProvider()
+        provider.load_from_data(CSS)
+        Gtk.StyleContext.add_provider_for_screen(
+            screen, provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+        )
+
+
+def save_screenshots(outdir):
+    os.makedirs(outdir, exist_ok=True)
+    _init_css()
+    win = PrimeSwitch(show=False, offscreen=True)
+    win.remove(win.root_box)
+
+    off = Gtk.OffscreenWindow()
+    off.set_default_size(1100, 740)
+    off.set_size_request(1100, 740)
+    off.add(win.root_box)
+    off.show_all()
+
+    state = {"idx": 0}
+
+    def step():
+        idx = state["idx"]
+        if idx >= len(win.TABS):
+            off.destroy()
+            Gtk.main_quit()
+            return False
+        tab = win.TABS[idx]
+        win.listbox.select_row(win.listbox.get_row_at_index(idx))
+        win.stack.set_visible_child_name(tab)
+        off.queue_draw()
+
+        def capture():
+            pb = off.get_pixbuf()
+            if pb:
+                slug = tab.lower().replace(" ", "-").replace("&", "and")
+                path = os.path.join(outdir, f"prime-switch-{idx + 1:02d}-{slug}.png")
+                pb.savev(path, "png", [], [])
+                print(f"saved {path} ({pb.get_width()}x{pb.get_height()})")
+            state["idx"] += 1
+            GLib.timeout_add(80, step)
+            return False
+
+        GLib.timeout_add(120, capture)
+        return False
+
+    GLib.timeout_add(150, step)
+    Gtk.main()
+    return 0
+
+
+def selftest():
+    drives = detect_mounted_drives()
+    bms = detect_bookmark_candidates()
+    tmp_html = "/tmp/prime-keybind-parity-test.html"
+    export_parity_html(tmp_html)
+    assert os.path.isfile(tmp_html) and os.path.getsize(tmp_html) > 1000
+    os.remove(tmp_html)
+    print(f"prime-switch selftest:")
+    print(f"  app equivalents : {len(APP_EQUIVALENTS)} rows")
+    print(f"  parity table    : {len(PARITY_ROWS)} shortcuts")
+    print(f"  mounted drives  : {len(drives)} detected")
+    print(f"  bookmark sources: {len(bms)} detected")
+    if Gtk.init_check(sys.argv)[0]:
+        _init_css()
+        win = PrimeSwitch(show=False, offscreen=True)
+        print(f"  widget tree     : OK ({len(win.pages)} pages)")
+        win.destroy()
+    return 0
+
+
+def main():
+    _init_css()
+    win = PrimeSwitch(show=True, offscreen=False)
+    for arg in sys.argv[1:]:
+        if arg == "--parity" or arg == "--tab=parity":
+            win.listbox.select_row(win.listbox.get_row_at_index(3))
+    Gtk.main()
+    return 0
+
+
+if __name__ == "__main__":
+    if "--check" in sys.argv or "--selftest" in sys.argv:
+        raise SystemExit(selftest())
+    if "--export-html" in sys.argv:
+        idx = sys.argv.index("--export-html")
+        target = sys.argv[idx + 1] if idx + 1 < len(sys.argv) else os.path.join(HOME, "Documents/Prime-Linux-Keybind-Parity.html")
+        print(export_parity_html(target))
+        raise SystemExit(0)
+    if "--screenshots" in sys.argv:
+        idx = sys.argv.index("--screenshots")
+        target_dir = sys.argv[idx + 1] if idx + 1 < len(sys.argv) else "/tmp/prime-switch-shots"
+        raise SystemExit(save_screenshots(target_dir))
+    raise SystemExit(main())

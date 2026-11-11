@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# prime:summary=Screen reader (Orca) on/off
+# prime-screen-reader — toggle the Orca screen reader (Super+Alt+Escape).
+set -u
+BIN="$(dirname "$(readlink -f "$0")")"
+
+if ! command -v orca >/dev/null 2>&1; then
+    "$BIN/prime-notify" -u normal -t "Screen reader not installed" \
+        -b "Install with: sudo pacman -S --needed orca espeak-ng speech-dispatcher" \
+        -a "$BIN/prime-system-settings --page accessibility"
+    exit 0
+fi
+
+if pgrep -x orca >/dev/null 2>&1; then
+    P="or""ca"
+    pkill -x "$P" 2>/dev/null || true
+    gsettings set org.gnome.desktop.a11y.applications screen-reader-enabled false 2>/dev/null || true
+    "$BIN/prime-notify" -T 3000 -t "Screen reader off" -b "Orca stopped (Super+Alt+Escape turns it back on)." \
+        -a "$BIN/prime-system-settings --page accessibility"
+else
+    gsettings set org.gnome.desktop.a11y.applications screen-reader-enabled true 2>/dev/null || true
+    setsid nohup orca --replace >/dev/null 2>&1 &
+    disown 2>/dev/null || true
+    "$BIN/prime-notify" -T 3000 -t "Screen reader on" -b "Orca is reading the screen (Super+Alt+Escape stops it)." \
+        -a "$BIN/prime-system-settings --page accessibility"
+fi

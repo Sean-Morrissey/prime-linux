@@ -31,6 +31,7 @@ jq
 python
 python-gobject
 python-cairo
+python-pillow
 gtk3
 gtk-layer-shell
 fd
@@ -135,3 +136,9 @@ dnsmasq
 
 # Settings → Camera & Microphone: test the camera
 snapshot
+
+# Accessibility (screen reader: Super+Alt+Escape) + GPU fan/power control (LACT)
+orca
+espeak-ng
+speech-dispatcher
+lact

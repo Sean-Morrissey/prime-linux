@@ -1,0 +1,107 @@
+#!/usr/bin/env bash
+# prime:summary=reverse-engineering toolchain for your own binaries and hardware
+# prime-rea — launch or inspect the reverse-engineering toolchain (for your own
+# binaries and hardware only):
+#   ghidra, rizin (or radare2), binwalk, strace, ltrace, wireshark
+#
+# Usage:
+#   prime-rea --check          list every tool, whether it is installed, and its package
+#   prime-rea <tool>           launch the tool if installed, or explain what package to install
+set -u
+
+BIN="$(dirname "$(readlink -f "$0")")"
+NOTIFY="$BIN/prime-notify"
+[ -x "$NOTIFY" ] || NOTIFY="$(command -v prime-notify 2>/dev/null || echo notify-send)"
+
+tool_info() {
+    # tool_info <id> -> prints: label|cmds|pkg|mode|usage
+    case "$1" in
+        ghidra)
+            echo "Ghidra (NSA SRE Suite)|ghidra|ghidra|gui|Launch Ghidra GUI to decompile and analyse your own binaries and firmware." ;;
+        rizin|radare2)
+            echo "Rizin / Radare2|rizin r2 radare2|rizin (or radare2)|cli|Interactive binary analysis & disassembler: rizin -A ./your-binary  (or: r2 -A ./your-binary)" ;;
+        binwalk)
+            echo "Binwalk (Firmware Image Inspector)|binwalk|binwalk|cli|Scan & extract embedded firmware images: binwalk -e ./firmware.bin" ;;
+        strace)
+            echo "strace (System Call Tracer)|strace|strace|cli|Trace kernel syscalls of your own binary: strace -f -e trace=openat,read,write ./your-binary" ;;
+        ltrace)
+            echo "ltrace (Library Call Tracer)|ltrace|ltrace|cli|Trace dynamic library calls of your own binary: ltrace -f ./your-binary" ;;
+        wireshark)
+            echo "Wireshark (Packet & Protocol Analyser)|wireshark tshark|wireshark-qt (or wireshark-cli)|gui|Inspect network & USB traffic from your own hardware." ;;
+        *)
+            return 1 ;;
+    esac
+}
+
+find_bin() {
+    local c
+    for c in $1; do
+        if command -v "$c" >/dev/null 2>&1; then
+            command -v "$c"
+            return 0
+        fi
+    done
+    return 1
+}
+
+check_all() {
+    printf 'Reverse-Engineering Toolchain (for your own binaries & hardware only)\n'
+    printf '────────────────────────────────────────────────────────────────────────\n'
+    local t info label cmds pkg mode usage found
+    for t in ghidra rizin binwalk strace ltrace wireshark; do
+        info="$(tool_info "$t")"
+        IFS='|' read -r label cmds pkg mode usage <<<"$info"
+        if found="$(find_bin "$cmds")"; then
+            printf '  ✓ %-12s INSTALLED (%s)\n' "$t" "$found"
+        else
+            printf '  · %-12s NOT INSTALLED — install with: sudo pacman -S %s\n' "$t" "$pkg"
+        fi
+    done
+    return 0
+}
+
+if [ "${1:-}" = "--check" ] || [ "${1:-}" = "--list" ] || [ -z "${1:-}" ]; then
+    check_all
+    exit 0
+fi
+
+TOOL="$1"
+INFO="$(tool_info "$TOOL")" || {
+    echo "Unknown tool: $TOOL (expected: ghidra, rizin, binwalk, strace, ltrace, wireshark)" >&2
+    exit 2
+}
+IFS='|' read -r LABEL CMDS PKG MODE USAGE <<<"$INFO"
+
+if FOUND="$(find_bin "$CMDS")"; then
+    echo "$LABEL — installed at $FOUND"
+    echo "Scope: For your own binaries and hardware only."
+    echo "Usage: $USAGE"
+    echo
+    if [ "${PRIME_REA_DRY:-0}" = "1" ]; then
+        echo "DRY-RUN: would launch $FOUND"
+        exit 0
+    fi
+    if [ "$MODE" = "gui" ] && [ "$(basename "$FOUND")" != "tshark" ]; then
+        setsid nohup "$FOUND" >/dev/null 2>&1 &
+        echo "Launched $(basename "$FOUND")."
+    else
+        # Print version + quick reference in the panel window
+        "$FOUND" --version 2>&1 | head -5 || "$FOUND" -v 2>&1 | head -5 || "$FOUND" -V 2>&1 | head -5 || true
+        echo
+        echo "To open an interactive terminal session:"
+        echo "  $(basename "$FOUND") --help"
+    fi
+    exit 0
+else
+    MSG="Not installed — install package: sudo pacman -S $PKG"
+    echo "$LABEL"
+    echo "────────────────────────────────────────────────────────"
+    echo "Status : NOT INSTALLED"
+    echo "Install: sudo pacman -S $PKG"
+    echo "Purpose: $USAGE"
+    echo "Note   : For your own binaries and hardware only."
+    if [ "${PRIME_REA_DRY:-0}" != "1" ] && [ -x "$BIN/prime-notify" ]; then
+        "$BIN/prime-notify" -a "Prime REA" -t "$LABEL not installed" -b "Install with: sudo pacman -S $PKG" >/dev/null 2>&1 || true
+    fi
+    exit 0
+fi

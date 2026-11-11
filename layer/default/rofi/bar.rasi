@@ -11,11 +11,11 @@
    heights, and a soft rounded accent fill on the selected row. */
 * {
     font:                        @prime-font-body;
-    bg-base:                     rgba(20, 20, 26, 0.97);
-    bg-input:                    rgba(255, 255, 255, 0.06);
-    hairline:                    rgba(255, 255, 255, 0.10);
-    fg-primary:                  #ececf0;
-    fg-secondary:                #9a9aa3;
+    bg-base:                     rgba(12, 12, 16, 0.96);   /* surface-1 #0c0c10 */
+    bg-input:                    rgba(10, 10, 14, 0.96);   /* surface-0 #0a0a0e */
+    hairline:                    rgba(255, 255, 255, 0.08);
+    fg-primary:                  #ececef;
+    fg-secondary:                #a1a1a6;
 
     background-color:            transparent;
     text-color:                  @fg-primary;
@@ -38,7 +38,7 @@ window {
 
 mainbox {
     children:                    [ inputbar, listview, message ];
-    spacing:                     6px;
+    spacing:                     8px;
 }
 
 inputbar {
@@ -46,9 +46,9 @@ inputbar {
     border:                      1px;
     border-color:                @hairline;
     border-radius:               10px;
-    padding:                     10px 12px;
+    padding:                     8px 12px;
     children:                    [ icon-search, prompt, textbox-prompt-colon, entry ];
-    spacing:                     10px;
+    spacing:                     8px;
 }
 
 icon-search {
@@ -83,7 +83,7 @@ entry {
 }
 
 message {
-    padding:                     6px 10px;
+    padding:                     8px 12px;
 }
 
 textbox {
@@ -95,13 +95,13 @@ textbox {
 listview {
     columns:                     1;
     lines:                       12;
-    spacing:                     2px;
+    spacing:                     4px;
     fixed-height:                false;
     fixed-num-lines:             false;
     dynamic:                     true;
     cycle:                       true;
     scrollbar:                   false;
-    padding:                     2px 0px;
+    padding:                     4px 0px;
 }
 
 element {
@@ -109,7 +109,7 @@ element {
     text-color:                  @fg-primary;
     border:                      1px;
     border-color:                transparent;
-    border-radius:               9px;
+    border-radius:               6px;
     padding:                     8px 12px;
     spacing:                     12px;
     children:                    [ element-icon, element-text ];
@@ -118,8 +118,8 @@ element {
 
 element selected.normal, element selected.active {
     background-color:            @bg-selected;
-    border-color:                transparent;
-    text-color:                  #ffffff;
+    border-color:                @border-focus;
+    text-color:                  @fg-primary;
 }
 
 element-icon {

@@ -25,6 +25,15 @@ set -u
 SELF="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HOME_DIR="${HOME:-/home/sean}"
 LAYER="$HOME_DIR/.local/share/prime-linux/layer"
+REPO_LAYER="$(cd "$SELF/../../layer" 2>/dev/null && pwd || echo "$LAYER")"
+# Inside the VM, install.sh has installed HEAD into $LAYER, so test $LAYER strictly.
+# On the host before merge, $LAYER is the last released commit and must stay clean,
+# so check $LAYER first and fall back to $REPO_LAYER for pre-merge branch files.
+if [ "${PRIME_E2E_VM:-0}" = "1" ]; then
+  CHECK_LAYER="$LAYER"
+else
+  CHECK_LAYER="$REPO_LAYER"
+fi
 TS="$(date +%Y%m%d-%H%M%S)"
 RESULTS="$SELF/results/$TS/contracts"
 mkdir -p "$RESULTS"
@@ -38,7 +47,7 @@ GEN="$LAYER/bin/prime-theme"
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 export DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=/run/user/$(id -u)/bus}"
 [ -z "${HYPRLAND_INSTANCE_SIGNATURE:-}" ] && \
-    export HYPRLAND_INSTANCE_SIGNATURE="$(ls "$XDG_RUNTIME_DIR/hypr/" 2>/dev/null | head -1)"
+    export HYPRLAND_INSTANCE_SIGNATURE="$(ls -t "$XDG_RUNTIME_DIR/hypr/" 2>/dev/null | head -1)"
 [ -z "${WAYLAND_DISPLAY:-}" ] && export WAYLAND_DISPLAY="wayland-1"
 
 # ── a Prime command, found the way the desktop session finds it ─────────────
@@ -224,7 +233,20 @@ for name, val in targets:
         print(f"    ✗ {name}: {val} -> {ratio:.2f}:1 (below {LIMIT}:1)"); fails += 1
 sys.exit(1 if fails else 0)
 PY
-  return $?
+  local rc=$?
+  # Appearance overhaul contract rows: 3 surface greys, 1 accent, 1 ink white, 1 secondary grey, radius scale
+  local app_css="$CHECK_LAYER/default/waybar/style.css"
+  if grep -q '#0c0c10' "$app_css" && grep -q '#14141a' "$app_css" && grep -q '#ececef' "$app_css" && grep -q '#a1a1a6' "$app_css"; then
+    ok "appearance palette tokens present in waybar/style.css (#0c0c10, #14141a, #ececef, #a1a1a6)"
+  else
+    bad "appearance palette tokens missing in waybar/style.css"; rc=1
+  fi
+  if grep -q '540px' "$CHECK_LAYER/default/rofi/menu.rasi" && ! grep -q '780px' "$CHECK_LAYER/bin/prime-menu"; then
+    ok "Prime menu width is stable across root and sub-pages (540px, no 780px jump)"
+  else
+    bad "Prime menu width jump detected"; rc=1
+  fi
+  return $rc
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -233,24 +255,30 @@ PY
 contract_text_scale() {
   local rc=0 line v
 
-  # capture current values of the five targets
+  # capture current values of the seven targets
   echo "    -- current values (the one control is Theme → Text size) --"
   line="$(grep -m1 'prime-font-body:' "$THEME_DIR/fonts.rasi" 2>/dev/null | sed -E 's/^[[:space:]]*//')"; echo "    fonts.rasi prime-font-body = ${line:-<missing>}"
   line="$(grep -m1 '^font_size' "$THEME_DIR/kitty.conf" 2>/dev/null | sed -E 's/^[[:space:]]*//')"; echo "    kitty.conf font_size       = ${line:-<missing>}"
   line="$(grep -m1 'font-size:' "$THEME_DIR/dock.css" 2>/dev/null | sed -E 's/^[[:space:]]*//')"; echo "    dock.css font-size         = ${line:-<missing>}"
+  line="$(grep -m1 '^\$prime_titlebar_text' "$THEME_DIR/hyprland.conf" 2>/dev/null | sed -E 's/^[[:space:]]*//')"; echo "    hyprland.conf titlebar     = ${line:-<missing>}"
+  line="$(grep -m1 '^\$prime_font_clock' "$THEME_DIR/hyprlock.conf" 2>/dev/null | sed -E 's/^[[:space:]]*//')"; echo "    hyprlock.conf clock font   = ${line:-<missing>}"
   echo "    gsettings font-name        = $(gsettings get org.gnome.desktop.interface font-name 2>/dev/null)"
   line="$(grep -m1 '^gtk-font-name' "$HOME_DIR/.config/gtk-3.0/settings.ini" 2>/dev/null)"; echo "    gtk-3.0/settings.ini        = ${line:-<missing>}"
 
-  # each target must be derived from prime-theme's size() function
+  # all seven targets must be derived from prime-theme's size() function
   echo "    -- wiring to prime-theme size() (grep the generator) --"
   v="$(grep -nE 'prime-font-body:[[:space:]]*"Inter .*\$\(size ' "$GEN" 2>/dev/null | head -1)"; \
-      [ -n "$v" ] && ok "fonts.rasi prime-font-body wired → $GEN:${v%%:*}" || { bad "fonts.rasi prime-font-body NOT wired to size()"; rc=1; }
+      [ -n "$v" ] && ok "[1/7] fonts.rasi prime-font-body wired → $GEN:${v%%:*}" || { bad "[1/7] fonts.rasi prime-font-body NOT wired to size()"; rc=1; }
   v="$(grep -nE 'font_size[[:space:]]+\$\(size ' "$GEN" 2>/dev/null | head -1)"; \
-      [ -n "$v" ] && ok "kitty font_size wired → $GEN:${v%%:*}" || { bad "kitty font_size NOT wired to size()"; rc=1; }
+      [ -n "$v" ] && ok "[2/7] kitty font_size wired → $GEN:${v%%:*}" || { bad "[2/7] kitty font_size NOT wired to size()"; rc=1; }
   v="$(grep -nE 'font-size: .*\$\(size ' "$GEN" 2>/dev/null | head -1)"; \
-      [ -n "$v" ] && ok "dock.css font-size wired → $GEN:${v%%:*}" || { bad "dock.css font-size NOT wired to size()"; rc=1; }
+      [ -n "$v" ] && ok "[3/7] dock.css font-size wired → $GEN:${v%%:*}" || { bad "[3/7] dock.css font-size NOT wired to size()"; rc=1; }
+  v="$(grep -nE 'prime_titlebar_text[[:space:]]*=[[:space:]]*\$\((i?size) ' "$GEN" 2>/dev/null | head -1)"; \
+      [ -n "$v" ] && ok "[4/7] hyprland.conf \$prime_titlebar_text wired → $GEN:${v%%:*}" || { bad "[4/7] hyprland.conf \$prime_titlebar_text NOT wired to isize()/size()"; rc=1; }
+  v="$(grep -nE 'prime_font_clock[[:space:]]*=[[:space:]]*\$\((i?size) ' "$GEN" 2>/dev/null | head -1)"; \
+      [ -n "$v" ] && ok "[5/7] hyprlock.conf \$prime_font_clock wired → $GEN:${v%%:*}" || { bad "[5/7] hyprlock.conf \$prime_font_clock NOT wired to isize()/size()"; rc=1; }
   v="$(grep -nE 'font-name .*\$\(size ' "$GEN" 2>/dev/null | head -1)"; \
-      [ -n "$v" ] && ok "gsettings font-name wired → $GEN:${v%%:*}" || { bad "gsettings font-name NOT wired to size()"; rc=1; }
+      [ -n "$v" ] && ok "[6/7] gsettings font-name wired → $GEN:${v%%:*}" || { bad "[6/7] gsettings font-name NOT wired to size()"; rc=1; }
   # GTK3 is not written by prime-theme: the layer is a shipped checkout that the
   # next update overwrites, so the bridge lives in user space — a path unit fires
   # prime-text-sync whenever the generated fonts.rasi changes. Test the mechanism
@@ -302,6 +330,7 @@ contract_keyboard() {
   local rc=0
   local -a BIND_FILES=(
     "$LAYER/default/hypr/bindings.conf"
+    "$CHECK_LAYER/default/hypr/bindings.conf"
     "$HOME_DIR/.config/prime/addons.d/my-desktop/hypr.conf"
     "$HOME_DIR/.config/hypr/hyprland.conf"
   )
@@ -344,6 +373,30 @@ contract_keyboard() {
   # settings
   b="$(find_bind 'prime-system-settings')"
   if [ -n "$b" ]; then ok "settings → $b (prime-system-settings)"; else bad "settings has no keyboard path"; rc=1; fi
+  # desktop context menu (Menu key)
+  b="$(find_bind ',[[:space:]]*Menu,.*prime-desktop-menu')"
+  if [ -n "$b" ]; then ok "desktop context menu (keyboard) → $b (prime-desktop-menu)"; else bad "desktop context menu has no Menu key path"; rc=1; fi
+  # reduce motion (Super+Alt+R) + blur toggle + swaync transition-time 0
+  b="$(find_bind 'prime-toggle-animations')"
+  if [ -n "$b" ] && grep -q 'decoration:blur:enabled' "$CHECK_LAYER/bin/prime-toggle-animations" && grep -q '"transition-time":[[:space:]]*0' "$CHECK_LAYER/default/swaync/config.json"; then
+    ok "reduce motion → $b (prime-toggle-animations + blur + swaync transition-time 0)"
+  else
+    bad "reduce motion incomplete (bind=$b)"; rc=1
+  fi
+  # screen reader (Super+Alt+Escape)
+  b="$(find_bind 'prime-screen-reader')"
+  if [ -n "$b" ] && [ -x "$CHECK_LAYER/bin/prime-screen-reader" ]; then
+    ok "screen reader → $b (prime-screen-reader)"
+  else
+    bad "screen reader bind or script missing"; rc=1
+  fi
+  # control centre (Super+Ctrl+P)
+  b="$(find_bind 'prime-control')"
+  if [ -n "$b" ] && [ -x "$CHECK_LAYER/bin/prime-control" ]; then
+    ok "control centre → $b (prime-control)"
+  else
+    bad "control centre bind or script missing"; rc=1
+  fi
 
   # actually press one — the typing box (SUPER space → prime-spotlight)
   # Only press on the live desktop when explicitly allowed or inside the VM.
@@ -404,11 +457,34 @@ contract_portability() {
         | grep -v '/tests/' | head -20)"
   if [ -z "$hits" ]; then
     ok "shipped layer has no /home/sean/, GPU model or card1 hardcoded (user state exempt by design)"
-    return 0
+  else
+    bad "portability leaks in shipped files (these would ship to another machine):"
+    echo "$hits" | while IFS= read -r l; do echo "    ✗   $l"; done
+    return 1
   fi
-  bad "portability leaks in shipped files (these would ship to another machine):"
-  echo "$hits" | while IFS= read -r l; do echo "    ✗   $l"; done
-  return 1
+  # Also verify shipped workstream tools pass their non-interactive self-checks
+  local t_rc=0
+  if "$CHECK_LAYER/bin/prime-control" --check >/dev/null 2>&1; then
+    ok "prime-control --check passes (5 tabs, Quiet/Balanced/Gaming switch, LACT support)"
+  else
+    bad "prime-control --check failed"; t_rc=1
+  fi
+  if [ -x "$CHECK_LAYER/bin/prime-gaming-check" ] && bash -n "$CHECK_LAYER/bin/prime-gaming-check" 2>/dev/null; then
+    ok "prime-gaming-check is executable and valid bash"
+  else
+    bad "prime-gaming-check missing or invalid"; t_rc=1
+  fi
+  if "$CHECK_LAYER/bin/prime-switch" --check >/dev/null 2>&1; then
+    ok "prime-switch --check passes (Windows/macOS switching guide & keybind parity table)"
+  else
+    bad "prime-switch --check failed"; t_rc=1
+  fi
+  if "$CHECK_LAYER/bin/prime-rea" --check >/dev/null 2>&1; then
+    ok "prime-rea --check passes (Reverse engineering menu section & launcher)"
+  else
+    bad "prime-rea --check failed"; t_rc=1
+  fi
+  return $t_rc
 }
 
 # ─────────────────────────────────────────────────────────────────────────────

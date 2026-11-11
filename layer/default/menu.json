@@ -49,6 +49,27 @@
           "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-activity"
         },
         {
+          "id": "apps.control",
+          "label": "Prime Control — hardware, display, gaming & performance",
+          "hint": "Super+Ctrl+P — CPU, GPU, RAM, storage, Quiet/Balanced/Gaming switch",
+          "kind": "run",
+          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-control"
+        },
+        {
+          "id": "apps.gamingcheck",
+          "label": "Gaming stack check",
+          "hint": "Steam, Proton, MangoHud, GameMode & per-game launch options",
+          "kind": "panel",
+          "cmd": "~/.local/share/prime-linux/layer/bin/prime-gaming-check"
+        },
+        {
+          "id": "apps.switch",
+          "label": "Coming from Windows or macOS?",
+          "hint": "import bookmarks & files, Ctrl vs Cmd mode, shortcut parity table",
+          "kind": "run",
+          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-switch"
+        },
+        {
           "id": "apps.trash",
           "label": "Trash",
           "hint": "files you deleted — put them back, or empty it",
@@ -82,6 +103,20 @@
           "hint": "Super+/",
           "kind": "run",
           "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-keys"
+        },
+        {
+          "id": "set.switch",
+          "label": "Coming from Windows or macOS? (Shortcut parity & imports)",
+          "hint": "printable Windows / macOS / Prime Linux keybind table",
+          "kind": "run",
+          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-switch"
+        },
+        {
+          "id": "set.control",
+          "label": "Hardware & performance (Prime Control)",
+          "hint": "Super+Ctrl+P — CPU, GPU, RAM, display, gaming, storage",
+          "kind": "run",
+          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-control"
         },
         {
           "id": "set.theme",
@@ -244,9 +279,73 @@
         },
         {
           "id": "tog.anim",
-          "label": "Animations on / off",
+          "label": "Reduce motion on / off (animations & blur)",
+          "hint": "Super+Alt+R",
           "kind": "run",
           "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-toggle-animations"
+        },
+        {
+          "id": "tog.orca",
+          "label": "Screen reader (Orca) on / off",
+          "hint": "Super+Alt+Escape",
+          "kind": "run",
+          "cmd": "exec ~/.local/share/prime-linux/layer/bin/prime-screen-reader"
+        }
+      ]
+    },
+    {
+      "id": "rea",
+      "label": "Reverse engineering",
+      "icon": "󰙨",
+      "items": [
+        {
+          "id": "rea.check",
+          "label": "Toolchain status — installed tools & packages",
+          "hint": "for your own binaries and hardware only",
+          "kind": "panel",
+          "cmd": "~/.local/share/prime-linux/layer/bin/prime-rea --check"
+        },
+        {
+          "id": "rea.ghidra",
+          "label": "Ghidra — software reverse engineering suite",
+          "hint": "launches Ghidra GUI, or names package: ghidra",
+          "kind": "panel",
+          "cmd": "~/.local/share/prime-linux/layer/bin/prime-rea ghidra"
+        },
+        {
+          "id": "rea.rizin",
+          "label": "Rizin / Radare2 — binary disassembler & analyser",
+          "hint": "launches rizin/r2, or names package: rizin / radare2",
+          "kind": "panel",
+          "cmd": "~/.local/share/prime-linux/layer/bin/prime-rea rizin"
+        },
+        {
+          "id": "rea.binwalk",
+          "label": "Binwalk — firmware image analysis & extraction",
+          "hint": "inspects firmware images, or names package: binwalk",
+          "kind": "panel",
+          "cmd": "~/.local/share/prime-linux/layer/bin/prime-rea binwalk"
+        },
+        {
+          "id": "rea.strace",
+          "label": "strace — kernel system call tracer",
+          "hint": "traces syscalls, or names package: strace",
+          "kind": "panel",
+          "cmd": "~/.local/share/prime-linux/layer/bin/prime-rea strace"
+        },
+        {
+          "id": "rea.ltrace",
+          "label": "ltrace — dynamic library call tracer",
+          "hint": "traces library calls, or names package: ltrace",
+          "kind": "panel",
+          "cmd": "~/.local/share/prime-linux/layer/bin/prime-rea ltrace"
+        },
+        {
+          "id": "rea.wireshark",
+          "label": "Wireshark — network & USB protocol analyser",
+          "hint": "launches Wireshark GUI, or names package: wireshark-qt",
+          "kind": "panel",
+          "cmd": "~/.local/share/prime-linux/layer/bin/prime-rea wireshark"
         }
       ]
     },

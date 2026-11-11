@@ -4,8 +4,12 @@
  * longer accent pill, ones with windows are brighter, empty ones faint.
  * ══════════════════════════════════════════════════════════════ */
 
+@define-color surface_0   #0a0a0e;
+@define-color surface_1   #0c0c10;
+@define-color surface_2   #14141a;
 @define-color bg          rgba(12, 12, 16, 0.70);
 @define-color fg          #ececef;
+@define-color ink_2       #a1a1a6;
 @define-color fg_dim      rgba(236, 236, 239, 0.62);
 @define-color fg_faint    rgba(236, 236, 239, 0.50);
 @define-color hairline    rgba(255, 255, 255, 0.08);
@@ -17,7 +21,7 @@
     border: none;
     border-radius: 0;
     font-family: "Inter", "JetBrainsMono Nerd Font Propo", sans-serif;
-    font-size: 0.5625rem;
+    font-size: 0.6875rem;
     min-height: 0;
     box-shadow: none;
 }
@@ -27,19 +31,25 @@ window#waybar {
     color: @fg;
 }
 
+window#waybar * {
+    transition: background-color 120ms ease-out,
+                color 120ms ease-out,
+                box-shadow 120ms ease-out;
+}
+
 .modules-left {
     background: @bg;
     border: 1px solid @hairline;
     border-radius: 14px;
-    padding: 10px 0;
+    padding: 8px 0;
 }
 
 /* workspaces: dots, the current one an accent pill */
-#workspaces { margin: 0 6px 6px; }
+#workspaces { margin: 0 4px 4px; }
 #workspaces button {
-    padding: 2px 0;
-    margin: 3px 0;
-    border-radius: 8px;
+    padding: 4px 0;
+    margin: 4px 0;
+    border-radius: 6px;
     color: @fg_faint;
     background: transparent;
 }
@@ -47,8 +57,9 @@ window#waybar {
 #workspaces button:hover { background: @highlight; color: @fg; }
 #workspaces button.active {
     color: @accent;
-    background: alpha(@accent, 0.14);
-    padding: 6px 0;
+    background: alpha(@accent, 0.16);
+    border: 1px solid @hairline;
+    padding: 8px 0;
 }
 #workspaces button.urgent { color: @amber; }
 
@@ -59,8 +70,8 @@ window#waybar {
     border-top: 1px solid @hairline;
 }
 #taskbar button {
-    padding: 6px 0;
-    margin: 2px 0;
+    padding: 8px 0;
+    margin: 4px 0;
     border-radius: 10px;
     background: transparent;
 }

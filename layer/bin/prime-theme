@@ -149,17 +149,17 @@ EOF
 @define-color accent_color #$a;
 @define-color accent_bg_color #$a;
 @define-color accent_fg_color #0a0a0e;
-@define-color window_bg_color #16161c;
-@define-color window_fg_color #f4f4f6;
-@define-color view_bg_color #16161c;
-@define-color headerbar_bg_color #16161c;
-@define-color headerbar_backdrop_color #16161c;
-@define-color sidebar_bg_color #1c1c24;
-@define-color sidebar_backdrop_color #1c1c24;
-@define-color secondary_sidebar_bg_color #1c1c24;
-@define-color card_bg_color rgba(255, 255, 255, 0.05);
-@define-color dialog_bg_color #1c1c24;
-@define-color popover_bg_color #22222b;
+@define-color window_bg_color #0c0c10;
+@define-color window_fg_color #ececef;
+@define-color view_bg_color #0c0c10;
+@define-color headerbar_bg_color #0c0c10;
+@define-color headerbar_backdrop_color #0c0c10;
+@define-color sidebar_bg_color #14141a;
+@define-color sidebar_backdrop_color #14141a;
+@define-color secondary_sidebar_bg_color #14141a;
+@define-color card_bg_color rgba(255, 255, 255, 0.08);
+@define-color dialog_bg_color #14141a;
+@define-color popover_bg_color #14141a;
 EOF
   # the dock (prime-dock → nwg-dock-hyprland): the same glass as the bar and menus
   cat > "$OUT/dock.css" <<EOF
@@ -167,24 +167,31 @@ EOF
 window { background: transparent; }
 #box {
     background-color: rgba(20, 20, 26, 0.82);   /* surface-2, same glass as the menus */
-    border: 1px solid rgba(255, 255, 255, 0.10);
+    border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 18px;
-    padding: 6px 8px;
+    padding: 8px;
+    box-shadow: 0 10px 34px rgba(0, 0, 0, 0.34);
 }
-button, image { background: none; border-style: none; box-shadow: none; outline: none; }
+button, image { background: none; border-style: none; box-shadow: none; }
 button {
     padding: 4px;
-    margin: 0 3px;
-    border-radius: 12px;
+    margin: 0 4px;
+    border-radius: 10px;
     color: #ececef;
     font-size: $(size 10)pt;
 }
-button { transition: background-color 120ms ease-out; }
-button:hover { background-color: rgba(255, 255, 255, 0.10); }
+button {
+    transition: background-color 120ms cubic-bezier(.2, .8, .3, 1),
+                box-shadow 120ms cubic-bezier(.2, .8, .3, 1);
+}
+button:hover {
+    background-color: rgba(255, 255, 255, 0.10);
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.28);
+}
 /* keyboard focus must be visible: it used to be switched off here */
-button:focus { box-shadow: 0 0 0 2px rgba($r, $g, $b, 0.85); }
+button:focus { box-shadow: inset 0 0 0 2px rgba($r, $g, $b, 0.85); }
 /* an open app has a small accent bar under it, like the dot on a Mac */
-#active { border-bottom: 3px solid rgba($r, $g, $b, 0.90); border-radius: 12px 12px 4px 4px; }
+#active { border-bottom: 3px solid rgba($r, $g, $b, 0.90); border-radius: 10px 10px 6px 6px; }
 EOF
   cat > "$OUT/swaync.css" <<EOF
 @import url("file://$OUT/colors.css");
@@ -193,8 +200,10 @@ EOF
   [ -f "$HOME/.config/swaync/user.css" ] && echo "@import url(\"file://$HOME/.config/swaync/user.css\");" >> "$OUT/swaync.css"
 
   # the system font: GTK apps, the bar, notifications and Spotlight all size from it
-  { live || [ -z "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]; } && [ -z "${PRIME_NO_GSETTINGS:-}" ] &&
+  { live || [ -z "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]; } && [ -z "${PRIME_NO_GSETTINGS:-}" ] && {
     gsettings set org.gnome.desktop.interface font-name "Inter $(size 10)" 2>/dev/null
+    gsettings set org.gnome.desktop.wm.preferences button-layout 'appmenu:' 2>/dev/null
+  }
   # GTK3 apps (nemo, pavucontrol, tray menus) read this file, not gsettings. It used
   # to say "SF Pro Display 11" — a font nobody has — so they ignored Text size entirely.
   [ -f "$HOME/.config/gtk-3.0/settings.ini" ] && \

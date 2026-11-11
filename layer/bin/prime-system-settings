@@ -1328,9 +1328,33 @@ def gui(page: str = "", screenshots: str = "", selftest: bool = False) -> int:
                fmt=lambda x: f"{x:.0f} a second")
         g3 = group(page, "Shortcuts")
         opener(g3, "Every keyboard shortcut", "Searchable; pick one to run it (Super+/)", ["prime-keys"], "Show")
+        opener(g3, "Coming from Windows or macOS?", "Import bookmarks & files, Ctrl vs Cmd mode, app equivalents", ["prime-switch"], "Open")
+        opener(g3, "Printable shortcut parity sheet", "Export or print the Windows / macOS / Prime Linux reference sheet", ["prime-switch", "--tab=parity"], "Print")
         g4 = group(page, "Typing tools")
         opener(g4, "Emoji", "Super+Ctrl+E", ["prime-emoji"], "Open")
         opener(g4, "Clipboard history", "Everything you copied recently (Super+V)", ["prime-clip-picker"], "Open")
+        gp = group(page, "Keybind parity — Windows · macOS · Prime Linux",
+                   "What you pressed on Windows or a Mac, and what to press here")
+        for act_name, win_k, mac_k, prime_k in (
+            ("Search apps, files & maths", "Win+S / Alt+Space", "⌘+Space", "Super+Space"),
+            ("Start / Application menu", "Win", "Launchpad", "Super+X  (all: Super+A)"),
+            ("System Settings", "Win+I", "⌘+,", "Super+I"),
+            ("Hardware & Performance (Prime Control)", "Ctrl+Shift+Esc", "Activity Monitor", "Super+Ctrl+P"),
+            ("File manager", "Win+E", "⌘+N (Finder)", "Super+E"),
+            ("Terminal", "Win+X → Terminal", "⌘+Space → Terminal", "Super+Return  (or Super+T)"),
+            ("Close active window", "Alt+F4", "⌘+W / ⌘+Q", "Super+Q"),
+            ("Minimise / restore window", "Win+Down", "⌘+M", "Super+-  /  Super+Shift+Backspace"),
+            ("Snap window left / right", "Win+Left / Right", "Globe+Left / Right", "Super+Shift+Left / Right"),
+            ("Screenshot a region", "Win+Shift+S", "⌘+Shift+4", "Super+Shift+S  (or Print)"),
+            ("Record screen / region", "Win+Alt+R", "⌘+Shift+5", "Super+Shift+R"),
+            ("Clipboard history", "Win+V", "—", "Super+V"),
+            ("Emoji picker", "Win+.", "Ctrl+⌘+Space", "Super+Ctrl+E"),
+            ("Lock screen", "Win+L", "Ctrl+⌘+Q", "Super+L"),
+            ("Desktop context menu", "Shift+F10 / Menu", "Right-click", "Menu key  (or Super+Right-click)"),
+            ("Reduce motion (animations & blur)", "Visual Effects", "Reduce Motion", "Super+Alt+R"),
+            ("Screen reader (Orca)", "Win+Ctrl+Enter", "⌘+F5 (VoiceOver)", "Super+Alt+Escape"),
+        ):
+            info(gp, f"{act_name}  →  {prime_k}", f"Windows: {win_k}   ·   macOS: {mac_k}")
         return page
 
     def p_processor(win):

@@ -9,11 +9,19 @@
 #   prime-doctor --daily  the same, once a day while you stay logged in
 #                         (prime-checkup.timer) — and only tells you about
 #                         problems that are NEW since it last told you
+#   prime-doctor --tests  run the read-only desktop E2E suite (structural + contracts)
 #
 # It never edits your own config files and never needs your password. Anything
 # it can't fix comes with a button (or menu item) that does — never a command.
 set -u
 BIN="$(dirname "$(readlink -f "$0")")"
+if [ "${1:-}" = "--tests" ]; then
+    for r in "$BIN/../../tests/e2e/run-all.sh" "$HOME/Projects/prime-linux/tests/e2e/run-all.sh"; do
+        [ -f "$r" ] && exec bash "$r" --fast
+    done
+    echo "prime-doctor: tests/e2e/run-all.sh not found" >&2
+    exit 1
+fi
 QUIET=0; DAILY=0
 case "${1:-}" in --login) QUIET=1 ;; --daily) QUIET=1; DAILY=1 ;; esac
 # opened from the menu, a key or the app list: show the report in a Prime window

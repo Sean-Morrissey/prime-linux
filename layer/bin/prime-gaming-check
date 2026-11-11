@@ -1,0 +1,184 @@
+#!/usr/bin/env bash
+# prime:summary=check Steam, Proton, MangoHud, GameMode and per-game launch options
+# prime-gaming-check — read-only audit of the Steam/Proton gaming stack.
+#
+# Reports, without changing anything:
+#   1. GE-Proton / system Proton versions
+#   2. mangohud / gamemode / gamescope / vkbasalt presence + version
+#   3. per-game config (CompatToolMapping + LaunchOptions) for installed games
+#   4. the 3 most likely causes of the most recent Proton launch failure
+#
+# Always exits 0.
+
+shopt -s nullglob
+set +e
+TMP_MAP="$(mktemp "${TMPDIR:-/tmp}/pgc_map.XXXXXX" 2>/dev/null || echo "/tmp/pgc_map.$$")"
+trap 'rm -f "$TMP_MAP"; exit 0' EXIT
+
+# ------------------------------------------------------------------ helpers
+div() { printf '\n%s\n  %s\n' "$(printf '─%.0s' {1..72})" "$1"; }
+say() { printf '  %s\n' "$*"; }
+ver() { command -v "$1" >/dev/null 2>&1 && "$1" "$2" 2>&1 | head -1 || echo "MISSING"; }
+acf_get() { # $1=acf  $2=key
+    sed -nE "s/^[[:space:]]*\"$2\"[[:space:]]*\"([^\"]*)\".*/\1/p" "$1" 2>/dev/null | head -1
+}
+
+# ------------------------------------------------------------------ locate Steam
+STEAMROOT="${STEAMROOT:-$HOME/.local/share/Steam}"
+[ -d "$STEAMROOT" ] || STEAMROOT="$HOME/.steam/steam"
+STEAMAPPS="$STEAMROOT/steamapps"
+COMPATDIR="$STEAMROOT/compatibilitytools.d"
+UDID=$(ls -1 "$HOME/.steam/steam/userdata" 2>/dev/null | head -1)
+LCONF="$HOME/.steam/steam/userdata/${UDID:-0}/config/localconfig.vdf"
+
+echo "prime-gaming-check  |  $(date '+%F %T')"
+echo "steam root: $STEAMROOT"
+echo "userdata id: ${UDID:-<none>}"
+
+# ------------------------------------------------------------ 1. proton tools
+div "PROTON / COMPATIBILITY TOOLS"
+if [ -d "$COMPATDIR" ]; then
+  for d in "$COMPATDIR"/*/; do
+    [ -d "$d" ] || continue
+    v=$(cat "$d/version" 2>/dev/null)
+    say "GE/custom: $(basename "$d")  ->  ${v:-<no version file>}"
+  done
+fi
+for sp in /usr/share/steam/compatibilitytools.d/*/; do
+  [ -d "$sp" ] || continue
+  v=$(cat "$sp/version" 2>/dev/null)
+  say "system:    $(basename "$sp")  ->  ${v:-<no version file>}"
+done
+for m in "$STEAMAPPS"/appmanifest_*.acf; do
+  [ -f "$m" ] || continue
+  n=$(acf_get "$m" name)
+  case "$n" in
+    Proton*|"Steam Linux Runtime"*|"Steamworks"*|"Proton EasyAntiCheat"*) say "valve:     $(acf_get "$m" appid)  $n" ;;
+  esac
+done
+
+# ------------------------------------------------- 2. overlay / perf tools
+div "OVERLAY / PERF TOOLS"
+say "mangohud   $(ver mangohud --version)"
+say "gamemode   $(ver gamemoded --version)"
+say "gamescope  $(ver gamescope --version)"
+command -v vkbasalt >/dev/null 2>&1 && say "vkbasalt   $(ver vkbasalt --version)" || say "vkbasalt   MISSING (AUR: vkbasalt; repo: vkbasalt-cli)"
+
+# -------------------------------------------------------- 3. per-game config
+div "GAMES & PER-GAME CONFIG"
+
+# parse localconfig.vdf -> compat[appid]=tool, launch[appid]=options
+awk '
+function countc(s,c,  i,n){ n=0; for(i=1;i<=length(s);i++) if(substr(s,i,1)==c) n++; return n }
+{
+  line=$0
+  opens=countc(line,"{"); closes=countc(line,"}"); depth += opens - closes
+  if (line ~ /^[[:space:]]*"[0-9]+"[[:space:]]*$/) { a=line; gsub(/[^0-9]/,"",a); lastnum=a }
+  if (line ~ /"CompatToolMapping"/) { inmap=1; mapstart=depth; next }
+  if (inmap) {
+    if (line ~ /^[[:space:]]*"[0-9]+"[[:space:]]*$/) { mapcur=lastnum }
+    if (line ~ /"name"/ && mapcur!="") { v=line; sub(/^.*"name"[[:space:]]*"/,"",v); sub(/".*/,"",v); compat[mapcur]=v }
+    if (depth <= mapstart) { inmap=0; mapcur="" }
+    next
+  }
+  if (line ~ /"LaunchOptions"/) { v=line; sub(/^.*"LaunchOptions"[[:space:]]*"/,"",v); sub(/".*/,"",v); launch[lastnum]=v }
+}
+END {
+  for (k in compat) printf "COMPAT\t%s\t%s\n", k, compat[k]
+  for (k in launch) printf "LAUNCH\t%s\t%s\n", k, launch[k]
+}
+' "$LCONF" 2>/dev/null > "$TMP_MAP"
+mapfile -t MAP < "$TMP_MAP" 2>/dev/null
+rm -f "$TMP_MAP"
+
+compat_of() { for e in "${MAP[@]}"; do [ "${e%%$'\t'*}" = "COMPAT" ] && [ "$(printf '%s' "$e" | cut -f2)" = "$1" ] && printf '%s' "$e" | cut -f3; done; }
+launch_of() { for e in "${MAP[@]}"; do [ "${e%%$'\t'*}" = "LAUNCH" ] && [ "$(printf '%s' "$e" | cut -f2)" = "$1" ] && printf '%s' "$e" | cut -f3; done; }
+
+# known tool appids to skip in the "games" list
+TOOL_IDS="1070560 1391110 1628350 1826330 218010 228980 2805730 4183110 1493710"
+for m in "$STEAMAPPS"/appmanifest_*.acf; do
+  [ -f "$m" ] || continue
+  aid=$(acf_get "$m" appid); nm=$(acf_get "$m" name)
+  case " $TOOL_IDS " in *" $aid "*) continue ;; esac
+  say "GAME $aid  $nm"
+  say "   proton : $(compat_of "$aid")"
+  say "   launch : $(launch_of "$aid")"
+done
+say "-- configured but not installed --"
+for e in "${MAP[@]}"; do
+  [ "${e%%$'\t'*}" = "COMPAT" ] || continue
+  aid=$(printf '%s' "$e" | cut -f2)
+  [ -f "$STEAMAPPS/appmanifest_${aid}.acf" ] && continue
+  say "$aid  proton=$(printf '%s' "$e" | cut -f3)  launch=$(launch_of "$aid")"
+done
+
+# ------------------------------------------------------ 4. proton log analysis
+div "LAST PROTON LOG ANALYSIS"
+LOG=$(ls -1t "$HOME"/steam-*.log 2>/dev/null | head -1)
+if [ -z "$LOG" ]; then
+  say "no ~/steam-*.log found"
+else
+  say "log: $LOG ($(du -h "$LOG" 2>/dev/null | cut -f1))"
+
+  declare -A SIG
+  SIG["steam_api_fail"]='Client API initialized 0'
+  SIG["steamclient_fail"]='SteamClient0'
+  SIG["vulkan_fail"]='vulkan.*(error|failed|unable)|VK_ERROR'
+  SIG["load_fail"]='failed to load'
+  SIG["anticheat"]='EasyAntiCheat'
+
+  declare -A REASON
+  REASON["steam_api_fail"]="Steam API initialized with appid 0 (launcher/Steamworks integration broken)"
+  REASON["steamclient_fail"]="Steam client library failed to init (SteamClient0)"
+  REASON["vulkan_fail"]="Vulkan/GPU driver failure (RADV/vkd3d)"
+  REASON["load_fail"]="Missing DLL/asset (failed to load)"
+  REASON["anticheat"]="Anti-cheat refusal (EasyAntiCheat)"
+
+  declare -A CNT
+  for k in "${!SIG[@]}"; do
+    CNT[$k]=$(grep -icE "${SIG[$k]}" "$LOG" 2>/dev/null)
+  done
+
+  # rank: sort keys by count desc
+  ranked=$(for k in "${!CNT[@]}"; do printf '%s\t%s\n' "${CNT[$k]}" "$k"; done | sort -rn)
+  echo
+  say "signature counts (case-insensitive):"
+  for k in "${!SIG[@]}"; do printf '%s\t%s\n' "${CNT[$k]}" "$k"; done | sort -rn \
+    | while IFS=$'\t' read -r c k; do printf '  %-18s %s\n' "$k" "$c"; done
+
+  echo
+  say "3 most likely causes:"
+  i=0
+  while IFS=$'\t' read -r c k; do
+    [ -n "$k" ] || continue
+    [ "$c" -gt 0 ] 2>/dev/null || continue
+    i=$((i+1)); [ "$i" -gt 3 ] && break
+    say "  $i. [${c}x] ${REASON[$k]}"
+    sample=$(grep -iE "${SIG[$k]}" "$LOG" 2>/dev/null | grep -vE 'trace:|fixme:' | head -1 | cut -c1-140)
+    say "     e.g. ${sample:-<matches are only trace/fixme lines>}"
+  done <<< "$ranked"
+  [ "$i" -eq 0 ] && say "  no error signatures matched (log may be a clean/trace run)"
+fi
+
+# ---------------------------------------------- 5. game-specific UE5 log check
+DCLOG="$STEAMAPPS/compatdata/2016590/pfx/drive_c/users/steamuser/AppData/Local/DungeonCrawler/Saved/Logs/DungeonCrawler.log"
+if [ -f "$DCLOG" ]; then
+  div "DARK AND DARKER (2016590) — UE5 GAME LOG"
+  say "log: $DCLOG"
+  for f in "$STEAMAPPS/common/Dark and Darker/steam_appid.txt" \
+           "$STEAMAPPS/common/Dark and Darker/DungeonCrawler/Binaries/Win64/steam_appid.txt"; do
+    if [ -f "$f" ]; then
+      say "steam_appid.txt: $(tr -d '[:space:]' < "$f") ($f)"
+    else
+      say "steam_appid.txt: MISSING ($f)"
+    fi
+  done
+  api_line=$(grep -E 'STEAM: \[AppId: [0-9]+\] Client API initialized [01]' "$DCLOG" 2>/dev/null | tail -1 | tr -d '\r')
+  map_line=$(grep -E 'LoadMap: /Game/DungeonCrawler/Maps/' "$DCLOG" 2>/dev/null | tail -1 | tr -d '\r')
+  [ -n "$api_line" ] && say "steam api : $api_line"
+  [ -n "$map_line" ] && say "last map  : $map_line"
+fi
+
+echo
+echo "exit 0 (read-only)"
+exit 0

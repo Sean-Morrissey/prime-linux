@@ -432,6 +432,10 @@ else
     if section_has "$SECTION" list; then
         SHOW_ICONS=1
         RESOLVE_LATER=1
+        if [ "${PRIME_MENU_DEBUG_ICONS:-0}" != 1 ] && [ "${#LABELS[@]}" -gt 1 ]; then
+            LABELS+=("<span alpha=\"22%\">────────────────────────────────────────────────────────</span>")
+            IDS+=("__sep__"); ICONS+=(""); COMMENTS+=("sep")
+        fi
         while IFS=$'\t' read -r id label icon comment; do
             if [ -n "$comment" ]; then LABELS+=("$(esc "$label")$(dim "$comment")")
             else                      LABELS+=("$(esc "$label")"); fi
@@ -477,7 +481,9 @@ ROWS_FILE="$RUNTIME/prime-menu-rows"
 : > "$ROWS_FILE"
 for i in "${!LABELS[@]}"; do
     printf '%s' "${LABELS[$i]}" >> "$ROWS_FILE"
-    if [ "$SHOW_ICONS" = 1 ] && [ -n "${ICONS[$i]:-}" ]; then
+    if [ "${IDS[$i]:-}" = "__sep__" ]; then
+        printf '\0nonselectable\x1ftrue' >> "$ROWS_FILE"
+    elif [ "$SHOW_ICONS" = 1 ] && [ -n "${ICONS[$i]:-}" ]; then
         printf '\0icon\x1f%s' "${ICONS[$i]}" >> "$ROWS_FILE"
     fi
     printf '\n' >> "$ROWS_FILE"
@@ -498,12 +504,11 @@ if [ "$SHOW_ICONS" = 1 ]; then
     ICON_THEME="$(gsettings get org.gnome.desktop.interface icon-theme 2>/dev/null | tr -d "'")"
     ICON_FLAGS=(-show-icons -icon-theme "${ICON_THEME:-Papirus-Dark}")
     SHOW_ICONS=1
-    # the app list is the one page with icons + a second line of text, so it gets a
-    # wider panel and taller rows than the right-click menus (same theme otherwise)
+    # Keep the same 560px width and @bg surface as the root menu so switching
+    # levels never causes a visible width jump or background shade shift.
     LAYOUT_STR=("${SEARCH_STR[@]}"
-                -theme-str 'window { width: 780px; background-color: rgba(10,10,14,1.0); }'
                 -theme-str 'listview { lines: 11; }'
-                -theme-str 'element-icon { size: 28px; }')
+                -theme-str 'element-icon { size: 24px; }')
 fi
 
 # -click-to-exit: clicking anywhere outside closes it (Windows-like).

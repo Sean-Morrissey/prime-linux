@@ -97,7 +97,7 @@ def theme_accent() -> str:
                     return "#" + v.lower()
     except OSError:
         pass
-    return "#60a5fa"
+    return "#34d399"
 
 
 XDG_DATA_DIRS = os.environ.get("XDG_DATA_DIRS", "/usr/local/share:/usr/share").split(":")
@@ -117,39 +117,39 @@ SECTION = {"do": "Do it", "app": "Applications", "setting": "Settings", "path": 
 CSS = """
 window, .background { background: transparent; }
 #card {
-    background-color: rgba(22, 22, 28, 0.96);
-    border: 1px solid rgba(255, 255, 255, 0.10);
+    background-color: rgba(20, 20, 26, 0.96);
+    border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 18px;
     box-shadow: inset 0 1px rgba(255, 255, 255, 0.06);
     font-family: "Inter", "Noto Sans", sans-serif;
 }
 #searchbar { padding: 16px 20px 14px 22px; }
-#searchicon { color: rgba(255, 255, 255, 0.55); }
+#searchicon { color: #a1a1a6; }
 #search, #search:focus {
     background: transparent; border: none; box-shadow: none; outline: none;
-    font-size: 1.65rem; font-weight: 400; color: #f4f4f6;
+    font-size: 1.65rem; font-weight: 400; color: #ececef;
     caret-color: @ACCENT@; padding: 2px 0; min-height: 34px;
 }
 /* selected text: a clear system blue, never the (often grey) accent — a grey accent
    turned a selection into a flat grey block you could not read through */
 #search selection, #search selection:focus { background-color: rgba(10, 132, 255, 0.55); color: #ffffff; }
-#divider { background-color: rgba(255, 255, 255, 0.07); min-height: 1px; }
+#divider { background-color: rgba(255, 255, 255, 0.08); min-height: 1px; }
 #results { padding: 6px 0 8px 0; }
 list, list row { background: transparent; }
 .section {
-    font-size: 0.72rem; font-weight: 700; color: rgba(255, 255, 255, 0.40);
+    font-size: 0.72rem; font-weight: 700; color: #a1a1a6;
     padding: 12px 22px 4px 22px; letter-spacing: 0.09em;
 }
 row.hit {
-    margin: 1px 10px; padding: 7px 12px; border-radius: 12px;
+    margin: 1px 8px; padding: 8px 12px; border-radius: 10px;
     border: 1px solid transparent; outline: none;
 }
-row.hit:hover { background-color: rgba(255, 255, 255, 0.05); }
+row.hit:hover { background-color: rgba(255, 255, 255, 0.06); }
 row.hit:selected, row.hit:selected:hover {
     background-color: alpha(@ACCENT@, 0.22);
 }
-.title { font-size: 1.02rem; font-weight: 500; color: #f4f4f6; }
-.subtitle { font-size: 0.85rem; color: rgba(255, 255, 255, 0.46); }
+.title { font-size: 1.02rem; font-weight: 500; color: #ececef; }
+.subtitle { font-size: 0.85rem; color: #a1a1a6; }
 row.top .title { font-size: 1.1rem; font-weight: 600; }
 .answer { font-family: "JetBrainsMono Nerd Font", monospace; font-size: 1.65rem;
           font-weight: 600; color: @ACCENT@; }

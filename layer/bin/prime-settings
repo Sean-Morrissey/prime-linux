@@ -441,7 +441,17 @@ def render_block(state):
     if "rounding" in s:
         out += ["decoration {", f"    rounding = {int(s['rounding'])}", "}"]
     if "animations" in s:
-        out += ["animations {", f"    enabled = {'true' if s['animations'] == 'on' else 'false'}", "}"]
+        on_str = "true" if s["animations"] == "on" else "false"
+        out += [
+            "animations {",
+            f"    enabled = {on_str}",
+            "}",
+            "decoration {",
+            "    blur {",
+            f"        enabled = {on_str}",
+            "    }",
+            "}",
+        ]
     if s.get("night_light", "off") != "off":
         out.append(f"exec-once = hyprsunset -t {int(s['night_light'])}")
     for sc in state["shortcuts"]:

@@ -829,6 +829,67 @@ def gui(page: str = "", screenshots: str = "", selftest: bool = False) -> int:
         g.add(r)
         return r
 
+    def switch_row(win, g, title, subtitle, current, on_change, key=None):
+        """A switch row that can also carry a key button, so one service is one
+        row: what it is, where it stands, its key, and whether it's on."""
+        if key is None:
+            return switch(win, g, title, subtitle, current, on_change)
+        on_save, have = key
+        r = Adw.ActionRow(title=GLib.markup_escape_text(title),
+                          subtitle=GLib.markup_escape_text(subtitle))
+        b = Gtk.Button(label="Change key" if have else "Add key", valign=Gtk.Align.CENTER)
+        b.update_property([Gtk.AccessibleProperty.LABEL], [f"{'Change' if have else 'Add'} the key for {title}"])
+        b.connect("clicked", lambda *_a: key_dialog(win, title, have, on_save))
+        r.add_suffix(b)
+        sw = Gtk.Switch(valign=Gtk.Align.CENTER, active=bool(current))
+        sw.update_property([Gtk.AccessibleProperty.LABEL], [f"Use {title}"])
+
+        def changed(s, _p):
+            ok_, msg = on_change(s.get_active())
+            if msg:
+                win.toast(msg)
+            if not ok_:
+                s.handler_block(hid)
+                s.set_active(not s.get_active())
+                s.handler_unblock(hid)
+        hid = sw.connect("notify::active", changed)
+        r.add_suffix(sw)
+        r.set_activatable_widget(sw)
+        g.add(r)
+        return r
+
+    def key_dialog(win, title, have, on_save):
+        """Type a key. It is never shown again, and goes to the saver on stdin —
+        so it stays out of the window title, the command line, and anything that
+        reads either."""
+        d = Adw.AlertDialog(heading=f"Key for {title}",
+                            body="Paste the key here. Only you can read it afterwards, and it is "
+                                 "never shown again or written into any settings file.")
+        entry = Adw.PasswordEntryRow(title="Key")
+        entry.update_property([Gtk.AccessibleProperty.LABEL], [f"Key for {title}"])
+        lst = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
+        lst.add_css_class("boxed-list")
+        lst.append(entry)
+        d.set_extra_child(lst)
+        d.add_response("cancel", "Cancel")
+        if have:
+            d.add_response("forget", "Forget it")
+            d.set_response_appearance("forget", Adw.ResponseAppearance.DESTRUCTIVE)
+        d.add_response("save", "Save")
+        d.set_response_appearance("save", Adw.ResponseAppearance.SUGGESTED)
+        d.set_default_response("save")
+        d.set_close_response("cancel")
+
+        def answered(_d, resp):
+            if resp == "cancel":
+                return
+            worked, msg = on_save("" if resp == "forget" else entry.get_text().strip())
+            win.toast(msg)
+            if worked:
+                win.refresh()       # the row now says "ready" instead of "needs a key"
+        d.connect("response", answered)
+        d.present(win)
+
     def choice(win, g, title, subtitle, options, current, on_change):
         r = Adw.ComboRow(title=GLib.markup_escape_text(title), subtitle=GLib.markup_escape_text(subtitle))
         r.set_model(Gtk.StringList.new([lab for lab, _ in options]))
@@ -1455,6 +1516,30 @@ def gui(page: str = "", screenshots: str = "", selftest: bool = False) -> int:
         info(g, "Model", mm.group(1) if mm and mm.group(1) else "not connected yet")
         opener(g, "Change the model", "On this computer, on your network, or a service",
                [os.path.join(LAYER, "addons/ai/bin/prime-ai-setup")], "Change")
+        # Everyone else you can ask. Prime itself stays above: it is the only one
+        # with the toolbox that can change this computer. These get the question
+        # and the picture, nothing else.
+        ask_ai = os.path.join(LAYER, "addons/ai/bin/ask-ai")
+        rows = [l.split("\t") for l in sh("python3", ask_ai, "--status").splitlines() if l.count("\t") == 5]
+        if rows:
+            gp = group(page, "Who else you can ask",
+                       "A second opinion, from Spotlight, the Ask button and right-click menus. "
+                       "None of them can change anything on this computer.")
+            for name, label, onoff, state, detail, key in rows:
+                def flip(v, name=name, label=label):
+                    worked = ok("python3", ask_ai, "--enable" if v else "--disable", name)
+                    return done(worked, f"{label} is {'on' if v else 'off'}")
+
+                def save(k, name=name, label=label):
+                    worked, msg = act("python3", ask_ai, "--set-key", name, stdin=k)
+                    if not worked:
+                        return False, msg or f"Couldn't save the key for {label}"
+                    return True, f"Saved the key for {label}" if k else f"Forgot the key for {label}"
+                # one row each: what it is, where it stands, its key, its switch
+                switch_row(win, gp, label, f"{state} — {detail}" if detail else state,
+                           onoff == "on", flip,
+                           key=(save, key == "set") if key != "no" else None)
+
         g2 = group(page, "What Prime may do on its own")
         cur = sh("prime-settings", "autonomy").split(" ")[0] if has("prime-settings") else ""
         choice(win, g2, "Permission", "Destructive changes and passwords always ask, whatever this says",

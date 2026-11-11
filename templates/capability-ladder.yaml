@@ -21,9 +21,15 @@
 #     write (a screenshot, a file, app or file names) always asks first
 #
 # autonomy: suggest  (default)  -> every capability at or below suggest
-# autonomy: auto-user           -> user-space (settings.user, files.write, apps.install,
-#                                    network.outbound) at auto, system.* at approve-each
+# autonomy: auto-user           -> user-space at auto; the update/rollback cycle is
+#                                  automatic too (safe-moment + broken-boot recovery)
 # autonomy: auto-all            -> everything at auto except the pinned groups
+#
+# NOTE: this file is the *AI assistant's* policy. The deterministic update
+# supervisor (prime-autoupdate, shipped with PRIME_AUTONOMY=auto-user) is governed
+# by docs/UPDATES.md, not by this YAML. The system.update / system.rollback entries
+# below are written to match what the shipped supervisor actually does, so the two
+# do not contradict each other.
 
 version: 1
 autonomy: suggest
@@ -59,11 +65,13 @@ capabilities:
     level: approve-each
     note: installs packages with pacman (packs that bring apps) — asks for the password
   system.update:
-    level: approve-each
-    note: run an update now, or change the nightly update policy (snapshot first)
+    level: auto
+    note: atomic image upgrade; previous deployment stays bootable. The supervisor
+          installs and restarts only at a safe moment (docs/UPDATES.md).
   system.rollback:
-    level: approve-each
-    note: roll the system back to a snapshot — the undo path for updates
+    level: auto
+    note: boot into the previous deployment — the undo path. Automatic after a
+          broken boot, at every autonomy level (recovery, not destruction).
 
   # --- pinned: these never rise, at any autonomy level
   destructive.*:
